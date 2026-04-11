@@ -27,7 +27,7 @@ import { Frontmatter } from "../frontmatter";
 import { buildTree, type TreeNode } from "./FolderTree";
 import { ConfirmDeleteModal } from "./ConfirmDeleteModal";
 
-const DIE_OPTIONS = [
+export const DIE_OPTIONS = [
   { label: "— no die —", value: 0 },
   { label: "d4", value: 4 },
   { label: "d6", value: 6 },
@@ -320,13 +320,13 @@ export class RandomTableView extends ItemView {
                   f.parent?.path === srcFolder && !f.basename.startsWith("_"),
               )
               .sort((a, b) => a.basename.localeCompare(b.basename));
-            const rollerLink = this.plugin.buildRollerLink(newPath);
+            const rollerLink = this.plugin.buildRollerLink();
             const entryRows = folderFiles
               .map((f) => `| [[${f.basename}]] | 1 |`)
               .join("\n");
             content = `---\ndice: ${this.plugin.settings.defaultTableDice}\nlinkedFolder: "[[${srcFolder}]]"\n---\n\n${rollerLink}\n\n| Result | Weight |\n|--------|--------|\n${entryRows || "|  | 1 |"}\n`;
           } else {
-            const rollerLink = this.plugin.buildRollerLink(newPath);
+            const rollerLink = this.plugin.buildRollerLink();
             content = makeTableTemplate(
               this.plugin.settings.defaultTableDice,
               undefined,

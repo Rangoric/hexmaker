@@ -38,6 +38,7 @@ export function parseRandomTable(content: string): RandomTable {
     : "";
   const descriptionRaw = preambleText
     .replace(/\[.*?\]\(obsidian:\/\/duckmage-roll[^)]*\)/g, "")
+    .replace(/```duckmage-roller[\s\S]*?```/g, "")
     .trim();
   const description = descriptionRaw || undefined;
 

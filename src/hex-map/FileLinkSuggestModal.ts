@@ -7,13 +7,15 @@ export class FileLinkSuggestModal extends SuggestModal<TFile> {
 		app: App,
 		private plugin: HexmakerPlugin,
 		private onChoose: (file: TFile) => void,
+		private folderOverride?: string,
 	) {
 		super(app);
 		this.setPlaceholder("Search for a file to link...");
 	}
 
 	getSuggestions(query: string): TFile[] {
-		const rootFolder = normalizeFolder(this.plugin.settings.worldFolder?.trim() ?? "");
+		const rootFolder = this.folderOverride
+			?? normalizeFolder(this.plugin.settings.worldFolder?.trim() ?? "");
 		let files: TFile[];
 		if (rootFolder) {
 			files = this.app.vault.getFiles().filter(
@@ -23,7 +25,7 @@ export class FileLinkSuggestModal extends SuggestModal<TFile> {
 			files = this.app.vault.getFiles();
 		}
 		return files
-			.filter(f => f.basename.toLowerCase().contains(query.toLowerCase()))
+			.filter(f => !f.basename.startsWith("_") && f.basename.toLowerCase().contains(query.toLowerCase()))
 			.sort((a, b) => a.basename.localeCompare(b.basename));
 	}
 

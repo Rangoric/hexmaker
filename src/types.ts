@@ -20,6 +20,9 @@ export interface RegionData {
 	gridSize: { cols: number; rows: number };
 	gridOffset: { x: number; y: number };
 	pathChains: PathChain[];
+	showCoords?: boolean;        // undefined = true (backwards-compatible)
+	showTerrainIcons?: boolean;  // undefined = true
+	showIconOverrides?: boolean; // undefined = true
 }
 
 export interface TerrainPalette {
@@ -61,6 +64,7 @@ export interface HexmakerPluginSettings {
 	encounterTableExcludedFolders: string[];
 	defaultRegion: string;
 	workflowsFolder: string;
+	hiddenIcons: string[];
 }
 
 export const LINK_SECTIONS = ["Towns", "Dungeons", "Features", "Quests", "Factions", "Encounters Table"] as const;

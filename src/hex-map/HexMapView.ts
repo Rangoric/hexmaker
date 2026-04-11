@@ -30,6 +30,7 @@ import {
 import { GotoHexModal } from "./GotoHexModal";
 import { HexHelpModal } from "./HexHelpModal";
 import { FolderTreePickerModal } from "./FolderTreePickerModal";
+import { DrawingToolPanel, OverlayPanel } from "./HexSidePanel";
 
 type TerrainUndoEntry = {
   x: number;
@@ -75,6 +76,8 @@ export class HexMapView extends ItemView {
   private factionLinkBtnLabel: HTMLSpanElement | null = null;
   private paintFactionPath: string | null = null;
   private swapBtn: HTMLButtonElement | null = null;
+  private deselToolBtn: HTMLButtonElement | null = null;
+  private overlayPanel: OverlayPanel | null = null;
   private swapSource: { x: number; y: number } | null = null;
   private swapDest: { x: number; y: number } | null = null;
   // The last-clicked hex key and the specific chain being extended
@@ -180,11 +183,26 @@ export class HexMapView extends ItemView {
       panStartY = 0;
     let isTerrainPainting = false;
     let lastPaintedKey: string | null = null;
+    let isRightDragging = false;
+    let rightDragMoved = false;
 
     this.registerDomEvent(contentEl, "mousedown", (e: MouseEvent) => {
       // Middle click: always pan
       if (e.button === 1) {
         e.preventDefault(); // suppress auto-scroll cursor
+        isDragging = true;
+        hasDragged = false;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        panStartX = this.panX;
+        panStartY = this.panY;
+        this.viewportEl?.addClass("is-dragging");
+        return;
+      }
+      // Right click with no active tool: pan (contextmenu suppressed if drag occurs)
+      if (e.button === 2 && this.drawingMode === null) {
+        isRightDragging = true;
+        rightDragMoved = false;
         isDragging = true;
         hasDragged = false;
         dragStartX = e.clientX;
@@ -267,8 +285,10 @@ export class HexMapView extends ItemView {
       if (!isDragging) return;
       const dx = e.clientX - dragStartX;
       const dy = e.clientY - dragStartY;
-      if (!hasDragged && (Math.abs(dx) > 4 || Math.abs(dy) > 4))
+      if (!hasDragged && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
         hasDragged = true;
+        if (isRightDragging) rightDragMoved = true;
+      }
       if (hasDragged) {
         this.panX = panStartX + dx;
         this.panY = panStartY + dy;
@@ -282,6 +302,7 @@ export class HexMapView extends ItemView {
       isTerrainPainting = false;
       lastPaintedKey = null;
       isDragging = false;
+      isRightDragging = false;
       this.viewportEl?.removeClass("is-dragging");
     });
 
@@ -305,6 +326,12 @@ export class HexMapView extends ItemView {
       contentEl,
       "contextmenu",
       (e: MouseEvent) => {
+        if (rightDragMoved) {
+          e.preventDefault();
+          e.stopPropagation();
+          rightDragMoved = false;
+          return;
+        }
         if (this.drawingMode === null) return;
         const onHex = (e.target as HTMLElement).closest(".duckmage-hex");
         if (onHex && this.drawingMode === "path") return;
@@ -446,20 +473,18 @@ export class HexMapView extends ItemView {
     });
     helpBtn.addEventListener("click", () => new HexHelpModal(this.app).open());
 
-    // Toggle button — always visible, collapses/restores only the drawing tools
-    const toggleBtn = controlsEl.createEl("button", {
-      cls: "duckmage-toolbar-toggle-btn",
-      title: "Hide tools",
-    });
-    toggleBtn.setText("≡");
-    toggleBtn.addEventListener("click", () => {
-      const collapsed = controlsEl.hasClass("duckmage-toolbar-collapsed");
-      controlsEl.toggleClass("duckmage-toolbar-collapsed", !collapsed);
-      toggleBtn.title = collapsed ? "Hide tools" : "Show tools";
-    });
-
-    // Drawing toolbar column — right side, collapses when toggled
-    this.createDrawingToolbar(controlsEl);
+    // Side panels — drawing tools (pencil) + overlays (layers), mutually exclusive
+    const toolsPanel = new DrawingToolPanel(controlsEl, (panel) =>
+      this.buildDrawingToolbarContent(panel),
+    );
+    this.overlayPanel = new OverlayPanel(
+      controlsEl,
+      this.plugin,
+      () => this.viewportEl,
+      () => this.getActiveRegion(),
+    );
+    toolsPanel.onBeforeOpen = () => this.overlayPanel?.close();
+    this.overlayPanel.onBeforeOpen = () => toolsPanel.close();
 
     // Saving indicator — appears while background writes are in flight
     this.savingIndicatorEl = controlsEl.createEl("span", {
@@ -551,8 +576,26 @@ export class HexMapView extends ItemView {
     }
   }
 
-  private createDrawingToolbar(container: HTMLElement): void {
-    const toolbar = container.createDiv({ cls: "duckmage-draw-toolbar" });
+  private buildDrawingToolbarContent(toolbar: HTMLElement): void {
+    // "Deselect tool" button — visible only when a tool is active
+    this.deselToolBtn = toolbar.createEl("button", {
+      cls: "duckmage-desel-tool-btn",
+      text: "↩ map mode",
+    });
+    this.deselToolBtn.hide();
+    this.deselToolBtn.addEventListener("click", () => {
+      if (this.drawingMode === "terrain") this.exitTerrainMode();
+      else if (this.drawingMode === "icon") this.exitIconMode();
+      else if (this.drawingMode === "tableLink") this.exitTableLinkMode();
+      else if (this.drawingMode === "factionLink") this.exitFactionLinkMode();
+      else if (this.drawingMode === "swap") this.exitSwapMode();
+      else if (this.drawingMode === "path") {
+        this.exitPathMode();
+        this.drawingMode = null;
+        this.updateToolbarButtonStates();
+        this.updatePathOverlay();
+      }
+    });
 
     const centerHexBtn = toolbar.createEl("button", {
       cls: "duckmage-draw-btn duckmage-center-hex-btn",
@@ -622,6 +665,8 @@ export class HexMapView extends ItemView {
   }
 
   private handleTerrainButton(): void {
+    if (this.drawingMode === "terrain") { this.exitTerrainMode(); return; }
+
     // Show crosshair on the viewport while the picker is open
     this.viewportEl?.addClass("duckmage-terrain-picking");
 
@@ -668,6 +713,7 @@ export class HexMapView extends ItemView {
   }
 
   private handleIconButton(): void {
+    if (this.drawingMode === "icon") { this.exitIconMode(); return; }
     new IconPickerModal(this.app, this.plugin, (iconName: string | null) => {
       this.drawingMode = "icon";
       this.paintIconName = iconName;
@@ -685,6 +731,7 @@ export class HexMapView extends ItemView {
   }
 
   private handleTableLinkButton(): void {
+    if (this.drawingMode === "tableLink") { this.exitTableLinkMode(); return; }
     new FolderTreePickerModal(
       this.app,
       this.plugin,
@@ -713,6 +760,7 @@ export class HexMapView extends ItemView {
   }
 
   private handleFactionLinkButton(): void {
+    if (this.drawingMode === "factionLink") { this.exitFactionLinkMode(); return; }
     new FolderTreePickerModal(
       this.app,
       this.plugin,
@@ -926,6 +974,8 @@ export class HexMapView extends ItemView {
   }
 
   private updateToolbarButtonStates(): void {
+    if (this.drawingMode !== null) this.deselToolBtn?.show();
+    else this.deselToolBtn?.hide();
     this.pathToolbarBtn?.toggleClass("is-active", this.drawingMode === "path");
     // Update path button swatch color to show active type
     if (this.pathBtnSwatch) {
@@ -1112,6 +1162,10 @@ export class HexMapView extends ItemView {
     );
 
     const region = this.getActiveRegion();
+
+    // Sync overlay checkboxes and CSS classes to the active region's saved state
+    this.overlayPanel?.syncToRegion();
+
     const { cols, rows } = region.gridSize;
     const { x: ox, y: oy } = region.gridOffset;
     const hexBase = normalizeFolder(this.plugin.settings.hexFolder);
@@ -1147,19 +1201,36 @@ export class HexMapView extends ItemView {
       const iconOverride = iconOverrides?.has(path)
         ? iconOverrides.get(path)!
         : getIconOverrideFromFile(this.app, path);
-      const iconToShow = iconOverride ?? terrainEntry?.icon;
-      if (iconToShow) {
-        const iconColor = iconOverride ? undefined : terrainEntry?.iconColor;
+      if (iconOverride) {
+        // Render terrain icon as hidden fallback — shown by CSS when overrides are off
+        if (terrainEntry?.icon) {
+          createIconEl(
+            hexEl,
+            getIconUrl(this.plugin, terrainEntry.icon),
+            terrainEntry.name,
+            terrainEntry.iconColor,
+            "duckmage-hex-terrain-icon",
+          );
+        }
+        // Render the override icon (primary, visible by default)
         createIconEl(
           hexEl,
-          getIconUrl(this.plugin, iconToShow),
+          getIconUrl(this.plugin, iconOverride),
           terrainEntry?.name ?? "",
-          iconColor,
+          undefined,
+          "duckmage-hex-icon duckmage-hex-override-icon",
+        );
+        // Tag the hex so the SVG overlay can elevate this icon above roads/rivers
+        hexEl.dataset.iconOverride = iconOverride;
+      } else if (terrainEntry?.icon) {
+        createIconEl(
+          hexEl,
+          getIconUrl(this.plugin, terrainEntry.icon),
+          terrainEntry.name,
+          terrainEntry.iconColor,
           "duckmage-hex-icon",
         );
       }
-      // Tag override icons so the SVG overlay can elevate them above roads/rivers
-      if (iconOverride) hexEl.dataset.iconOverride = iconOverride;
 
       if (this.selectedHex?.x === x && this.selectedHex?.y === y)
         hexEl.addClass("is-selected");
@@ -1789,6 +1860,13 @@ export class HexMapView extends ItemView {
   }
 
   private handlePathButton(): void {
+    if (this.drawingMode === "path") {
+      this.exitPathMode();
+      this.drawingMode = null;
+      this.updateToolbarButtonStates();
+      this.updatePathOverlay();
+      return;
+    }
     new PathPickerModal(
       this.app,
       this.plugin,
@@ -2080,6 +2158,7 @@ export class HexMapView extends ItemView {
         imgEl.setAttribute("height", String(iconH));
         imgEl.setAttribute("href", getIconUrl(this.plugin, iconName));
         imgEl.setAttribute("opacity", "0.75");
+        imgEl.setAttribute("class", "duckmage-svg-icon-override");
         svg.appendChild(imgEl);
       });
 
@@ -2111,6 +2190,7 @@ export class HexMapView extends ItemView {
           textEl.setAttribute("fill", "var(--text-muted)");
         }
         textEl.setAttribute("pointer-events", "none");
+        textEl.setAttribute("class", "duckmage-svg-coord-label");
         textEl.textContent = `${x},${y}`;
         svg.appendChild(textEl);
       });

@@ -1,8 +1,10 @@
-import { Notice, Plugin, TAbstractFile, TFile, TFolder } from "obsidian";
+import { Editor, EventRef, Menu, Notice, Plugin, TAbstractFile, TFile, TFolder } from "obsidian";
 import { HexMapView } from "./hex-map/HexMapView";
 import { HexTableView } from "./hex-table/HexTableView";
 import { RandomTableView } from "./random-tables/RandomTableView";
 import { HexmakerSettingTab } from "./HexmakerSettingTab";
+import { registerRollerBlock } from "./random-tables/RollerBlock";
+import { FileLinkSuggestModal } from "./hex-map/FileLinkSuggestModal";
 import {
   DEFAULT_PALETTE_NAME,
   DEFAULT_SETTINGS,
@@ -71,6 +73,39 @@ export default class HexmakerPlugin extends Plugin {
           .setViewState({ type: VIEW_TYPE_RANDOM_TABLES }),
     });
     this.addSettingTab(new HexmakerSettingTab(this.app, this));
+
+    // Register the embedded roller code block processor
+    registerRollerBlock(this);
+
+    // Right-click "Insert table roller" in any editor.
+    // "editor-menu" is a valid Obsidian workspace event not yet in the official types.
+    interface WorkspaceWithEditorMenu {
+      on(name: "editor-menu", callback: (menu: Menu, editor: Editor) => void): EventRef;
+    }
+    this.registerEvent(
+      (this.app.workspace as unknown as WorkspaceWithEditorMenu).on(
+        "editor-menu",
+        (menu: Menu, editor: Editor) => {
+          menu.addItem((item) =>
+            item
+              .setTitle("Insert table roller")
+              .setIcon("dice")
+              .setSection("insert")
+              .onClick(() => {
+                new FileLinkSuggestModal(
+                  this.app,
+                  this,
+                  (file) => {
+                    const block = `\`\`\`duckmage-roller\n${file.path}\n\`\`\``;
+                    editor.replaceSelection(block);
+                  },
+                  normalizeFolder(this.settings.tablesFolder),
+                ).open();
+              }),
+          );
+        },
+      ),
+    );
 
     interface WithOpenTable {
       openTable?(path: string): void;
@@ -316,20 +351,18 @@ export default class HexmakerPlugin extends Plugin {
       : `${regionName}/${x}_${y}.md`;
   }
 
-  /** Build the Obsidian URI roller link for a table file path. */
-  buildRollerLink(filePath: string): string {
-    const vault = encodeURIComponent(this.app.vault.getName());
-    const file = encodeURIComponent(filePath);
-    return `[🎲 Open in Hexmaker Roller](obsidian://duckmage-roll?vault=${vault}&file=${file})`;
+  /** Build an embedded roller code block (path-less — reads the current file). */
+  buildRollerLink(): string {
+    return "```duckmage-roller\n```";
   }
 
   /** Add a roller link to a table file if it doesn't already have one. */
   async ensureRollerLink(filePath: string): Promise<void> {
     const file = this.app.vault.getAbstractFileByPath(filePath);
     if (!(file instanceof TFile)) return;
-    const link = this.buildRollerLink(filePath);
+    const link = this.buildRollerLink();
     await this.app.vault.process(file, (content) => {
-      if (content.includes("obsidian://duckmage-roll")) return content;
+      if (content.includes("obsidian://duckmage-roll") || content.includes("```duckmage-roller")) return content;
       const fmMatch = content.match(/^---\n[\s\S]*?\n---\n/);
       const insertAt = fmMatch ? fmMatch[0].length : 0;
       return (
@@ -342,7 +375,7 @@ export default class HexmakerPlugin extends Plugin {
     });
   }
 
-  /** Add roller links to all existing table files in the tables folder that don't have one. */
+  /** Add roller blocks to all existing table files in the tables folder that don't have one. */
   async ensureAllRollerLinks(): Promise<void> {
     const folder = normalizeFolder(this.settings.tablesFolder);
     const prefix = folder ? folder + "/" : "";
@@ -353,9 +386,9 @@ export default class HexmakerPlugin extends Plugin {
     let count = 0;
     for (const file of files) {
       let added = false;
-      const link = this.buildRollerLink(file.path);
+      const link = this.buildRollerLink();
       await this.app.vault.process(file, (content) => {
-        if (content.includes("obsidian://duckmage-roll")) return content;
+        if (content.includes("obsidian://duckmage-roll") || content.includes("```duckmage-roller")) return content;
         added = true;
         const fmMatch = content.match(/^---\n[\s\S]*?\n---\n/);
         const insertAt = fmMatch ? fmMatch[0].length : 0;
@@ -399,7 +432,7 @@ export default class HexmakerPlugin extends Plugin {
                 "roll-filter": false,
                 "encounter-filter": false,
               },
-              this.buildRollerLink(path),
+              this.buildRollerLink(),
             ),
           );
         } catch {
@@ -465,7 +498,7 @@ export default class HexmakerPlugin extends Plugin {
                   "roll-filter": false,
                   "encounter-filter": false,
                 },
-                this.buildRollerLink(path),
+                this.buildRollerLink(),
               ),
             );
           } catch {

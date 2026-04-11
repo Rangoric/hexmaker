@@ -324,4 +324,5 @@ export const DEFAULT_SETTINGS: HexmakerPluginSettings = {
   encounterTableExcludedFolders: ["terrain"],
   defaultRegion: "default",
   workflowsFolder: "",
+  hiddenIcons: [],
 };
