@@ -1,5 +1,5 @@
 import type HexmakerPlugin from "./HexmakerPlugin";
-import { TFile, normalizePath } from "obsidian";
+import { normalizePath } from "obsidian";
 import { BUNDLED_ICONS } from "./bundledIcons";
 
 export function normalizeFolder(path: string): string {
@@ -54,8 +54,7 @@ export function createIconEl(
 export function getIconUrl(plugin: HexmakerPlugin, iconFilename: string): string {
 	if (plugin.vaultIconsSet.has(iconFilename)) {
 		const folder = normalizeFolder(plugin.settings.iconsFolder ?? "");
-		const file = plugin.app.vault.getAbstractFileByPath(`${folder}/${iconFilename}`);
-		if (file instanceof TFile) return plugin.app.vault.getResourcePath(file);
+		return plugin.app.vault.adapter.getResourcePath(`${folder}/${iconFilename}`);
 	}
 	const bundled = BUNDLED_ICONS.get(iconFilename);
 	if (bundled) return bundled;
