@@ -121,8 +121,7 @@ export class RandomTableEditorModal extends HexmakerModal {
       s.replace(/^[^a-zA-Z0-9]+/, "").toLowerCase();
 
     const weightSortBtn = entriesHeadingRow.createEl("button", {
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
-      text: "wt ↑",
+      text: "Wt ↑",
       cls: "duckmage-table-editor-add-one-btn",
       attr: { title: "Sort entries by weight (low → high)" },
     });
@@ -131,7 +130,7 @@ export class RandomTableEditorModal extends HexmakerModal {
       entries.sort((a, b) =>
         weightSortAsc ? a.weight - b.weight : b.weight - a.weight,
       );
-      weightSortBtn.setText(weightSortAsc ? "wt ↓" : "wt ↑");
+      weightSortBtn.setText(weightSortAsc ? "Wt ↓" : "Wt ↑");
       weightSortBtn.title = weightSortAsc
         ? "Sort entries by weight (high → low)"
         : "Sort entries by weight (low → high)";
@@ -139,8 +138,7 @@ export class RandomTableEditorModal extends HexmakerModal {
     });
 
     const alphaSortBtn = entriesHeadingRow.createEl("button", {
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
-      text: "a→z",
+      text: "A→z",
       cls: "duckmage-table-editor-add-one-btn",
       attr: { title: "Sort entries alphabetically (a → z)" },
     });
@@ -151,7 +149,7 @@ export class RandomTableEditorModal extends HexmakerModal {
         const kb = stripLeadingSpecial(b.result);
         return alphaSortAsc ? ka.localeCompare(kb) : kb.localeCompare(ka);
       });
-      alphaSortBtn.setText(alphaSortAsc ? "z→a" : "a→z");
+      alphaSortBtn.setText(alphaSortAsc ? "Z→a" : "A→z");
       alphaSortBtn.title = alphaSortAsc
         ? "Sort entries alphabetically (z → a)"
         : "Sort entries alphabetically (a → z)";
@@ -383,7 +381,9 @@ export class RandomTableEditorModal extends HexmakerModal {
       s.factionsFolder,
       s.tablesFolder,
       s.workflowsFolder,
-    ].map(normalizeFolder).filter(Boolean);
+    ]
+      .map(normalizeFolder)
+      .filter(Boolean);
     for (const f of this.app.vault.getAllFolders()) {
       const p = normalizeFolder(f.path);
       if (!p) continue;
@@ -510,9 +510,11 @@ export class RandomTableEditorModal extends HexmakerModal {
         preamble.match(/```duckmage-roller[\s\S]*?```/) ??
         preamble.match(/\[.*?\]\(obsidian:\/\/duckmage-roll[^)]*\)/);
       // Always include a roller — upgrade old URI links to the code block form
-      const rollerLink = rollerLinkMatch?.index !== undefined && /```duckmage-roller/.test(rollerLinkMatch[0])
-        ? rollerLinkMatch[0]
-        : "```duckmage-roller\n```";
+      const rollerLink =
+        rollerLinkMatch?.index !== undefined &&
+        /```duckmage-roller/.test(rollerLinkMatch[0])
+          ? rollerLinkMatch[0]
+          : "```duckmage-roller\n```";
       const newDescription = descInput.value.trim();
       const newPreamble = [rollerLink, newDescription]
         .filter(Boolean)
