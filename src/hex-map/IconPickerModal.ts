@@ -125,7 +125,7 @@ export class IconPickerModal extends HexmakerModal {
     });
     dropZone.createEl("br");
     dropZone.createEl("small", {
-      text: "Accepts PNG, JPG, GIF, SVG, and WebP - recommended 64–128 px square",
+      text: "Recommended 64–128 px square, PNG, JPG, GIF, SVG, and WebP",
     });
 
     const statusEl = section.createEl("p", { cls: "duckmage-icon-add-status" });
