@@ -20,6 +20,7 @@ import {
   getDieRanges,
   setDiceInFrontmatter,
   extractPostTableContent,
+  parseMarkdownListItems,
   type RandomTable,
 } from "./randomTable";
 import { parseWorkflow, generateDefaultTemplate } from "./workflow";
@@ -290,10 +291,23 @@ export class RandomTableView extends ItemView {
         fromFolderDatalist.createEl("option", { value: p });
       }
     }
+    // Also add markdown files under the same roots so file paths autocomplete
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      if (f.basename.startsWith("_")) continue;
+      const underRoot = fromFolderRoots.some(
+        (r) => f.path.startsWith(r + "/"),
+      );
+      if (!underRoot) continue;
+      const pathNoExt = f.path.slice(0, -3);
+      if (!seenFromFolders.has(pathNoExt)) {
+        seenFromFolders.add(pathNoExt);
+        fromFolderDatalist.createEl("option", { value: pathNoExt });
+      }
+    }
     const fromFolderInput = this.tableFooterEl.createEl("input", {
       type: "text",
       cls: "duckmage-rt-from-folder-input",
-      attr: { placeholder: "Generate from folder link (optional)…" },
+      attr: { placeholder: "Generate from folder or file (optional)…" },
     });
     fromFolderInput.setAttribute("list", fromFolderDatalistId);
     fromFolderInput.setCssProps({ "margin-top": "6px" });
@@ -310,9 +324,27 @@ export class RandomTableView extends ItemView {
           if (folder && !this.app.vault.getAbstractFileByPath(folder)) {
             await this.app.vault.createFolder(folder);
           }
-          srcFolder = normalizeFolder(fromFolderInput.value.trim());
+          const fromValue = fromFolderInput.value.trim();
+          let srcFile: TFile | null = null;
+          if (fromValue) {
+            const norm = normalizeFolder(fromValue);
+            const candidate =
+              this.app.vault.getAbstractFileByPath(norm) ??
+              this.app.vault.getAbstractFileByPath(norm + ".md");
+            if (candidate instanceof TFile) {
+              srcFile = candidate;
+            } else {
+              srcFolder = norm;
+            }
+          }
           let content: string;
-          if (srcFolder) {
+          if (srcFile) {
+            const rawContent = await this.app.vault.read(srcFile);
+            const items = parseMarkdownListItems(rawContent);
+            const rollerLink = this.plugin.buildRollerLink();
+            const entryRows = items.map((item) => `| ${item} | 1 |`).join("\n");
+            content = `---\ndice: ${this.plugin.settings.defaultTableDice}\n---\n\n${rollerLink}\n\n| Result | Weight |\n|--------|--------|\n${entryRows || "|  | 1 |"}\n`;
+          } else if (srcFolder) {
             const folderFiles = this.app.vault
               .getMarkdownFiles()
               .filter(

@@ -1,7 +1,8 @@
-import { App, TFile } from "obsidian";
+import { App, Notice, TFile } from "obsidian";
 import { HexmakerModal } from "../HexmakerModal";
-import { parseRandomTable, extractPostTableContent } from "./randomTable";
+import { parseRandomTable, extractPostTableContent, parseMarkdownListItems } from "./randomTable";
 import type { RandomTableEntry } from "./randomTable";
+import { FileLinkSuggestModal } from "../hex-map/FileLinkSuggestModal";
 import type HexmakerPlugin from "../HexmakerPlugin";
 import { normalizeFolder } from "../utils";
 
@@ -173,6 +174,34 @@ export class RandomTableEditorModal extends HexmakerModal {
     addOneToAllBtn.addEventListener("click", () => {
       for (const e of entries) e.weight += 1;
       renderRows();
+    });
+
+    const importBtn = entriesHeadingRow.createEl("button", {
+      text: "Import…",
+      cls: "duckmage-table-editor-add-one-btn",
+      attr: { title: "Import list items from a vault note" },
+    });
+    importBtn.addEventListener("click", () => {
+      new FileLinkSuggestModal(
+        this.app,
+        this.plugin,
+        (file: TFile) => {
+          void (async () => {
+            const content = await this.app.vault.read(file);
+            const items = parseMarkdownListItems(content);
+            if (items.length === 0) {
+              new Notice(`No list items found in "${file.basename}"`);
+              return;
+            }
+            for (const item of items) {
+              entries.push({ result: item, weight: 1 });
+            }
+            renderRows();
+            new Notice(`Imported ${items.length} item${items.length === 1 ? "" : "s"} from "${file.basename}"`);
+          })();
+        },
+        "",
+      ).open();
     });
 
     const rowsEl = entriesSection.createDiv({

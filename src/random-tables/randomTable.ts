@@ -106,6 +106,36 @@ export function extractPostTableContent(content: string): string {
     .replace(/^\n+/, "");
 }
 
+/**
+ * Extract entries from markdown content.
+ * Primary: bullet/numbered list items (strips task-list markers).
+ * Fallback: when no list markers are found, each non-empty non-structural line
+ * (skipping headings, frontmatter, horizontal rules, table rows, code fences).
+ */
+export function parseMarkdownListItems(content: string): string[] {
+  const results: string[] = [];
+  const re = /^[ \t]*(?:[-*+]|\d+[.)]) +(.+)/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    let item = m[1].trim();
+    item = item.replace(/^\[[ xX]\] /, "");
+    if (item) results.push(item);
+  }
+  if (results.length > 0) return results;
+
+  // Fallback: plain line-per-entry files (e.g. a word list)
+  const noFm = content.replace(/^---\n[\s\S]*?\n---\n?/, "");
+  let inFence = false;
+  for (const line of noFm.split("\n")) {
+    const t = line.trim();
+    if (t.startsWith("```")) { inFence = !inFence; continue; }
+    if (inFence || !t) continue;
+    if (t.startsWith("#") || t.startsWith("|") || /^[-*_]{3,}$/.test(t)) continue;
+    results.push(t);
+  }
+  return results;
+}
+
 /** Weighted random selection. Returns a random entry. */
 export function rollOnTable(table: RandomTable): RandomTableEntry | null {
   if (table.entries.length === 0) return null;
