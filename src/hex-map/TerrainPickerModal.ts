@@ -261,7 +261,6 @@ export class TerrainPickerModal extends HexmakerModal {
 
     renderTiles();
 
-    // Debug: one-shot button to fix all hex encounter-table links on the current map
     const footer = contentEl.createDiv({ cls: "duckmage-tpe-edit-footer" });
     const refreshBtn = footer.createEl("button", {
       cls: "duckmage-tpe-refresh-btn",
