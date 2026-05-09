@@ -4,7 +4,7 @@ import type HexmakerPlugin from "../HexmakerPlugin";
 import type { HexMapView } from "./HexMapView";
 import { normalizeFolder } from "../utils";
 
-export class RegionModal extends HexmakerModal {
+export class MapModal extends HexmakerModal {
   constructor(
     app: App,
     private plugin: HexmakerPlugin,
@@ -15,7 +15,7 @@ export class RegionModal extends HexmakerModal {
   }
 
   onOpen(): void {
-    this.titleEl.setText("Regions");
+    this.titleEl.setText("Maps");
     this.makeDraggable();
     this.render();
   }
@@ -25,33 +25,33 @@ export class RegionModal extends HexmakerModal {
     contentEl.empty();
     contentEl.addClass("duckmage-region-modal");
 
-    // Switch region list
-    contentEl.createEl("h4", { text: "Switch region" });
+    // Switch map list
+    contentEl.createEl("h4", { text: "Switch map" });
     const list = contentEl.createEl("ul", { cls: "duckmage-region-list" });
-    for (const region of this.plugin.settings.regions) {
+    for (const map of this.plugin.settings.maps) {
       const li = list.createEl("li", {
         cls:
           "duckmage-region-item" +
-          (region.name === this.view.activeRegionName ? " is-active" : ""),
+          (map.name === this.view.activeMapName ? " is-active" : ""),
       });
-      li.createSpan({ text: region.name });
+      li.createSpan({ text: map.name });
       li.createSpan({
         cls: "duckmage-region-palette-badge",
-        text: region.paletteName,
+        text: map.paletteName,
       });
       li.addEventListener("click", () => {
-        this.view.activeRegionName = region.name;
+        this.view.activeMapName = map.name;
         this.onChanged();
         this.close();
       });
     }
 
-    // Rename current region
-    contentEl.createEl("h4", { text: "Rename current region" });
+    // Rename current map
+    contentEl.createEl("h4", { text: "Rename current map" });
     const renameRow = contentEl.createDiv({ cls: "duckmage-region-row" });
     const renameInput = renameRow.createEl("input", {
       type: "text",
-      value: this.view.activeRegionName,
+      value: this.view.activeMapName,
     });
     const renameBtn = renameRow.createEl("button", {
       text: "Rename",
@@ -60,7 +60,7 @@ export class RegionModal extends HexmakerModal {
     renameBtn.addEventListener(
       "click",
       () =>
-        void this.renameRegion(
+        void this.renameMap(
           renameInput.value.trim(),
           renameBtn,
           renameInput,
@@ -68,19 +68,19 @@ export class RegionModal extends HexmakerModal {
     );
     renameInput.addEventListener("keydown", (e: KeyboardEvent) => {
       if (e.key === "Enter")
-        void this.renameRegion(
+        void this.renameMap(
           renameInput.value.trim(),
           renameBtn,
           renameInput,
         );
     });
 
-    // Create new region
-    contentEl.createEl("h4", { text: "New region" });
+    // Create new map
+    contentEl.createEl("h4", { text: "New map" });
     const createRow = contentEl.createDiv({ cls: "duckmage-region-row" });
     const nameInput = createRow.createEl("input", {
       type: "text",
-      placeholder: "region-name",
+      placeholder: "map-name",
     });
     const colsInput = createRow.createEl("input", {
       type: "number",
@@ -105,7 +105,7 @@ export class RegionModal extends HexmakerModal {
     createBtn.addEventListener(
       "click",
       () =>
-        void this.createRegion(
+        void this.createMap(
           nameInput.value.trim(),
           Number(colsInput.value) || 20,
           Number(rowsInput.value) || 16,
@@ -126,15 +126,15 @@ export class RegionModal extends HexmakerModal {
       .replace(/[^a-z0-9-]/g, "");
   }
 
-  private async renameRegion(
+  private async renameMap(
     raw: string,
     btn: HTMLButtonElement,
     input: HTMLInputElement,
   ): Promise<void> {
     const newName = this.slugify(raw);
-    if (!newName || newName === this.view.activeRegionName) return;
-    if (this.plugin.settings.regions.some((r) => r.name === newName)) {
-      new Notice(`Region "${newName}" already exists.`);
+    if (!newName || newName === this.view.activeMapName) return;
+    if (this.plugin.settings.maps.some((r) => r.name === newName)) {
+      new Notice(`Map "${newName}" already exists.`);
       return;
     }
     btn.setText("Renaming…");
@@ -142,8 +142,8 @@ export class RegionModal extends HexmakerModal {
     input.disabled = true;
     const hexFolder = normalizeFolder(this.plugin.settings.hexFolder);
     const oldPath = hexFolder
-      ? `${hexFolder}/${this.view.activeRegionName}`
-      : this.view.activeRegionName;
+      ? `${hexFolder}/${this.view.activeMapName}`
+      : this.view.activeMapName;
     const newPath = hexFolder ? `${hexFolder}/${newName}` : newName;
     const oldFolder = this.app.vault.getAbstractFileByPath(oldPath);
     if (oldFolder instanceof TFolder) {
@@ -159,18 +159,18 @@ export class RegionModal extends HexmakerModal {
         return;
       }
     }
-    const region = this.plugin.getRegion(this.view.activeRegionName);
-    if (region) region.name = newName;
-    if (this.plugin.settings.defaultRegion === this.view.activeRegionName) {
-      this.plugin.settings.defaultRegion = newName;
+    const map = this.plugin.getMap(this.view.activeMapName);
+    if (map) map.name = newName;
+    if (this.plugin.settings.defaultMap === this.view.activeMapName) {
+      this.plugin.settings.defaultMap = newName;
     }
-    this.view.activeRegionName = newName;
+    this.view.activeMapName = newName;
     await this.plugin.saveSettings();
     this.onChanged();
     this.render();
   }
 
-  private async createRegion(
+  private async createMap(
     raw: string,
     cols: number,
     rows: number,
@@ -180,11 +180,11 @@ export class RegionModal extends HexmakerModal {
   ): Promise<void> {
     const name = this.slugify(raw);
     if (!name) {
-      new Notice("Enter a region name.");
+      new Notice("Enter a map name.");
       return;
     }
-    if (this.plugin.settings.regions.some((r) => r.name === name)) {
-      new Notice(`Region "${name}" already exists.`);
+    if (this.plugin.settings.maps.some((r) => r.name === name)) {
+      new Notice(`Map "${name}" already exists.`);
       return;
     }
 
@@ -201,14 +201,14 @@ export class RegionModal extends HexmakerModal {
         /* exists */
       }
     }
-    this.plugin.settings.regions.push({
+    this.plugin.settings.maps.push({
       name,
       paletteName,
       gridSize: { cols, rows },
       gridOffset: { x: 0, y: 0 },
       pathChains: [],
     });
-    this.view.activeRegionName = name;
+    this.view.activeMapName = name;
     await this.plugin.saveSettings();
     this.onChanged();
 

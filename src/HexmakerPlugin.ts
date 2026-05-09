@@ -17,7 +17,7 @@ import { BUNDLED_ICONS } from "./bundledIcons";
 import { parseWorkflow, buildWorkflowContent } from "./random-tables/workflow";
 import type {
   HexmakerPluginSettings,
-  RegionData,
+  MapData,
   TerrainColor,
   TerrainPalette,
 } from "./types";
@@ -231,17 +231,28 @@ export default class HexmakerPlugin extends Plugin {
   }
 
   async loadSettings() {
-    const data = ((await this.loadData()) as HexmakerPluginSettings) ?? {};
+    // One-time migration: rename settings keys "regions" → "maps" and "defaultRegion" → "defaultMap"
+    // Must run on raw data BEFORE Object.assign so the migrated key wins over DEFAULT_SETTINGS.
+    const data = (((await this.loadData()) as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+    if (data["regions"] !== undefined && data["maps"] === undefined) {
+      data["maps"] = data["regions"];
+    }
+    delete data["regions"];
+    if (data["defaultRegion"] !== undefined && data["defaultMap"] === undefined) {
+      data["defaultMap"] = data["defaultRegion"];
+    }
+    delete data["defaultRegion"];
 
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
-    // Deep-clone the regions array so mutations to settings.regions never alias DEFAULT_SETTINGS.regions.
-    // Object.assign does a shallow copy, so on first run (data===null) settings.regions IS
-    // DEFAULT_SETTINGS.regions – pushing/mutating it would corrupt the constant for the session.
-    this.settings.regions = Array.isArray(this.settings.regions)
-      ? this.settings.regions
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data as Partial<HexmakerPluginSettings>);
+
+    // Deep-clone the maps array so mutations to settings.maps never alias DEFAULT_SETTINGS.maps.
+    // Object.assign does a shallow copy, so on first run (data===null) settings.maps IS
+    // DEFAULT_SETTINGS.maps – pushing/mutating it would corrupt the constant for the session.
+    this.settings.maps = Array.isArray(this.settings.maps)
+      ? this.settings.maps
       : [];
 
-    for (const r of this.settings.regions) {
+    for (const r of this.settings.maps) {
       if (!r.paletteName) r.paletteName = DEFAULT_PALETTE_NAME;
       if (!r.gridOffset) r.gridOffset = { x: 0, y: 0 };
       if (!Array.isArray(r.pathChains)) r.pathChains = [];
@@ -278,8 +289,8 @@ export default class HexmakerPlugin extends Plugin {
       this.settings.rollTableExcludedFolders = ["terrain"];
     if (!Array.isArray(this.settings.encounterTableExcludedFolders))
       this.settings.encounterTableExcludedFolders = ["terrain"];
-    if (!this.settings.defaultRegion) {
-      this.settings.defaultRegion = this.settings.regions[0]?.name ?? "default";
+    if (!this.settings.defaultMap) {
+      this.settings.defaultMap = this.settings.maps[0]?.name ?? "default";
     }
   }
 
@@ -344,11 +355,11 @@ export default class HexmakerPlugin extends Plugin {
     this.availableIcons = [...new Set([...pluginIcons, ...vaultIcons])].sort();
   }
 
-  hexPath(x: number, y: number, regionName: string): string {
+  hexPath(x: number, y: number, mapName: string): string {
     const folder = normalizeFolder(this.settings.hexFolder);
     return folder
-      ? `${folder}/${regionName}/${x}_${y}.md`
-      : `${regionName}/${x}_${y}.md`;
+      ? `${folder}/${mapName}/${x}_${y}.md`
+      : `${mapName}/${x}_${y}.md`;
   }
 
   /** Build an embedded roller code block (path-less — reads the current file). */
@@ -665,10 +676,10 @@ export default class HexmakerPlugin extends Plugin {
   async createHexNote(
     x: number,
     y: number,
-    regionName: string,
+    mapName: string,
     preloadedTemplate?: string,
   ): Promise<TFile | null> {
-    const path = this.hexPath(x, y, regionName);
+    const path = this.hexPath(x, y, mapName);
     let content: string;
 
     if (preloadedTemplate !== undefined) {
@@ -698,11 +709,11 @@ export default class HexmakerPlugin extends Plugin {
       .replace(/\{\{title\}\}/g, `Hex ${x}, ${y}`);
 
     const hexBase = normalizeFolder(this.settings.hexFolder);
-    const regionFolder = hexBase ? `${hexBase}/${regionName}` : regionName;
-    if (!this.app.vault.getAbstractFileByPath(regionFolder)) {
+    const mapFolder = hexBase ? `${hexBase}/${mapName}` : mapName;
+    if (!this.app.vault.getAbstractFileByPath(mapFolder)) {
       // Wrap in try/catch: a concurrent worker may have already created the folder.
       try {
-        await this.app.vault.createFolder(regionFolder);
+        await this.app.vault.createFolder(mapFolder);
       } catch {
         /* exists */
       }
@@ -744,7 +755,7 @@ export default class HexmakerPlugin extends Plugin {
    * skipping any that already exist on disk.  Returns the number of notes created.
    */
   async generateHexNotes(
-    regionName: string,
+    mapName: string,
     xs: number[],
     ys: number[],
     onProgress?: (done: number) => void,
@@ -761,9 +772,9 @@ export default class HexmakerPlugin extends Plugin {
     for (let i = 0; i < pairs.length; i += CHUNK) {
       await Promise.all(
         pairs.slice(i, i + CHUNK).map(async ([x, y]) => {
-          const path = this.hexPath(x, y, regionName);
+          const path = this.hexPath(x, y, mapName);
           if (!this.app.vault.getAbstractFileByPath(path)) {
-            const result = await this.createHexNote(x, y, regionName, template);
+            const result = await this.createHexNote(x, y, mapName, template);
             if (result) created++;
           }
           done++;
@@ -774,18 +785,18 @@ export default class HexmakerPlugin extends Plugin {
     return created;
   }
 
-  getRegion(name: string): RegionData | undefined {
-    return this.settings.regions.find((r) => r.name === name);
+  getMap(name: string): MapData | undefined {
+    return this.settings.maps.find((r) => r.name === name);
   }
 
   getPaletteByName(name: string): TerrainPalette | undefined {
     return this.settings.terrainPalettes.find((p) => p.name === name);
   }
 
-  getRegionPalette(regionName: string): TerrainColor[] {
-    const region = this.getRegion(regionName);
+  getMapPalette(mapName: string): TerrainColor[] {
+    const map = this.getMap(mapName);
     return (
-      this.getPaletteByName(region?.paletteName ?? "")?.terrains ??
+      this.getPaletteByName(map?.paletteName ?? "")?.terrains ??
       this.settings.terrainPalettes[0]?.terrains ??
       []
     );
@@ -805,8 +816,8 @@ export default class HexmakerPlugin extends Plugin {
     return result;
   }
 
-  getOrCreateRegion(name: string): RegionData {
-    let r = this.getRegion(name);
+  getOrCreateMap(name: string): MapData {
+    let r = this.getMap(name);
     if (!r) {
       r = {
         name,
@@ -815,7 +826,7 @@ export default class HexmakerPlugin extends Plugin {
         gridOffset: { x: 0, y: 0 },
         pathChains: [],
       };
-      this.settings.regions.push(r);
+      this.settings.maps.push(r);
     }
     return r;
   }

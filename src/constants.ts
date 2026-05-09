@@ -302,7 +302,7 @@ export const DEFAULT_SETTINGS: HexmakerPluginSettings = {
     { name: LIMITED_PALETTE_NAME,  terrains: LIMITED_TERRAIN_PALETTE },
     { name: EXPANDED_PALETTE_NAME, terrains: DEFAULT_TERRAIN_PALETTE },
   ],
-  regions: [
+  maps: [
     {
       name: "default",
       paletteName: LIMITED_PALETTE_NAME,
@@ -322,7 +322,7 @@ export const DEFAULT_SETTINGS: HexmakerPluginSettings = {
   hexEditorNotesCollapsed: false,
   rollTableExcludedFolders: ["terrain"],
   encounterTableExcludedFolders: ["terrain"],
-  defaultRegion: "default",
+  defaultMap: "default",
   workflowsFolder: "",
   hiddenIcons: [],
 };

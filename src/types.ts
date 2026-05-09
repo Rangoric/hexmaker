@@ -14,7 +14,7 @@ export interface PathChain {
 	hexes: string[];          // "x_y" keys
 }
 
-export interface RegionData {
+export interface MapData {
 	name: string;
 	paletteName: string;
 	gridSize: { cols: number; rows: number };
@@ -50,7 +50,7 @@ export interface HexmakerPluginSettings {
 	templatePath: string;
 	hexGap: string;
 	terrainPalettes: TerrainPalette[];
-	regions: RegionData[];
+	maps: MapData[];
 	zoomLevel: number;
 	pathTypes: PathType[];
 	hexOrientation: "pointy" | "flat";
@@ -62,7 +62,7 @@ export interface HexmakerPluginSettings {
 	hexEditorNotesCollapsed: boolean;
 	rollTableExcludedFolders: string[];
 	encounterTableExcludedFolders: string[];
-	defaultRegion: string;
+	defaultMap: string;
 	workflowsFolder: string;
 	hiddenIcons: string[];
 }

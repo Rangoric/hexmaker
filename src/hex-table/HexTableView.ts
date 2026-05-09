@@ -58,8 +58,8 @@ export class HexTableView extends ItemView {
   private filterHasFeature = false;
   private filterHasQuest = false;
   private filterHasFaction = false;
-  private regionFilter = "all";
-  private regionSelectEl: HTMLSelectElement | null = null;
+  private mapFilter = "all";
+  private mapSelectEl: HTMLSelectElement | null = null;
 
   // Filter UI elements (created once in onOpen)
   private filterXMinInput: HTMLInputElement | null = null;
@@ -84,8 +84,8 @@ export class HexTableView extends ItemView {
     return VIEW_TYPE_HEX_TABLE;
   }
   getDisplayText(): string {
-    return this.regionFilter && this.regionFilter !== "all"
-      ? `Hex table — ${this.regionFilter}`
+    return this.mapFilter && this.mapFilter !== "all"
+      ? `Hex table — ${this.mapFilter}`
       : "Hex table";
   }
 
@@ -163,8 +163,8 @@ export class HexTableView extends ItemView {
     });
     this.terrainFilterBtn.addEventListener("click", () => {
       const palette =
-        this.regionFilter !== "all"
-          ? this.plugin.getRegionPalette(this.regionFilter)
+        this.mapFilter !== "all"
+          ? this.plugin.getMapPalette(this.mapFilter)
           : this.plugin.getAllTerrains();
       new TerrainFilterModal(
         this.app,
@@ -249,23 +249,23 @@ export class HexTableView extends ItemView {
     const regionSelect = toolbar.createEl("select", {
       cls: "duckmage-hex-table-region-select",
     });
-    this.regionSelectEl = regionSelect;
-    regionSelect.createEl("option", { value: "all", text: "All regions" });
-    for (const r of this.plugin.settings.regions) {
+    this.mapSelectEl = regionSelect;
+    regionSelect.createEl("option", { value: "all", text: "All maps" });
+    for (const r of this.plugin.settings.maps) {
       regionSelect.createEl("option", { value: r.name, text: r.name });
     }
-    // Default to active map view's region
-    interface WithActiveRegionName {
-      activeRegionName: string;
+    // Default to active map view's map
+    interface WithActiveMapName {
+      activeMapName: string;
     }
     const mapLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_HEX_MAP);
     if (mapLeaves.length > 0) {
-      const mapView = mapLeaves[0].view as unknown as WithActiveRegionName;
-      this.regionFilter = mapView.activeRegionName;
+      const mapView = mapLeaves[0].view as unknown as WithActiveMapName;
+      this.mapFilter = mapView.activeMapName;
     }
-    regionSelect.value = this.regionFilter;
+    regionSelect.value = this.mapFilter;
     regionSelect.addEventListener("change", () => {
-      this.regionFilter = regionSelect.value;
+      this.mapFilter = regionSelect.value;
       interface WithUpdateHeader {
         updateHeader?(): void;
       }
@@ -400,10 +400,10 @@ export class HexTableView extends ItemView {
     }
 
     // Apply region filter
-    if (this.regionFilter !== "all") {
+    if (this.mapFilter !== "all") {
       const prefix = hexFolder
-        ? `${hexFolder}/${this.regionFilter}/`
-        : `${this.regionFilter}/`;
+        ? `${hexFolder}/${this.mapFilter}/`
+        : `${this.mapFilter}/`;
       files = files.filter((f) => f.path.startsWith(prefix));
     }
 
@@ -605,7 +605,7 @@ export class HexTableView extends ItemView {
   ): void {
     tr.empty();
 
-    const palette = this.plugin.getRegionPalette(region);
+    const palette = this.plugin.getMapPalette(region);
     const paletteMap = new Map(palette.map((p) => [p.name, p]));
     const terrainName = getTerrainFromFile(this.app, path);
 
@@ -694,7 +694,7 @@ export class HexTableView extends ItemView {
       new HexTerrainPickerModal(
         this.app,
         this.plugin,
-        this.plugin.getRegionPalette(region),
+        this.plugin.getMapPalette(region),
         path,
         current,
         () => {

@@ -17,9 +17,9 @@ import {
   VIEW_TYPE_HEX_TABLE,
   VIEW_TYPE_RANDOM_TABLES,
 } from "../constants";
-import { RegionModal } from "./RegionModal";
+import { MapModal } from "./MapModal";
 import { PathPickerModal } from "./PathPickerModal";
-import type { RegionData, PathChain } from "../types";
+import type { MapData, PathChain } from "../types";
 import {
   hexNeighbors,
   smoothPath,
@@ -44,7 +44,7 @@ type UndoItem =
   | { kind: "swap"; x1: number; y1: number; x2: number; y2: number }
   | {
       kind: "path";
-      regionName: string;
+      mapName: string;
       before: PathChain[];
       after: PathChain[];
     };
@@ -109,8 +109,8 @@ export class HexMapView extends ItemView {
   private currentTerrainStroke: Map<string, TerrainUndoEntry> | null = null;
   private undoBtn: HTMLButtonElement | null = null;
   private redoBtn: HTMLButtonElement | null = null;
-  activeRegionName = "default";
-  private regionBtn: HTMLButtonElement | null = null;
+  activeMapName = "default";
+  private mapBtn: HTMLButtonElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: HexmakerPlugin) {
     super(leaf);
@@ -121,22 +121,22 @@ export class HexMapView extends ItemView {
     return VIEW_TYPE_HEX_MAP;
   }
   getDisplayText(): string {
-    return `Hex map — ${this.activeRegionName}`;
+    return `Hex map — ${this.activeMapName}`;
   }
 
-  private getActiveRegion(): RegionData {
-    return this.plugin.getOrCreateRegion(this.activeRegionName);
+  private getActiveMap(): MapData {
+    return this.plugin.getOrCreateMap(this.activeMapName);
   }
 
-  private updateRegionBtnLabel(): void {
-    this.regionBtn?.setText(`${this.activeRegionName} ▾`);
+  private updateMapBtnLabel(): void {
+    this.mapBtn?.setText(`${this.activeMapName} ▾`);
   }
 
   onOpen(): Promise<void> {
-    // Initialise to the configured default region (falls back to first region or "default")
-    this.activeRegionName =
-      this.plugin.settings.defaultRegion ||
-      this.plugin.settings.regions[0]?.name ||
+    // Initialise to the configured default map (falls back to first map or "default")
+    this.activeMapName =
+      this.plugin.settings.defaultMap ||
+      this.plugin.settings.maps[0]?.name ||
       "default";
 
     const { contentEl } = this;
@@ -425,19 +425,19 @@ export class HexMapView extends ItemView {
       void this.app.workspace.revealLeaf(this.leaf);
     });
 
-    this.regionBtn = controlsEl.createEl("button", {
+    this.mapBtn = controlsEl.createEl("button", {
       cls: "duckmage-region-btn",
-      title: "Manage regions",
+      title: "Manage maps",
     });
-    this.updateRegionBtnLabel();
-    this.regionBtn.addEventListener("click", () =>
-      new RegionModal(this.app, this.plugin, this, () => {
+    this.updateMapBtnLabel();
+    this.mapBtn.addEventListener("click", () =>
+      new MapModal(this.app, this.plugin, this, () => {
         this.exitTerrainMode();
         this.exitPathMode();
         this.undoStack = [];
         this.redoStack = [];
         this.updateUndoButton();
-        this.updateRegionBtnLabel();
+        this.updateMapBtnLabel();
         interface WithUpdateHeader {
           updateHeader?(): void;
         }
@@ -481,7 +481,7 @@ export class HexMapView extends ItemView {
       controlsEl,
       this.plugin,
       () => this.viewportEl,
-      () => this.getActiveRegion(),
+      () => this.getActiveMap(),
     );
     toolsPanel.onBeforeOpen = () => this.overlayPanel?.close();
     this.overlayPanel.onBeforeOpen = () => toolsPanel.close();
@@ -501,16 +501,16 @@ export class HexMapView extends ItemView {
       {
         cls: "duckmage-expand-top",
         action: async () => {
-          this.getActiveRegion().gridOffset.y--;
-          this.getActiveRegion().gridSize.rows++;
+          this.getActiveMap().gridOffset.y--;
+          this.getActiveMap().gridSize.rows++;
           await this.plugin.saveSettings();
           this.renderGrid();
-          const r = this.getActiveRegion();
+          const r = this.getActiveMap();
           const xs = Array.from(
             { length: r.gridSize.cols },
             (_, i) => r.gridOffset.x + i,
           );
-          void this.plugin.generateHexNotes(this.activeRegionName, xs, [
+          void this.plugin.generateHexNotes(this.activeMapName, xs, [
             r.gridOffset.y,
           ]);
         },
@@ -518,32 +518,32 @@ export class HexMapView extends ItemView {
       {
         cls: "duckmage-expand-bottom",
         action: async () => {
-          this.getActiveRegion().gridSize.rows++;
+          this.getActiveMap().gridSize.rows++;
           await this.plugin.saveSettings();
           this.renderGrid();
-          const r = this.getActiveRegion();
+          const r = this.getActiveMap();
           const newY = r.gridOffset.y + r.gridSize.rows - 1;
           const xs = Array.from(
             { length: r.gridSize.cols },
             (_, i) => r.gridOffset.x + i,
           );
-          void this.plugin.generateHexNotes(this.activeRegionName, xs, [newY]);
+          void this.plugin.generateHexNotes(this.activeMapName, xs, [newY]);
         },
       },
       {
         cls: "duckmage-expand-left",
         action: async () => {
-          this.getActiveRegion().gridOffset.x--;
-          this.getActiveRegion().gridSize.cols++;
+          this.getActiveMap().gridOffset.x--;
+          this.getActiveMap().gridSize.cols++;
           await this.plugin.saveSettings();
           this.renderGrid();
-          const r = this.getActiveRegion();
+          const r = this.getActiveMap();
           const ys = Array.from(
             { length: r.gridSize.rows },
             (_, i) => r.gridOffset.y + i,
           );
           void this.plugin.generateHexNotes(
-            this.activeRegionName,
+            this.activeMapName,
             [r.gridOffset.x],
             ys,
           );
@@ -552,16 +552,16 @@ export class HexMapView extends ItemView {
       {
         cls: "duckmage-expand-right",
         action: async () => {
-          this.getActiveRegion().gridSize.cols++;
+          this.getActiveMap().gridSize.cols++;
           await this.plugin.saveSettings();
           this.renderGrid();
-          const r = this.getActiveRegion();
+          const r = this.getActiveMap();
           const newX = r.gridOffset.x + r.gridSize.cols - 1;
           const ys = Array.from(
             { length: r.gridSize.rows },
             (_, i) => r.gridOffset.y + i,
           );
-          void this.plugin.generateHexNotes(this.activeRegionName, [newX], ys);
+          void this.plugin.generateHexNotes(this.activeMapName, [newX], ys);
         },
       },
     ];
@@ -674,7 +674,7 @@ export class HexMapView extends ItemView {
     new TerrainPickerModal(
       this.app,
       this.plugin,
-      this.plugin.getRegionPalette(this.activeRegionName),
+      this.plugin.getMapPalette(this.activeMapName),
       (terrainName: string | null) => {
         this.viewportEl?.removeClass("duckmage-terrain-picking");
         this.drawingMode = "terrain";
@@ -865,8 +865,8 @@ export class HexMapView extends ItemView {
   private async performSwap(pathA: string, pathB: string): Promise<void> {
     const hexBase = normalizeFolder(this.plugin.settings.hexFolder);
     const folder = hexBase
-      ? `${hexBase}/${this.activeRegionName}`
-      : this.activeRegionName;
+      ? `${hexBase}/${this.activeMapName}`
+      : this.activeMapName;
     const tempPath = `${folder}/__swap_tmp.md`;
 
     // Recover from a previous partial swap that left a temp file
@@ -907,8 +907,8 @@ export class HexMapView extends ItemView {
     y2: number,
     isUndoRedo = false,
   ): Promise<void> {
-    const pathA = this.plugin.hexPath(x1, y1, this.activeRegionName);
-    const pathB = this.plugin.hexPath(x2, y2, this.activeRegionName);
+    const pathA = this.plugin.hexPath(x1, y1, this.activeMapName);
+    const pathB = this.plugin.hexPath(x2, y2, this.activeMapName);
 
     // Discard any pending (not-yet-started) writes for the two paths.
     // Without this the flush loop would find no file after the rename and
@@ -1043,7 +1043,7 @@ export class HexMapView extends ItemView {
         if (this.terrainBtnPreview) this.terrainBtnPreview.textContent = "";
         const entry = this.paintTerrainName
           ? this.plugin
-              .getRegionPalette(this.activeRegionName)
+              .getMapPalette(this.activeMapName)
               .find((p) => p.name === this.paintTerrainName)
           : undefined;
         if (entry) {
@@ -1161,7 +1161,7 @@ export class HexMapView extends ItemView {
       /^\d*\.?\d+$/.test(gap) ? `${gap}em` : gap,
     );
 
-    const region = this.getActiveRegion();
+    const region = this.getActiveMap();
 
     // Sync overlay checkboxes and CSS classes to the active region's saved state
     this.overlayPanel?.syncToRegion();
@@ -1170,9 +1170,9 @@ export class HexMapView extends ItemView {
     const { x: ox, y: oy } = region.gridOffset;
     const hexBase = normalizeFolder(this.plugin.settings.hexFolder);
     const folder = hexBase
-      ? `${hexBase}/${this.activeRegionName}`
-      : this.activeRegionName;
-    const palette = this.plugin.getRegionPalette(this.activeRegionName);
+      ? `${hexBase}/${this.activeMapName}`
+      : this.activeMapName;
+    const palette = this.plugin.getMapPalette(this.activeMapName);
     const isFlat = this.plugin.settings.hexOrientation === "flat";
     const gridContainer = this.viewportEl.createDiv({
       cls: `duckmage-hex-map-grid${isFlat ? " duckmage-grid-flat" : ""}`,
@@ -1284,7 +1284,7 @@ export class HexMapView extends ItemView {
       this.plugin,
       x,
       y,
-      this.activeRegionName,
+      this.activeMapName,
       (t, i) => {
         if (t !== undefined || i !== undefined) {
           this.renderGrid(t, i);
@@ -1334,12 +1334,12 @@ export class HexMapView extends ItemView {
         .setTitle("Open note")
         .setIcon("file-text")
         .onClick(async () => {
-          const path = this.plugin.hexPath(x, y, this.activeRegionName);
+          const path = this.plugin.hexPath(x, y, this.activeMapName);
           const existing = this.app.vault.getAbstractFileByPath(path);
           const file =
             existing instanceof TFile
               ? existing
-              : await this.plugin.createHexNote(x, y, this.activeRegionName);
+              : await this.plugin.createHexNote(x, y, this.activeMapName);
           if (file) await this.app.workspace.getLeaf().openFile(file);
         }),
     );
@@ -1419,7 +1419,7 @@ export class HexMapView extends ItemView {
     if (this.terrainPickMode) {
       const sampled = getTerrainFromFile(
         this.app,
-        this.plugin.hexPath(x, y, this.activeRegionName),
+        this.plugin.hexPath(x, y, this.activeMapName),
       );
       this.terrainPickMode = false;
       this.paintTerrainName = sampled;
@@ -1428,7 +1428,7 @@ export class HexMapView extends ItemView {
     }
 
     const terrain = this.paintTerrainName;
-    const palette = this.plugin.getRegionPalette(this.activeRegionName);
+    const palette = this.plugin.getMapPalette(this.activeMapName);
     const entry =
       terrain != null ? palette.find((p) => p.name === terrain) : undefined;
 
@@ -1458,7 +1458,7 @@ export class HexMapView extends ItemView {
       }
 
       // ── Queue background file write (coalescing per-hex) ────────────────
-      const path = this.plugin.hexPath(hx, hy, this.activeRegionName);
+      const path = this.plugin.hexPath(hx, hy, this.activeMapName);
       if (this.currentTerrainStroke) {
         if (!this.currentTerrainStroke.has(path)) {
           const oldTerrain =
@@ -1485,7 +1485,7 @@ export class HexMapView extends ItemView {
   private onHexIconClick(x: number, y: number): void {
     if (this.drawingMode !== "icon") return;
     const icon = this.paintIconName;
-    const path = this.plugin.hexPath(x, y, this.activeRegionName);
+    const path = this.plugin.hexPath(x, y, this.activeMapName);
 
     // ── Immediate visual update ────────────────────────────────────────────
     const hexEl = this.viewportEl?.querySelector<HTMLElement>(
@@ -1512,14 +1512,14 @@ export class HexMapView extends ItemView {
 
   private async onHexTableLinkClick(x: number, y: number): Promise<void> {
     if (this.drawingMode !== "tableLink" || !this.paintTablePath) return;
-    const hexPath = this.plugin.hexPath(x, y, this.activeRegionName);
+    const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
     const tableFile = this.app.vault.getAbstractFileByPath(this.paintTablePath);
     if (!(tableFile instanceof TFile)) return;
 
     // Ensure the hex note exists
     let hexFile = this.app.vault.getAbstractFileByPath(hexPath);
     if (!(hexFile instanceof TFile)) {
-      hexFile = await this.plugin.createHexNote(x, y, this.activeRegionName);
+      hexFile = await this.plugin.createHexNote(x, y, this.activeMapName);
       if (!(hexFile instanceof TFile)) return;
     }
 
@@ -1558,7 +1558,7 @@ export class HexMapView extends ItemView {
 
   private async onHexFactionLinkClick(x: number, y: number): Promise<void> {
     if (this.drawingMode !== "factionLink" || !this.paintFactionPath) return;
-    const hexPath = this.plugin.hexPath(x, y, this.activeRegionName);
+    const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
     const factionFile = this.app.vault.getAbstractFileByPath(
       this.paintFactionPath,
     );
@@ -1566,7 +1566,7 @@ export class HexMapView extends ItemView {
 
     let hexFile = this.app.vault.getAbstractFileByPath(hexPath);
     if (!(hexFile instanceof TFile)) {
-      hexFile = await this.plugin.createHexNote(x, y, this.activeRegionName);
+      hexFile = await this.plugin.createHexNote(x, y, this.activeMapName);
       if (!(hexFile instanceof TFile)) return;
     }
 
@@ -1603,7 +1603,7 @@ export class HexMapView extends ItemView {
     hexEl: HTMLElement,
     terrain: string | null,
   ): void {
-    const palette = this.plugin.getRegionPalette(this.activeRegionName);
+    const palette = this.plugin.getMapPalette(this.activeMapName);
     const entry =
       terrain != null ? palette.find((p) => p.name === terrain) : undefined;
     hexEl.style.backgroundColor = entry?.color ?? "";
@@ -1652,7 +1652,7 @@ export class HexMapView extends ItemView {
     } else if (item.kind === "swap") {
       await this.executeHexSwap(item.x1, item.y1, item.x2, item.y2, true);
     } else {
-      await this.applyPathSnapshot(item.regionName, item.before);
+      await this.applyPathSnapshot(item.mapName, item.before);
     }
     this.updateUndoButton();
   }
@@ -1666,16 +1666,16 @@ export class HexMapView extends ItemView {
     } else if (item.kind === "swap") {
       await this.executeHexSwap(item.x1, item.y1, item.x2, item.y2, true);
     } else {
-      await this.applyPathSnapshot(item.regionName, item.after);
+      await this.applyPathSnapshot(item.mapName, item.after);
     }
     this.updateUndoButton();
   }
 
   private async applyPathSnapshot(
-    regionName: string,
+    mapName: string,
     chains: PathChain[],
   ): Promise<void> {
-    const region = this.plugin.getRegion(regionName);
+    const region = this.plugin.getMap(mapName);
     if (!region) return;
     region.pathChains = this.cloneChains(chains);
     // Clear active chain tracking — the restored state may not match
@@ -1767,7 +1767,7 @@ export class HexMapView extends ItemView {
                   !(await this.plugin.createHexNote(
                     x,
                     y,
-                    this.activeRegionName,
+                    this.activeMapName,
                   ))
                 ) {
                   this.renderGrid();
@@ -1831,7 +1831,7 @@ export class HexMapView extends ItemView {
                   !(await this.plugin.createHexNote(
                     x,
                     y,
-                    this.activeRegionName,
+                    this.activeMapName,
                   ))
                 ) {
                   this.renderGrid();
@@ -1889,11 +1889,11 @@ export class HexMapView extends ItemView {
   }
 
   private pushPathUndo(
-    regionName: string,
+    mapName: string,
     before: PathChain[],
     after: PathChain[],
   ): void {
-    this.undoStack.push({ kind: "path", regionName, before, after });
+    this.undoStack.push({ kind: "path", mapName, before, after });
     if (this.undoStack.length > this.UNDO_DEPTH) this.undoStack.shift();
     this.redoStack = [];
     this.updateUndoButton();
@@ -1902,7 +1902,7 @@ export class HexMapView extends ItemView {
   private async onHexPathDrawClick(x: number, y: number): Promise<void> {
     if (!this.activePathTypeName) return;
     const key = `${x}_${y}`;
-    const region = this.getActiveRegion();
+    const region = this.getActiveMap();
     const chains = region.pathChains.filter(
       (c) => c.typeName === this.activePathTypeName,
     );
@@ -1960,7 +1960,7 @@ export class HexMapView extends ItemView {
 
   private async onHexPathDeleteClick(x: number, y: number): Promise<void> {
     const key = `${x}_${y}`;
-    const region = this.getActiveRegion();
+    const region = this.getActiveMap();
     const chains = this.activePathTypeName
       ? region.pathChains.filter((c) => c.typeName === this.activePathTypeName)
       : region.pathChains;
@@ -2024,7 +2024,7 @@ export class HexMapView extends ItemView {
         img.removeAttribute("data-svg-elevated");
       });
 
-    const region = this.getActiveRegion();
+    const region = this.getActiveMap();
     const hasContent =
       region.pathChains.some((c) => c.hexes.length > 0) ||
       this.activePathEnd !== null;

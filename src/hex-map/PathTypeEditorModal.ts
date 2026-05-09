@@ -127,7 +127,7 @@ export class PathTypeEditorModal extends HexmakerModal {
 		deleteBtn.addEventListener("click", () => {
 			if (confirmDiv) { confirmDiv.remove(); confirmDiv = null; return; }
 
-			const chainCount = this.plugin.settings.regions.reduce(
+			const chainCount = this.plugin.settings.maps.reduce(
 				(sum, r) => sum + r.pathChains.filter(c => c.typeName === this.originalName).length,
 				0,
 			);
@@ -174,7 +174,7 @@ export class PathTypeEditorModal extends HexmakerModal {
 
 		// If name changed, update all pathChain typeName refs
 		if (nameChanged) {
-			for (const region of this.plugin.settings.regions) {
+			for (const region of this.plugin.settings.maps) {
 				for (const chain of region.pathChains) {
 					if (chain.typeName === this.originalName) chain.typeName = this.pendingName;
 				}
@@ -194,7 +194,7 @@ export class PathTypeEditorModal extends HexmakerModal {
 		if (idx !== -1) this.plugin.settings.pathTypes.splice(idx, 1);
 
 		// Remove all matching chains
-		for (const region of this.plugin.settings.regions) {
+		for (const region of this.plugin.settings.maps) {
 			region.pathChains = region.pathChains.filter(c => c.typeName !== this.originalName);
 		}
 

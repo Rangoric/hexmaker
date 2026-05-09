@@ -39,7 +39,7 @@ export class HexEditorModal extends HexmakerModal {
     private plugin: HexmakerPlugin,
     private x: number,
     private y: number,
-    private regionName: string,
+    private mapName: string,
     private onChanged: (
       terrainOverrides?: Map<string, string | null>,
       iconOverrides?: Map<string, string | null>,
@@ -58,7 +58,7 @@ export class HexEditorModal extends HexmakerModal {
     this.directTerrain = null;
     this.directIcon = null;
 
-    const path = this.plugin.hexPath(this.x, this.y, this.regionName);
+    const path = this.plugin.hexPath(this.x, this.y, this.mapName);
     const file = this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) return;
     this.hexExists = true;
@@ -86,7 +86,7 @@ export class HexEditorModal extends HexmakerModal {
     contentEl.empty();
     contentEl.addClass("duckmage-hex-editor");
 
-    const path = this.plugin.hexPath(this.x, this.y, this.regionName);
+    const path = this.plugin.hexPath(this.x, this.y, this.mapName);
 
     // ── Static header — rendered immediately, no data needed ─────────────
     const titleRow = contentEl.createDiv({ cls: "duckmage-editor-title-row" });
@@ -152,7 +152,7 @@ export class HexEditorModal extends HexmakerModal {
     );
     const paletteEntry = directTerrain
       ? this.plugin
-          .getRegionPalette(this.regionName)
+          .getMapPalette(this.mapName)
           .find((p) => p.name === directTerrain)
       : undefined;
     const iconToShow = directIcon ?? paletteEntry?.icon;
@@ -258,7 +258,7 @@ export class HexEditorModal extends HexmakerModal {
   }
 
   private isOnMap(nx: number, ny: number): boolean {
-    const region = this.plugin.getOrCreateRegion(this.regionName);
+    const region = this.plugin.getOrCreateMap(this.mapName);
     const { gridOffset, gridSize } = region;
     return (
       nx >= gridOffset.x &&
@@ -275,7 +275,7 @@ export class HexEditorModal extends HexmakerModal {
   ): void {
     const isFlat = this.plugin.settings.hexOrientation === "flat";
     const paletteMap = new Map(
-      this.plugin.getRegionPalette(this.regionName).map((p) => [p.name, p]),
+      this.plugin.getMapPalette(this.mapName).map((p) => [p.name, p]),
     );
     const widget = container.createDiv({ cls: "duckmage-neighbor-widget" });
 
@@ -307,7 +307,7 @@ export class HexEditorModal extends HexmakerModal {
 
       if (onMap) {
         tile.title = `Hex ${nx}, ${ny}`;
-        const nPath = this.plugin.hexPath(nx, ny, this.regionName);
+        const nPath = this.plugin.hexPath(nx, ny, this.mapName);
         const terrain = getTerrainFromFile(this.app, nPath);
         const entry = terrain ? paletteMap.get(terrain) : undefined;
         if (entry) tile.setCssProps({ "background-color": entry.color });
@@ -364,7 +364,7 @@ export class HexEditorModal extends HexmakerModal {
     currentTerrain: string | null,
     currentIcon: string | null,
   ): void {
-    const palette = this.plugin.getRegionPalette(this.regionName);
+    const palette = this.plugin.getMapPalette(this.mapName);
 
     const section = container.createDiv({ cls: "duckmage-editor-section" });
 
@@ -943,9 +943,9 @@ export class HexEditorModal extends HexmakerModal {
   }
 
   private async ensureHexNote(): Promise<TFile | null> {
-    const path = this.plugin.hexPath(this.x, this.y, this.regionName);
+    const path = this.plugin.hexPath(this.x, this.y, this.mapName);
     const existing = this.app.vault.getAbstractFileByPath(path);
     if (existing instanceof TFile) return existing;
-    return this.plugin.createHexNote(this.x, this.y, this.regionName);
+    return this.plugin.createHexNote(this.x, this.y, this.mapName);
   }
 }

@@ -66,25 +66,25 @@ export class HexmakerSettingTab extends PluginSettingTab {
               }
             }
             await this.plugin.saveSettings();
-            // Ensure all region subfolders exist and generate hex notes
+            // Ensure all map subfolders exist and generate hex notes
             const hexF = normalizeFolder(this.plugin.settings.hexFolder);
             if (hexF) {
               let totalCreated = 0;
-              for (const region of this.plugin.settings.regions) {
-                const regionFolder = `${hexF}/${region.name}`;
-                if (!this.app.vault.getAbstractFileByPath(regionFolder)) {
+              for (const map of this.plugin.settings.maps) {
+                const mapFolder = `${hexF}/${map.name}`;
+                if (!this.app.vault.getAbstractFileByPath(mapFolder)) {
                   try {
-                    await this.app.vault.createFolder(regionFolder);
+                    await this.app.vault.createFolder(mapFolder);
                   } catch {
                     /* exists */
                   }
                 }
-                const { cols, rows } = region.gridSize;
-                const { x: ox, y: oy } = region.gridOffset;
+                const { cols, rows } = map.gridSize;
+                const { x: ox, y: oy } = map.gridOffset;
                 const xs = Array.from({ length: cols }, (_, i) => ox + i);
                 const ys = Array.from({ length: rows }, (_, i) => oy + i);
                 totalCreated += await this.plugin.generateHexNotes(
-                  region.name,
+                  map.name,
                   xs,
                   ys,
                 );
@@ -305,20 +305,20 @@ export class HexmakerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Default region")
-      .setDesc("The region opened when the hex map is launched.")
+      .setName("Default map")
+      .setDesc("The map opened when the hex map is launched.")
       .addDropdown((dropdown) => {
-        for (const r of this.plugin.settings.regions) {
+        for (const r of this.plugin.settings.maps) {
           dropdown.addOption(r.name, r.name);
         }
         dropdown
           .setValue(
-            this.plugin.settings.defaultRegion ??
-              this.plugin.settings.regions[0]?.name ??
+            this.plugin.settings.defaultMap ??
+              this.plugin.settings.maps[0]?.name ??
               "",
           )
           .onChange(async (value) => {
-            this.plugin.settings.defaultRegion = value;
+            this.plugin.settings.defaultMap = value;
             await this.plugin.saveSettings();
           });
       });
@@ -432,7 +432,7 @@ export class HexmakerSettingTab extends PluginSettingTab {
 
       for (let i = 0; i < palettes.length; i++) {
         const pal = palettes[i];
-        const usedBy = this.plugin.settings.regions.filter(
+        const usedBy = this.plugin.settings.maps.filter(
           (r) => r.paletteName === pal.name,
         ).length;
         const rowEl = listEl.createDiv({ cls: "duckmage-palette-mgmt-row" });
@@ -458,8 +458,8 @@ export class HexmakerSettingTab extends PluginSettingTab {
               nameInput.value = pal.name;
               return;
             }
-            // Update any regions using this palette
-            for (const r of this.plugin.settings.regions) {
+            // Update any maps using this palette
+            for (const r of this.plugin.settings.maps) {
               if (r.paletteName === pal.name) r.paletteName = trimmed;
             }
             pal.name = trimmed;

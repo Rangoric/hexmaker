@@ -44,8 +44,8 @@ export class HexTerrainPickerModal extends HexmakerModal {
             const relative = hexFolder
               ? this.hexPath.slice(hexFolder.length + 1)
               : this.hexPath;
-            const regionName = relative.split("/")[0];
-            await this.plugin.createHexNote(hx, hy, regionName);
+            const mapName = relative.split("/")[0];
+            await this.plugin.createHexNote(hx, hy, mapName);
           }
           await setTerrainInFile(this.app, this.hexPath, entry.name);
           this.onPicked();

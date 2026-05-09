@@ -1,6 +1,6 @@
 import { setIcon } from "obsidian";
 import type HexmakerPlugin from "../HexmakerPlugin";
-import type { RegionData } from "../types";
+import type { MapData } from "../types";
 
 // ── Abstract base ────────────────────────────────────────────────────────────
 
@@ -95,19 +95,19 @@ const OVERLAY_OPTIONS: OverlayOption[] = [
 export class OverlayPanel extends HexSidePanel {
   private plugin: HexmakerPlugin;
   private getViewportEl: () => HTMLElement | null;
-  private getActiveRegion: () => RegionData;
+  private getActiveMap: () => MapData;
   private checkboxes = new Map<OverlayKey, HTMLInputElement>();
 
   constructor(
     container: HTMLElement,
     plugin: HexmakerPlugin,
     getViewportEl: () => HTMLElement | null,
-    getActiveRegion: () => RegionData,
+    getActiveMap: () => MapData,
   ) {
     super(container, "layers", 44, "Map overlays");
     this.plugin = plugin;
     this.getViewportEl = getViewportEl;
-    this.getActiveRegion = getActiveRegion;
+    this.getActiveMap = getActiveMap;
     this.buildPanel(this.panelEl);
   }
 
@@ -124,7 +124,7 @@ export class OverlayPanel extends HexSidePanel {
       const label = row.createSpan({ text: opt.label, cls: "duckmage-overlay-label" });
 
       const apply = () => {
-        const region = this.getActiveRegion();
+        const region = this.getActiveMap();
         region[opt.key] = cb.checked;
         void this.plugin.saveSettings();
         this.applyClass(opt, cb.checked);
@@ -140,7 +140,7 @@ export class OverlayPanel extends HexSidePanel {
 
   /** Read the current region's saved state and apply it to the viewport + checkboxes. */
   syncToRegion(): void {
-    const region = this.getActiveRegion();
+    const region = this.getActiveMap();
     for (const opt of OVERLAY_OPTIONS) {
       // undefined → true (backwards compat)
       const value = region[opt.key];
