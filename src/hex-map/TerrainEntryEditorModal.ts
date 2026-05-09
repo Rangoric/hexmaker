@@ -1,4 +1,4 @@
-import { App, Setting, TFile } from "obsidian";
+import { App, Notice, Setting, TFile } from "obsidian";
 import { HexmakerModal } from "../HexmakerModal";
 import type HexmakerPlugin from "../HexmakerPlugin";
 import type { TerrainColor } from "../types";
@@ -127,8 +127,12 @@ export class TerrainEntryEditorModal extends HexmakerModal {
 
 		const saveBtn = btnRow.createEl("button", { cls: "mod-cta", text: "Save" });
 		saveBtn.addEventListener("click", () => {
-			this.savedOrDeleted = true;
 			const nameChanged = this.pendingName !== this.originalName;
+			if (nameChanged && this.palette.some(e => e !== this.entry && e.name === this.pendingName)) {
+				new Notice(`A terrain named "${this.pendingName}" already exists in this palette.`);
+				return;
+			}
+			this.savedOrDeleted = true;
 			saveBtn.disabled = true;
 			saveBtn.setText(nameChanged ? "Updating hexes…" : "Saving…");
 			void this.doSave().then(() => this.close());

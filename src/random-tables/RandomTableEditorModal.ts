@@ -434,9 +434,13 @@ export class RandomTableEditorModal extends HexmakerModal {
     folderInput.placeholder = "World/towns (leave blank for none)";
 
     // ── Filter settings ───────────────────────────────────────────────
+    // Terrain description/encounter tables manage these flags programmatically — hide UI.
+    const isSystemTable = /^table-type:/m.test(frontmatter);
     const filterSection = contentEl.createDiv({
       cls: "duckmage-table-editor-filter-section",
     });
+    if (isSystemTable) filterSection.hide();
+
     const rollFilterRow = filterSection.createDiv({
       cls: "duckmage-table-editor-filter-row",
     });
