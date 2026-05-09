@@ -23,9 +23,10 @@ export default defineConfig([
     },
     // You can add your own configuration to override or add rules
     rules: {
-      // example: turn off a rule from the recommended set
       "obsidianmd/sample-names": "off",
       "obsidianmd/ui/sentence-case": ["warn", { allowAutoFix: true }],
+      // Allow console.warn/error for genuine error reporting; block debug console.log
+      "no-console": ["warn", { allow: ["warn", "error"] }],
     },
   },
 ]);
