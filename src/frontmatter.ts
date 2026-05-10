@@ -43,6 +43,28 @@ export async function setTerrainInFile(
   return true;
 }
 
+export function getFactionColorFromFile(app: App, path: string): string | null {
+  const color = getFrontMatter(app, path)?.["faction-color"];
+  return typeof color === "string" ? color : null;
+}
+
+export async function setFactionColorInFile(
+  app: App,
+  path: string,
+  color: string | null,
+): Promise<boolean> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return false;
+  await app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+    if (color === null) {
+      delete fm["faction-color"];
+    } else {
+      fm["faction-color"] = color;
+    }
+  });
+  return true;
+}
+
 export function getIconOverrideFromFile(app: App, path: string): string | null {
   const icon = getFrontMatter(app, path)?.icon;
   return typeof icon === "string" ? icon : null;

@@ -143,6 +143,15 @@
     z-index: 5;
 }
 
+/* SVG overlay for faction color fills — sits below paths */
+.duckmage-faction-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 4;
+}
+
 /* ── Pointy-top row layout ────────────────────────────────────────────────── */
 
 .duckmage-hex-row {
@@ -3195,4 +3204,150 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
     border-radius: 3px;
     flex-shrink: 0;
     border: 1px solid var(--background-modifier-border);
+}
+
+/* ── Faction picker modal ──────────────────────────────────────────────────── */
+
+.duckmage-faction-picker {
+    min-width: 320px;
+}
+
+.duckmage-faction-picker-empty {
+    color: var(--text-muted);
+    font-style: italic;
+    padding: 8px 0;
+}
+
+/* Hidden native color picker — triggered via .click() */
+.duckmage-faction-color-input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+/* Palette grid */
+.duckmage-faction-palette {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 6px;
+    padding: 4px 0;
+}
+
+.duckmage-faction-tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 4px 4px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: border-color 0.1s, background 0.1s;
+}
+
+.duckmage-faction-tile:hover {
+    background: var(--background-modifier-hover);
+    border-color: var(--color-accent);
+}
+
+.duckmage-faction-tile-preview {
+    width: 48px;
+    height: 48px;
+    border-radius: 4px;
+    border: 1px solid var(--background-modifier-border);
+}
+
+/* Empty / no-color state: diagonal stripe */
+.duckmage-faction-tile-preview-empty {
+    background:
+        linear-gradient(
+            to bottom right,
+            transparent calc(50% - 1px),
+            var(--background-modifier-border) calc(50% - 1px),
+            var(--background-modifier-border) calc(50% + 1px),
+            transparent calc(50% + 1px)
+        ),
+        var(--background-secondary);
+}
+
+.duckmage-faction-tile-name {
+    font-size: 0.75em;
+    text-align: center;
+    word-break: break-word;
+    max-width: 100%;
+    color: var(--text-normal);
+    line-height: 1.2;
+}
+
+/* Edit button — top-right corner, appears on hover */
+.duckmage-faction-tile-edit {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    font-size: 0.7em;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 3px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.1s;
+    z-index: 1;
+}
+
+.duckmage-faction-tile:hover .duckmage-faction-tile-edit {
+    opacity: 1;
+}
+
+/* Faction editor sub-modal */
+.duckmage-faction-editor-header {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+.duckmage-faction-editor-open-btn {
+    font-size: 0.85em;
+    padding: 2px 8px;
+    cursor: pointer;
+}
+
+.duckmage-faction-editor-desc {
+    margin-bottom: 12px;
+    padding: 8px 10px;
+    background: var(--background-secondary);
+    border-radius: 4px;
+}
+
+.duckmage-faction-editor-desc-label {
+    display: block;
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.duckmage-faction-editor-desc-text {
+    margin: 0;
+    font-size: 0.88em;
+    line-height: 1.5;
+    color: var(--text-normal);
+    white-space: pre-wrap;
+}
+
+.duckmage-faction-editor-btns {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    justify-content: flex-end;
 }

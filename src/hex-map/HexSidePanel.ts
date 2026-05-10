@@ -96,18 +96,22 @@ export class OverlayPanel extends HexSidePanel {
   private plugin: HexmakerPlugin;
   private getViewportEl: () => HTMLElement | null;
   private getActiveMap: () => MapData;
+  private onFactionOverlayChange: (show: boolean) => void;
   private checkboxes = new Map<OverlayKey, HTMLInputElement>();
+  private factionOverlayCb: HTMLInputElement | null = null;
 
   constructor(
     container: HTMLElement,
     plugin: HexmakerPlugin,
     getViewportEl: () => HTMLElement | null,
     getActiveMap: () => MapData,
+    onFactionOverlayChange: (show: boolean) => void,
   ) {
     super(container, "layers", 44, "Map overlays");
     this.plugin = plugin;
     this.getViewportEl = getViewportEl;
     this.getActiveMap = getActiveMap;
+    this.onFactionOverlayChange = onFactionOverlayChange;
     this.buildPanel(this.panelEl);
   }
 
@@ -136,18 +140,50 @@ export class OverlayPanel extends HexSidePanel {
         apply();
       });
     }
+
+    // Faction overlay — triggers a re-render rather than a CSS class toggle
+    const factionRow = panel.createDiv({ cls: "duckmage-overlay-row" });
+    const factionCb = document.createElement("input");
+    factionCb.type = "checkbox";
+    factionCb.checked = false; // default — refreshed in syncToRegion()
+    factionRow.appendChild(factionCb);
+    this.factionOverlayCb = factionCb;
+
+    const factionLabel = factionRow.createSpan({
+      text: "Faction overlay",
+      cls: "duckmage-overlay-label",
+    });
+
+    const applyFaction = () => {
+      const map = this.getActiveMap();
+      map.showFactionOverlay = factionCb.checked;
+      void this.plugin.saveSettings();
+      this.onFactionOverlayChange(factionCb.checked);
+    };
+
+    factionCb.addEventListener("change", applyFaction);
+    factionLabel.addEventListener("click", () => {
+      factionCb.checked = !factionCb.checked;
+      applyFaction();
+    });
   }
 
-  /** Read the current region's saved state and apply it to the viewport + checkboxes. */
+  /** Read the current map's saved state and apply it to the viewport + checkboxes. */
   syncToRegion(): void {
-    const region = this.getActiveMap();
+    const map = this.getActiveMap();
     for (const opt of OVERLAY_OPTIONS) {
       // undefined → true (backwards compat)
-      const value = region[opt.key];
+      const value = map[opt.key];
       const show = value === undefined ? true : Boolean(value);
       const cb = this.checkboxes.get(opt.key);
       if (cb) cb.checked = show;
       this.applyClass(opt, show);
+    }
+    // Faction overlay — undefined → false (opt-in)
+    if (this.factionOverlayCb) {
+      const show = map.showFactionOverlay ?? false;
+      this.factionOverlayCb.checked = show;
+      this.onFactionOverlayChange(show);
     }
   }
 

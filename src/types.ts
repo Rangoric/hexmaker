@@ -23,6 +23,7 @@ export interface MapData {
 	showCoords?: boolean;        // undefined = true (backwards-compatible)
 	showTerrainIcons?: boolean;  // undefined = true
 	showIconOverrides?: boolean; // undefined = true
+	showFactionOverlay?: boolean; // undefined = false (opt-in)
 }
 
 export interface TerrainPalette {

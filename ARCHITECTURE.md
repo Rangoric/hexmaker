@@ -31,7 +31,7 @@ The clip/controls separation ensures toolbar buttons are never hidden by the vie
 | Terrain | `"terrain"` | `TerrainPickerModal` | frontmatter `terrain:` |
 | Icon | `"icon"` | `IconPickerModal` | frontmatter `icon:` |
 | Link Table | `"tableLink"` | `TablePickerModal` | `### Encounters Table` |
-| Link Faction | `"factionLink"` | `FactionPickerModal` | `### Factions` |
+| Factions | `"factionLink"` | `FactionPickerModal` | `### Factions` |
 
 **Tool lifecycle** (standard pattern):
 1. Button click → `handle*Button()` opens picker modal

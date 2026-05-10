@@ -30,7 +30,7 @@ Opens the icon palette. Select an icon to enter paint mode, then left-click hexe
 ### Link table
 Opens a folder-tree picker scoped to your Tables folder. Select a random-encounter table, then left-click hexes to link that table into each hex's **Encounters Table** section.
 
-### Link faction
+### Factions
 Opens a folder-tree picker scoped to your Factions folder. Select a faction note, then left-click hexes to link it into each hex's **Factions** section.
 
 ### Swap

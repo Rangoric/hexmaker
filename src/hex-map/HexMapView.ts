@@ -11,7 +11,8 @@ import {
 import { HexEditorModal } from "./HexEditorModal";
 import { TerrainPickerModal } from "./TerrainPickerModal";
 import { IconPickerModal } from "./IconPickerModal";
-import { addLinkToSection, getLinksInSection } from "../sections";
+import { addLinkToSection, getLinksInSection, removeLinkFromSection } from "../sections";
+import { getFactionColorFromFile } from "../frontmatter";
 import {
   VIEW_TYPE_HEX_MAP,
   VIEW_TYPE_HEX_TABLE,
@@ -30,6 +31,7 @@ import {
 import { GotoHexModal } from "./GotoHexModal";
 import { HexHelpModal } from "./HexHelpModal";
 import { FolderTreePickerModal } from "./FolderTreePickerModal";
+import { FactionPickerModal } from "./FactionPickerModal";
 import { DrawingToolPanel, OverlayPanel } from "./HexSidePanel";
 
 type TerrainUndoEntry = {
@@ -101,6 +103,10 @@ export class HexMapView extends ItemView {
     { x: number; y: number; icon: string | null }
   >();
   private flushing = new Set<string>(); // "t:<path>" or "i:<path>"
+  // Faction links painted but not yet reflected in the metadata cache
+  private pendingFactionLinks = new Map<string, Set<string>>();
+  // Faction links erased but cache may still reflect them — excluded from overlay
+  private erasedFactionLinks = new Map<string, Set<string>>();
   private savingIndicatorEl: HTMLElement | null = null;
   // Undo / redo
   private readonly UNDO_DEPTH = 20;
@@ -213,7 +219,7 @@ export class HexMapView extends ItemView {
         return;
       }
       if (e.button !== 0) return;
-      if (this.drawingMode === "terrain" || this.drawingMode === "icon") {
+      if (this.drawingMode === "terrain" || this.drawingMode === "icon" || this.drawingMode === "factionLink") {
         isTerrainPainting = true;
         lastPaintedKey = null;
         if (this.drawingMode === "terrain")
@@ -227,12 +233,13 @@ export class HexMapView extends ItemView {
           const y = Number(hexEl.dataset.y);
           lastPaintedKey = `${x}_${y}`;
           if (this.drawingMode === "terrain") this.onHexPaintClick(x, y);
-          else this.onHexIconClick(x, y);
+          else if (this.drawingMode === "icon") this.onHexIconClick(x, y);
+          else void this.onHexFactionPaintClick(x, y);
           hasDragged = true; // suppress the subsequent click event
         }
         return; // skip pan setup
       }
-      // Any other active tool (road, river, tableLink, factionLink, swap):
+      // Any other active tool (road, river, tableLink, swap):
       // let the click event handle it — don't set up drag/pan so hasDragged
       // never swallows the click.
       if (this.drawingMode !== null) return;
@@ -260,6 +267,7 @@ export class HexMapView extends ItemView {
             lastPaintedKey = key;
             if (this.drawingMode === "terrain") this.onHexPaintClick(x, y);
             else if (this.drawingMode === "icon") this.onHexIconClick(x, y);
+            else void this.onHexFactionPaintClick(x, y);
           }
           this.updateBrushHighlight(x, y);
         } else {
@@ -334,7 +342,7 @@ export class HexMapView extends ItemView {
         }
         if (this.drawingMode === null) return;
         const onHex = (e.target as HTMLElement).closest(".duckmage-hex");
-        if (onHex && this.drawingMode === "path") return;
+        if (onHex && (this.drawingMode === "path" || this.drawingMode === "factionLink")) return;
         e.preventDefault();
         e.stopPropagation();
         const now = Date.now();
@@ -482,6 +490,7 @@ export class HexMapView extends ItemView {
       this.plugin,
       () => this.viewportEl,
       () => this.getActiveMap(),
+      (show) => { if (show) this.updateFactionOverlay(); else this.clearFactionOverlay(); },
     );
     toolsPanel.onBeforeOpen = () => this.overlayPanel?.close();
     this.overlayPanel.onBeforeOpen = () => toolsPanel.close();
@@ -491,6 +500,24 @@ export class HexMapView extends ItemView {
       cls: "duckmage-saving-indicator",
       text: "Saving…",
     });
+
+    this.registerEvent(
+      this.app.metadataCache.on("changed", (file) => {
+        // Clear stale pending/erased entries for hex files
+        this.pendingFactionLinks.delete(file.path);
+        this.erasedFactionLinks.delete(file.path);
+
+        // If a faction file's metadata changed (e.g. color edited), refresh the
+        // overlay now that the cache is guaranteed to have the new frontmatter.
+        if (this.getActiveMap().showFactionOverlay) {
+          const folder = normalizeFolder(this.plugin.settings.factionsFolder);
+          const isFactionFile =
+            !file.basename.startsWith("_") &&
+            (folder ? file.path.startsWith(folder + "/") : true);
+          if (isFactionFile) this.updateFactionOverlay();
+        }
+      }),
+    );
 
     this.renderGrid();
     return Promise.resolve();
@@ -652,7 +679,7 @@ export class HexMapView extends ItemView {
       cls: "duckmage-draw-btn duckmage-draw-btn-tablelink",
     });
     this.factionLinkBtnLabel = this.factionLinkBtn.createSpan({
-      text: "Link faction",
+      text: "Factions",
     });
     this.factionLinkBtn.addEventListener("click", () =>
       this.handleFactionLinkButton(),
@@ -760,20 +787,11 @@ export class HexMapView extends ItemView {
   }
 
   private handleFactionLinkButton(): void {
-    if (this.drawingMode === "factionLink") { this.exitFactionLinkMode(); return; }
-    new FolderTreePickerModal(
-      this.app,
-      this.plugin,
-      this.plugin.settings.factionsFolder,
-      "Select faction",
-      "Filter factions…",
-      "No factions found.",
-      (file) => {
-        this.drawingMode = "factionLink";
-        this.paintFactionPath = file.path;
-        this.updateToolbarButtonStates();
-      },
-    ).open();
+    new FactionPickerModal(this.app, this.plugin, (filePath) => {
+      this.drawingMode = "factionLink";
+      this.paintFactionPath = filePath;
+      this.updateToolbarButtonStates();
+    }).open();
   }
 
   private exitFactionLinkMode(): void {
@@ -1094,7 +1112,7 @@ export class HexMapView extends ItemView {
           "Faction";
         this.factionLinkBtnLabel.setText("Link: " + name);
       } else {
-        this.factionLinkBtnLabel.setText("Link faction");
+        this.factionLinkBtnLabel.setText("Factions");
       }
     }
   }
@@ -1275,6 +1293,7 @@ export class HexMapView extends ItemView {
     }
 
     this.renderPathOverlay(gridContainer);
+    this.renderFactionOverlay(gridContainer);
   }
 
   private openHexEditorModal(x: number, y: number): void {
@@ -1311,6 +1330,10 @@ export class HexMapView extends ItemView {
     evt.preventDefault();
     if (this.drawingMode === "path") {
       void this.onHexPathDeleteClick(x, y);
+      return;
+    }
+    if (this.drawingMode === "factionLink") {
+      void this.onHexFactionEraseClick(x, y);
       return;
     }
     if (this.drawingMode === "swap") {
@@ -1372,10 +1395,6 @@ export class HexMapView extends ItemView {
     }
     if (this.drawingMode === "tableLink") {
       await this.onHexTableLinkClick(x, y);
-      return;
-    }
-    if (this.drawingMode === "factionLink") {
-      await this.onHexFactionLinkClick(x, y);
       return;
     }
     if (this.drawingMode === "swap") {
@@ -1556,40 +1575,66 @@ export class HexMapView extends ItemView {
     }
   }
 
-  private async onHexFactionLinkClick(x: number, y: number): Promise<void> {
+  private async onHexFactionPaintClick(x: number, y: number): Promise<void> {
     if (this.drawingMode !== "factionLink" || !this.paintFactionPath) return;
     const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
-    const factionFile = this.app.vault.getAbstractFileByPath(
-      this.paintFactionPath,
-    );
+    const factionFile = this.app.vault.getAbstractFileByPath(this.paintFactionPath);
     if (!(factionFile instanceof TFile)) return;
 
+    const factionBasename = factionFile.basename;
+
+    // Skip silently if already painted (pending or cache both use basenames now)
+    if (this.getFactionLinksFromCache(hexPath).includes(factionBasename)) return;
+
+    // Update the overlay IMMEDIATELY (synchronous) — no awaits before this point
+    // If this faction was previously erased (still in cache), un-erase it
+    this.erasedFactionLinks.get(hexPath)?.delete(factionBasename);
+    const pending = this.pendingFactionLinks.get(hexPath) ?? new Set<string>();
+    pending.add(factionBasename);
+    this.pendingFactionLinks.set(hexPath, pending);
+    if (this.getActiveMap().showFactionOverlay) this.updateFactionOverlay();
+
+    // Create hex note if it doesn't exist yet
     let hexFile = this.app.vault.getAbstractFileByPath(hexPath);
     if (!(hexFile instanceof TFile)) {
       hexFile = await this.plugin.createHexNote(x, y, this.activeMapName);
-      if (!(hexFile instanceof TFile)) return;
+      if (!(hexFile instanceof TFile)) {
+        // Note creation failed — revert pending entry
+        this.pendingFactionLinks.get(hexPath)?.delete(factionBasename);
+        return;
+      }
     }
-
-    const target = this.app.metadataCache.fileToLinktext(factionFile, hexPath);
-    const linkText = `[[${target}]]`;
-    const existing = await getLinksInSection(this.app, hexPath, "Factions");
-    if (existing.includes(target)) {
-      new Notice(`Already linked on ${x},${y}`);
-      return;
-    }
-
-    await addLinkToSection(this.app, hexPath, "Factions", linkText);
 
     const hexEl = this.viewportEl?.querySelector<HTMLElement>(
       `[data-x="${x}"][data-y="${y}"]`,
     );
-    if (hexEl) {
-      hexEl.addClass("duckmage-hex-exists");
-      const blip = hexEl.createSpan({ cls: "duckmage-hex-blip" });
-      blip.addEventListener("animationend", () => blip.remove(), {
-        once: true,
-      });
-    }
+    if (hexEl) hexEl.addClass("duckmage-hex-exists");
+
+    // Write the link in the background — addLinkToSection deduplicates internally
+    const target = this.app.metadataCache.fileToLinktext(factionFile, hexPath);
+    await addLinkToSection(this.app, hexPath, "Factions", `[[${target}]]`);
+  }
+
+  private async onHexFactionEraseClick(x: number, y: number): Promise<void> {
+    if (!this.paintFactionPath) return;
+    const factionFile = this.app.vault.getAbstractFileByPath(this.paintFactionPath);
+    if (!(factionFile instanceof TFile)) return;
+
+    const factionBasename = factionFile.basename;
+    const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
+
+    if (!this.getFactionLinksFromCache(hexPath).includes(factionBasename)) return;
+
+    // Update overlay immediately (synchronous): remove from pending, add to erased
+    this.pendingFactionLinks.get(hexPath)?.delete(factionBasename);
+    const erased = this.erasedFactionLinks.get(hexPath) ?? new Set<string>();
+    erased.add(factionBasename);
+    this.erasedFactionLinks.set(hexPath, erased);
+    if (this.getActiveMap().showFactionOverlay) this.updateFactionOverlay();
+
+    // Remove from file in the background
+    const target = this.app.metadataCache.fileToLinktext(factionFile, hexPath);
+    await removeLinkFromSection(this.app, hexPath, "Factions", target);
   }
 
   // ── Per-hex coalescing write queues ────────────────────────────────────────
@@ -2208,5 +2253,166 @@ export class HexMapView extends ItemView {
       return;
     }
     this.renderPathOverlay(gridContainer);
+  }
+
+  private updateFactionOverlay(): void {
+    const gridContainer = this.viewportEl?.querySelector<HTMLElement>(
+      ".duckmage-hex-map-grid",
+    );
+    if (gridContainer) this.renderFactionOverlay(gridContainer);
+  }
+
+  private clearFactionOverlay(): void {
+    this.viewportEl?.querySelector("svg.duckmage-faction-svg")?.remove();
+  }
+
+  private renderFactionOverlay(gridContainer: HTMLElement): void {
+    this.viewportEl?.querySelector("svg.duckmage-faction-svg")?.remove();
+    if (!this.getActiveMap().showFactionOverlay) return;
+
+    // Gather hex centers (same pattern as renderPathOverlay)
+    const hexEls = Array.from(
+      gridContainer.querySelectorAll<HTMLElement>(".duckmage-hex"),
+    );
+    if (hexEls.length === 0) return;
+
+    let hexW = 0, hexH = 0;
+    let gapPx = 0;
+    const centerMap = new Map<string, { cx: number; cy: number }>();
+    for (const hexEl of hexEls) {
+      if (hexW === 0) {
+        hexW = hexEl.offsetWidth;
+        hexH = hexEl.offsetHeight;
+        // Read the actual computed margin so polygons expand to cover the gap
+        gapPx = parseFloat(window.getComputedStyle(hexEl).marginTop) || 0;
+      }
+      let ox = hexEl.offsetWidth / 2, oy = hexEl.offsetHeight / 2;
+      let cur: HTMLElement | null = hexEl;
+      while (cur && cur !== this.viewportEl) {
+        ox += cur.offsetLeft;
+        oy += cur.offsetTop;
+        cur = cur.offsetParent as HTMLElement | null;
+      }
+      centerMap.set(`${hexEl.dataset.x}_${hexEl.dataset.y}`, { cx: ox, cy: oy });
+    }
+
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.classList.add("duckmage-faction-svg");
+    const w = gridContainer.offsetLeft + gridContainer.offsetWidth + 20;
+    const h = gridContainer.offsetTop + gridContainer.offsetHeight + 20;
+    svg.setAttribute("width", String(w));
+    svg.setAttribute("height", String(h));
+
+    const isFlat = this.plugin.settings.hexOrientation === "flat";
+    const W = hexW, H = hexH;
+    // Circumradius: for flat-top = W/2, for pointy-top = H/2
+    const r = isFlat ? W / 2 : H / 2;
+    // Expand polygons by gapPx so adjacent same-faction hexes merge seamlessly
+    const scale = r > 0 ? (r + gapPx) / r : 1;
+
+    const hexPolygonPoints = (cx: number, cy: number): string => {
+      const pts = isFlat
+        ? [ [-W/4, -H/2], [W/4, -H/2], [W/2, 0], [W/4, H/2], [-W/4, H/2], [-W/2, 0] ]
+        : [ [0, -H/2], [W/2, -H/4], [W/2, H/4], [0, H/2], [-W/2, H/4], [-W/2, -H/4] ];
+      return pts
+        .map(([dx, dy]) => `${cx + dx * scale},${cy + dy * scale}`)
+        .join(" ");
+    };
+
+    // Build faction color map from all faction notes (metadata cache — no file reads)
+    const folder = normalizeFolder(this.plugin.settings.factionsFolder);
+    const factionColorMap = new Map<string, string>();
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      if (folder && !f.path.startsWith(folder + "/")) continue;
+      const color = getFactionColorFromFile(this.app, f.path);
+      if (color) factionColorMap.set(f.basename, color);
+    }
+
+    // Group polygons by faction so group-level opacity composites them together —
+    // overlapping expanded polygons from adjacent hexes don't double-darken.
+    const factionGroups = new Map<string, SVGGElement>();
+    const getFactionGroup = (color: string): SVGGElement => {
+      if (factionGroups.has(color)) return factionGroups.get(color)!;
+      const g = document.createElementNS(svgNS, "g") as SVGGElement;
+      g.setAttribute("opacity", "0.45");
+      svg.appendChild(g);
+      factionGroups.set(color, g);
+      return g;
+    };
+
+    let hasPolygons = false;
+    for (const hexEl of hexEls) {
+      const x = hexEl.dataset.x!;
+      const y = hexEl.dataset.y!;
+      const hexPath = this.plugin.hexPath(Number(x), Number(y), this.activeMapName);
+      const factionLinks = this.getFactionLinksFromCache(hexPath);
+      const pos = centerMap.get(`${x}_${y}`);
+      if (!pos) continue;
+
+      for (const link of factionLinks) {
+        const color = factionColorMap.get(link);
+        if (!color) continue;
+        const g = getFactionGroup(color);
+        const polygon = document.createElementNS(svgNS, "polygon");
+        polygon.setAttribute("points", hexPolygonPoints(pos.cx, pos.cy));
+        polygon.setAttribute("fill", color);
+        g.appendChild(polygon);
+        hasPolygons = true;
+      }
+    }
+
+    if (!hasPolygons) return;
+
+    // Insert before path SVG so roads/labels render on top
+    const pathSvg = this.viewportEl?.querySelector("svg.duckmage-path-svg");
+    if (pathSvg && this.viewportEl) {
+      this.viewportEl.insertBefore(svg, pathSvg);
+    } else if (this.viewportEl) {
+      this.viewportEl.appendChild(svg);
+    }
+  }
+
+  private getFactionLinksFromCache(hexFilePath: string): string[] {
+    const file = this.app.vault.getAbstractFileByPath(hexFilePath);
+    const fromCache: string[] = [];
+
+    if (file instanceof TFile) {
+      const cache = this.app.metadataCache.getFileCache(file);
+      if (cache) {
+        const headings = cache.headings ?? [];
+        const factionHeading = headings.find(
+          (h) => h.heading === "Factions" && h.level === 3,
+        );
+        if (factionHeading) {
+          const factionStart = factionHeading.position.start.offset;
+          const nextHeading = headings.find(
+            (h) => h.position.start.offset > factionStart && h.level <= 3,
+          );
+          const factionEnd = nextHeading?.position.start.offset ?? Infinity;
+          fromCache.push(
+            ...(cache.links ?? [])
+              .filter(
+                (lk) =>
+                  lk.position.start.offset > factionStart &&
+                  lk.position.start.offset < factionEnd,
+              )
+              .map((lk) => {
+                // Normalize to basename — fileToLinktext may return a path when names clash
+                const raw = lk.link.split("|")[0].split("#")[0].trim();
+                return raw.split("/").pop() ?? raw;
+              }),
+          );
+        }
+      }
+    }
+
+    const pending = this.pendingFactionLinks.get(hexFilePath);
+    const erased = this.erasedFactionLinks.get(hexFilePath);
+
+    const merged = new Set(fromCache);
+    if (pending) for (const name of pending) merged.add(name);
+    if (erased) for (const name of erased) merged.delete(name);
+    return [...merged];
   }
 }
