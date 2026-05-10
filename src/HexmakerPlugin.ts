@@ -233,7 +233,7 @@ export default class HexmakerPlugin extends Plugin {
   async loadSettings() {
     // One-time migration: rename settings keys "regions" → "maps" and "defaultRegion" → "defaultMap"
     // Must run on raw data BEFORE Object.assign so the migrated key wins over DEFAULT_SETTINGS.
-    const data = (((await this.loadData()) as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+    const data = ((await this.loadData()) ?? {}) as Record<string, unknown>;
     if (data["regions"] !== undefined && data["maps"] === undefined) {
       data["maps"] = data["regions"];
     }

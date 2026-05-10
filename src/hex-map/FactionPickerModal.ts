@@ -169,7 +169,7 @@ export class FactionPickerModal extends HexmakerModal {
 
         const preview = tile.createDiv({ cls: "duckmage-faction-tile-preview" });
         if (color) {
-          preview.style.backgroundColor = color;
+          preview.setCssProps({ "--duckmage-tile-color": color });
         } else {
           preview.addClass("duckmage-faction-tile-preview-empty");
         }
@@ -196,10 +196,10 @@ export class FactionPickerModal extends HexmakerModal {
             (newColor, newBasename) => {
               color = newColor;
               if (newColor) {
-                preview.style.backgroundColor = newColor;
+                preview.setCssProps({ "--duckmage-tile-color": newColor });
                 preview.removeClass("duckmage-faction-tile-preview-empty");
               } else {
-                preview.style.backgroundColor = "";
+                preview.setCssProps({ "--duckmage-tile-color": "" });
                 preview.addClass("duckmage-faction-tile-preview-empty");
               }
               nameEl.setText(newBasename);

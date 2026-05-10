@@ -5,13 +5,16 @@ import { getIconUrl, normalizeFolder } from "../utils";
 
 export class IconPickerModal extends HexmakerModal {
   private manageMode = false;
+  private gmOnly: boolean;
 
   constructor(
     app: App,
     private plugin: HexmakerPlugin,
-    private onSelect: (iconName: string | null) => void,
+    private onSelect: (iconName: string | null, gmOnly: boolean) => void,
+    initialGmOnly = false,
   ) {
     super(app);
+    this.gmOnly = initialGmOnly;
   }
 
   onOpen(): void {
@@ -31,7 +34,24 @@ export class IconPickerModal extends HexmakerModal {
     // ── Header ────────────────────────────────────────────────────────────
     const header = contentEl.createDiv({ cls: "duckmage-icon-picker-header" });
     header.createEl("h2", { text: "Paint icon" });
-    const manageBtn = header.createEl("button", {
+
+    const headerRight = header.createDiv({ cls: "duckmage-icon-picker-header-right" });
+
+    // GM layer only toggle
+    const gmRow = headerRight.createDiv({ cls: "duckmage-icon-gm-toggle-row" });
+    const gmCb = gmRow.createEl("input", { type: "checkbox" } as DomElementInfo);
+    (gmCb as HTMLInputElement).checked = this.gmOnly;
+    const gmLabel = gmRow.createSpan({ text: "GM layer only", cls: "duckmage-icon-gm-toggle-label" });
+    const applyGm = () => {
+      this.gmOnly = (gmCb as HTMLInputElement).checked;
+    };
+    gmCb.addEventListener("change", applyGm);
+    gmLabel.addEventListener("click", () => {
+      (gmCb as HTMLInputElement).checked = !(gmCb as HTMLInputElement).checked;
+      applyGm();
+    });
+
+    const manageBtn = headerRight.createEl("button", {
       cls: "duckmage-icon-manage-btn",
       text: this.manageMode ? "← pick icons" : "Manage icons",
     });
@@ -59,7 +79,7 @@ export class IconPickerModal extends HexmakerModal {
       });
       clearBtn.createSpan({ text: "Remove", cls: "duckmage-icon-option-name" });
       clearBtn.addEventListener("click", () => {
-        this.onSelect(null);
+        this.onSelect(null, this.gmOnly);
         this.close();
       });
     }
@@ -100,7 +120,7 @@ export class IconPickerModal extends HexmakerModal {
         });
       } else {
         btn.addEventListener("click", () => {
-          this.onSelect(icon);
+          this.onSelect(icon, this.gmOnly);
           this.close();
         });
       }

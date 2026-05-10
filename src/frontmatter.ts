@@ -4,6 +4,7 @@ export interface Frontmatter {
   [key: string]: string | string[] | boolean | undefined;
   terrain?: string;
   icon?: string;
+  "gm-icon"?: string;
   tags?: string[];
   aliases?: string[];
   cssclass?: string;
@@ -126,6 +127,28 @@ export async function setIconOverrideInFile(
       delete fm["icon"];
     } else {
       fm["icon"] = icon;
+    }
+  });
+  return true;
+}
+
+export function getGmIconFromFile(app: App, path: string): string | null {
+  const icon = getFrontMatter(app, path)?.["gm-icon"];
+  return typeof icon === "string" ? icon : null;
+}
+
+export async function setGmIconInFile(
+  app: App,
+  path: string,
+  icon: string | null,
+): Promise<boolean> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return false;
+  await app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+    if (icon === null) {
+      delete fm["gm-icon"];
+    } else {
+      fm["gm-icon"] = icon;
     }
   });
   return true;

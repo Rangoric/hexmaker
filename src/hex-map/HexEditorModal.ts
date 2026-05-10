@@ -11,6 +11,7 @@ import {
   getTerrainFromFile,
   setTerrainInFile,
   setIconOverrideInFile,
+  setGmIconInFile,
 } from "../frontmatter";
 import {
   addLinkToSection,
@@ -22,7 +23,7 @@ import {
 } from "../sections";
 import { FileLinkSuggestModal } from "./FileLinkSuggestModal";
 import { TEXT_SECTIONS } from "../types";
-import type { LinkSection } from "../types";
+import type { LinkSection, HexEditorOptions } from "../types";
 import { RandomTableModal } from "../random-tables/RandomTableModal";
 import { VIEW_TYPE_HEX_MAP, VIEW_TYPE_RANDOM_TABLES } from "../constants";
 
@@ -32,6 +33,7 @@ export class HexEditorModal extends HexmakerModal {
   private allLinks = new Map<string, string[]>();
   private directTerrain: string | null = null;
   private directIcon: string | null = null;
+  private directGmIcon: string | null = null;
   private dataPreloaded = false;
 
   constructor(
@@ -46,6 +48,7 @@ export class HexEditorModal extends HexmakerModal {
     ) => void,
     private onNavigate?: (x: number, y: number) => void,
     private onModalClose?: () => void,
+    private options: HexEditorOptions = {},
   ) {
     super(app);
   }
@@ -57,6 +60,7 @@ export class HexEditorModal extends HexmakerModal {
     this.allLinks = new Map();
     this.directTerrain = null;
     this.directIcon = null;
+    this.directGmIcon = null;
 
     const path = this.plugin.hexPath(this.x, this.y, this.mapName);
     const file = this.app.vault.getAbstractFileByPath(path);
@@ -72,6 +76,8 @@ export class HexEditorModal extends HexmakerModal {
       if (tm) this.directTerrain = tm[1].trim();
       const im = fmMatch[1].match(/^\s*icon:\s*(.+)$/m);
       if (im) this.directIcon = im[1].trim();
+      const gm = fmMatch[1].match(/^\s*gm-icon:\s*(.+)$/m);
+      if (gm) this.directGmIcon = gm[1].trim();
     }
 
     ({ text: this.allText, links: this.allLinks } = await getAllSectionData(
@@ -176,16 +182,17 @@ export class HexEditorModal extends HexmakerModal {
         });
       }
     }
-    this.renderTerrainSection(terrainBody, path, directTerrain, directIcon);
+    this.renderTerrainSection(terrainBody, path, directTerrain, directIcon, this.directGmIcon);
 
     bodyEl.createEl("hr", { cls: "duckmage-editor-divider" });
 
     const { body: notesBody } = this.makeCollapsible(
       bodyEl,
       "Notes",
-      s.hexEditorNotesCollapsed ?? false,
+      !this.options.gmLayerActive && (s.hexEditorNotesCollapsed ?? false),
     );
     for (const { key, label } of TEXT_SECTIONS) {
+      if (!this.options.gmLayerActive && (key === "hidden" || key === "secret")) continue;
       this.renderTextSection(
         notesBody,
         path,
@@ -363,6 +370,7 @@ export class HexEditorModal extends HexmakerModal {
     path: string,
     currentTerrain: string | null,
     currentIcon: string | null,
+    currentGmIcon: string | null,
   ): void {
     const palette = this.plugin.getMapPalette(this.mapName);
 
@@ -483,6 +491,54 @@ export class HexEditorModal extends HexmakerModal {
         visibility: iconSelect.value ? "visible" : "hidden",
       });
     });
+
+    // GM icon — only visible when GM layer is active
+    if (this.options.gmLayerActive) {
+      const gmRow = section.createDiv({ cls: "duckmage-icon-override-row" });
+      gmRow.createSpan({ text: "GM icon", cls: "duckmage-icon-override-label" });
+      const gmSelect = gmRow.createEl("select", {
+        cls: "duckmage-icon-override-select",
+      });
+      gmSelect.createEl("option", { value: "", text: "— none —" });
+      for (const icon of this.plugin.availableIcons) {
+        const label = icon
+          .replace(/^bw-/, "")
+          .replace(/\.png$/, "")
+          .replace(/-/g, " ");
+        gmSelect.createEl("option", { value: icon, text: label });
+      }
+      gmSelect.value = currentGmIcon ?? "";
+
+      const clearGmBtn = gmRow.createEl("button", {
+        text: "Clear",
+        cls: "duckmage-clear-btn",
+        title: "Remove GM icon",
+      });
+      clearGmBtn.setCssProps({
+        visibility: currentGmIcon ? "visible" : "hidden",
+      });
+
+      gmSelect.addEventListener("change", () => {
+        void (async () => {
+          await this.ensureHexNote();
+          await setGmIconInFile(this.app, path, gmSelect.value || null);
+          this.onChanged();
+          clearGmBtn.setCssProps({
+            visibility: gmSelect.value ? "visible" : "hidden",
+          });
+        })();
+      });
+
+      clearGmBtn.addEventListener("click", () => {
+        void (async () => {
+          await this.ensureHexNote();
+          await setGmIconInFile(this.app, path, null);
+          this.onChanged();
+          gmSelect.value = "";
+          clearGmBtn.setCssProps({ visibility: "hidden" });
+        })();
+      });
+    }
   }
 
   private getFilesForDropdown(
@@ -854,7 +910,7 @@ export class HexEditorModal extends HexmakerModal {
     initialContent: string,
   ): void {
     const sectionEl = container.createDiv({
-      cls: "duckmage-editor-text-section",
+      cls: `duckmage-editor-text-section duckmage-editor-text-section-${section}`,
     });
     const labelRow = sectionEl.createDiv({
       cls: "duckmage-text-section-label-row",

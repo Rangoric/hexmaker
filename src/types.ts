@@ -25,6 +25,7 @@ export interface MapData {
 	showIconOverrides?: boolean; // undefined = true
 	showFactionOverlay?: boolean; // undefined = false (opt-in)
 	showRegionOverlay?: boolean;  // undefined = false (opt-in)
+	showGmLayer?: boolean;        // undefined = true (on by default)
 }
 
 export interface TerrainPalette {
@@ -79,3 +80,13 @@ export const TEXT_SECTIONS = [
 	{ key: "hidden",      label: "Hidden" },
 	{ key: "secret",      label: "Secret" },
 ] as const;
+
+/**
+ * Session-only flags passed from HexMapView into HexEditorModal.
+ * All fields are optional — modal defaults missing keys to false.
+ * Add new session-layer flags here; no constructor signature changes needed.
+ */
+export interface HexEditorOptions {
+	/** GM layer is active: force Notes open, highlight Hidden/Secret sections. */
+	gmLayerActive?: boolean;
+}

@@ -98,9 +98,11 @@ export class OverlayPanel extends HexSidePanel {
   private getActiveMap: () => MapData;
   private onFactionOverlayChange: (show: boolean) => void;
   private onRegionOverlayChange: (show: boolean) => void;
+  private onGmLayerChange: (show: boolean) => void;
   private checkboxes = new Map<OverlayKey, HTMLInputElement>();
   private factionOverlayCb: HTMLInputElement | null = null;
   private regionOverlayCb: HTMLInputElement | null = null;
+  private gmLayerCb: HTMLInputElement | null = null;
 
   constructor(
     container: HTMLElement,
@@ -109,6 +111,7 @@ export class OverlayPanel extends HexSidePanel {
     getActiveMap: () => MapData,
     onFactionOverlayChange: (show: boolean) => void,
     onRegionOverlayChange: (show: boolean) => void,
+    onGmLayerChange: (show: boolean) => void,
   ) {
     super(container, "layers", 44, "Map overlays");
     this.plugin = plugin;
@@ -116,6 +119,7 @@ export class OverlayPanel extends HexSidePanel {
     this.getActiveMap = getActiveMap;
     this.onFactionOverlayChange = onFactionOverlayChange;
     this.onRegionOverlayChange = onRegionOverlayChange;
+    this.onGmLayerChange = onGmLayerChange;
     this.buildPanel(this.panelEl);
   }
 
@@ -196,6 +200,32 @@ export class OverlayPanel extends HexSidePanel {
       regionCb.checked = !regionCb.checked;
       applyRegion();
     });
+
+    // GM layer — default on (unlike the opt-in overlays above)
+    const gmRow = panel.createDiv({ cls: "duckmage-overlay-row" });
+    const gmCb = document.createElement("input");
+    gmCb.type = "checkbox";
+    gmCb.checked = true;
+    gmRow.appendChild(gmCb);
+    this.gmLayerCb = gmCb;
+
+    const gmLabel = gmRow.createSpan({
+      text: "GM layer",
+      cls: "duckmage-overlay-label",
+    });
+
+    const applyGm = () => {
+      const map = this.getActiveMap();
+      map.showGmLayer = gmCb.checked;
+      void this.plugin.saveSettings();
+      this.onGmLayerChange(gmCb.checked);
+    };
+
+    gmCb.addEventListener("change", applyGm);
+    gmLabel.addEventListener("click", () => {
+      gmCb.checked = !gmCb.checked;
+      applyGm();
+    });
   }
 
   /** Read the current map's saved state and apply it to the viewport + checkboxes. */
@@ -220,6 +250,12 @@ export class OverlayPanel extends HexSidePanel {
       const show = map.showRegionOverlay ?? false;
       this.regionOverlayCb.checked = show;
       this.onRegionOverlayChange(show);
+    }
+    // GM layer — undefined → true (on by default)
+    if (this.gmLayerCb) {
+      const show = map.showGmLayer ?? true;
+      this.gmLayerCb.checked = show;
+      this.onGmLayerChange(show);
     }
   }
 

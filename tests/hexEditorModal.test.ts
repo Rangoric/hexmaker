@@ -115,6 +115,75 @@ describe("HexEditorModal.loadData", () => {
 	});
 });
 
+// ── GM icon (gm-icon frontmatter) ────────────────────────────────────────────
+
+describe("HexEditorModal.loadData — gm-icon", () => {
+	it("extracts directGmIcon from frontmatter", async () => {
+		const app = makeApp({ "hex/1_1.md": "---\nterrain: forest\ngm-icon: skull.png\n---\n\n" });
+		const plugin = makePlugin(() => "hex/1_1.md");
+		const modal = new HexEditorModal(app, plugin, 1, 1, "default", () => {});
+		await modal.loadData();
+		expect((modal as any).directGmIcon).toBe("skull.png");
+	});
+
+	it("leaves directGmIcon null when frontmatter has no gm-icon field", async () => {
+		const app = makeApp({ "hex/1_1.md": "---\nterrain: forest\n---\n\n" });
+		const plugin = makePlugin(() => "hex/1_1.md");
+		const modal = new HexEditorModal(app, plugin, 1, 1, "default", () => {});
+		await modal.loadData();
+		expect((modal as any).directGmIcon).toBeNull();
+	});
+
+	it("resets directGmIcon to null when navigating to a hex with no gm-icon", async () => {
+		const app = makeApp({
+			"hex/1_1.md": "---\nterrain: forest\ngm-icon: skull.png\n---\n\n",
+			"hex/2_1.md": "---\nterrain: desert\n---\n\n",
+		});
+		const plugin = makePlugin((x, y) => `hex/${x}_${y}.md`);
+		const modal = new HexEditorModal(app, plugin, 1, 1, "default", () => {});
+		await modal.loadData();
+		expect((modal as any).directGmIcon).toBe("skull.png");
+
+		(modal as any).x = 2;
+		(modal as any).y = 1;
+		await modal.loadData();
+		expect((modal as any).directGmIcon).toBeNull();
+	});
+
+	it("does not confuse icon and gm-icon when both are present", async () => {
+		const app = makeApp({
+			"hex/3_3.md": "---\nterrain: forest\nicon: tower.png\ngm-icon: skull.png\n---\n\n",
+		});
+		const plugin = makePlugin(() => "hex/3_3.md");
+		const modal = new HexEditorModal(app, plugin, 3, 3, "default", () => {});
+		await modal.loadData();
+		expect((modal as any).directIcon).toBe("tower.png");
+		expect((modal as any).directGmIcon).toBe("skull.png");
+	});
+});
+
+// ── HexEditorOptions ──────────────────────────────────────────────────────────
+
+describe("HexEditorModal — HexEditorOptions", () => {
+	it("stores options.gmLayerActive when provided", () => {
+		const app = makeApp({});
+		const plugin = makePlugin(() => "hex/1_1.md");
+		const modal = new HexEditorModal(
+			app, plugin, 1, 1, "default", () => {},
+			undefined, undefined,
+			{ gmLayerActive: true },
+		);
+		expect((modal as any).options.gmLayerActive).toBe(true);
+	});
+
+	it("defaults options.gmLayerActive to undefined when no options passed", () => {
+		const app = makeApp({});
+		const plugin = makePlugin(() => "hex/1_1.md");
+		const modal = new HexEditorModal(app, plugin, 1, 1, "default", () => {});
+		expect((modal as any).options.gmLayerActive).toBeUndefined();
+	});
+});
+
 // ── Navigation: reload on hex change ─────────────────────────────────────────
 
 describe("HexEditorModal navigation reload", () => {

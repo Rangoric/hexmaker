@@ -4,6 +4,8 @@ import { normalizeFolder, getIconUrl, createIconEl } from "../utils";
 import {
   getTerrainFromFile,
   getIconOverrideFromFile,
+  getGmIconFromFile,
+  setGmIconInFile,
   setTerrainInFile,
   setIconOverrideInFile,
   Frontmatter,
@@ -93,6 +95,7 @@ export class HexMapView extends ItemView {
   private activePathChain: PathChain | null = null;
   private paintTerrainName: string | null = null;
   private paintIconName: string | null = null;
+  private paintIconGmOnly = false;
   private terrainPickMode = false;
   private paintBrushSize: 1 | 3 | 7 = 1;
   private brushHoverHexes: Array<[number, number]> = [];
@@ -107,7 +110,11 @@ export class HexMapView extends ItemView {
     string,
     { x: number; y: number; icon: string | null }
   >();
-  private flushing = new Set<string>(); // "t:<path>" or "i:<path>"
+  private pendingGmIconWrites = new Map<
+    string,
+    { x: number; y: number; icon: string | null }
+  >();
+  private flushing = new Set<string>(); // "t:<path>", "i:<path>", or "g:<path>"
   // Faction links painted but not yet reflected in the metadata cache
   private pendingFactionLinks = new Map<string, Set<string>>();
   // Faction links erased but cache may still reflect them — excluded from overlay
@@ -504,6 +511,7 @@ export class HexMapView extends ItemView {
       () => this.getActiveMap(),
       (show) => { if (show) this.updateFactionOverlay(); else this.clearFactionOverlay(); },
       (show) => { if (show) this.updateRegionOverlay(); else this.clearRegionOverlay(); },
+      () => { this.updateGmIcons(); },
     );
     toolsPanel.onBeforeOpen = () => this.overlayPanel?.close();
     this.overlayPanel.onBeforeOpen = () => toolsPanel.close();
@@ -774,18 +782,25 @@ export class HexMapView extends ItemView {
 
   private handleIconButton(): void {
     if (this.drawingMode === "icon") { this.exitIconMode(); return; }
-    new IconPickerModal(this.app, this.plugin, (iconName: string | null) => {
-      this.drawingMode = "icon";
-      this.paintIconName = iconName;
-      this.paintTerrainName = null;
-      this.updateToolbarButtonStates();
-    }).open();
+    new IconPickerModal(
+      this.app,
+      this.plugin,
+      (iconName: string | null, gmOnly: boolean) => {
+        this.drawingMode = "icon";
+        this.paintIconName = iconName;
+        this.paintIconGmOnly = gmOnly;
+        this.paintTerrainName = null;
+        this.updateToolbarButtonStates();
+      },
+      this.paintIconGmOnly,
+    ).open();
   }
 
   private exitIconMode(): void {
     if (this.drawingMode !== "icon") return;
     this.drawingMode = null;
     this.paintIconName = null;
+    this.paintIconGmOnly = false;
     this.updateBrushHighlight(null, null);
     this.updateToolbarButtonStates();
   }
@@ -989,11 +1004,17 @@ export class HexMapView extends ItemView {
     this.pendingTerrainWrites.delete(pathB);
     this.pendingIconWrites.delete(pathA);
     this.pendingIconWrites.delete(pathB);
+    this.pendingGmIconWrites.delete(pathA);
+    this.pendingGmIconWrites.delete(pathB);
 
     // Wait for any already-in-flight flushes on these paths to finish before
     // renaming files — a flush that completes after the rename would write
     // terrain to the wrong file or recreate a file that was just moved.
-    const flushKeys = [`t:${pathA}`, `t:${pathB}`, `i:${pathA}`, `i:${pathB}`];
+    const flushKeys = [
+      `t:${pathA}`, `t:${pathB}`,
+      `i:${pathA}`, `i:${pathB}`,
+      `g:${pathA}`, `g:${pathB}`,
+    ];
     const deadline = Date.now() + 2000;
     while (
       flushKeys.some((k) => this.flushing.has(k)) &&
@@ -1320,6 +1341,10 @@ export class HexMapView extends ItemView {
         );
       }
 
+      // Tag hex for GM icon overlay (rendered in path SVG when GM layer is active)
+      const gmIcon = getGmIconFromFile(this.app, path);
+      if (gmIcon) hexEl.dataset.gmIcon = gmIcon;
+
       if (this.selectedHex?.x === x && this.selectedHex?.y === y)
         hexEl.addClass("is-selected");
 
@@ -1393,6 +1418,7 @@ export class HexMapView extends ItemView {
           this.selectedHex = null;
         }
       },
+      { gmLayerActive: this.getActiveMap().showGmLayer ?? true },
     );
     modal.open();
   }
@@ -1580,28 +1606,40 @@ export class HexMapView extends ItemView {
     if (this.drawingMode !== "icon") return;
     const icon = this.paintIconName;
     const path = this.plugin.hexPath(x, y, this.activeMapName);
-
-    // ── Immediate visual update ────────────────────────────────────────────
     const hexEl = this.viewportEl?.querySelector<HTMLElement>(
       `[data-x="${x}"][data-y="${y}"]`,
     );
-    if (hexEl) {
-      hexEl.querySelector(".duckmage-hex-icon")?.remove();
-      if (icon) {
-        const img = hexEl.createEl("img", { cls: "duckmage-hex-icon" });
-        img.src = getIconUrl(this.plugin, icon);
-        img.alt = icon;
-        hexEl.insertBefore(img, hexEl.querySelector(".duckmage-hex-label"));
-        hexEl.dataset.iconOverride = icon;
-      } else {
-        delete hexEl.dataset.iconOverride;
-      }
-      if (icon !== null) hexEl.addClass("duckmage-hex-exists");
-    }
-    this.updatePathOverlay();
 
-    // ── Queue background file write (coalescing per-hex) ──────────────────
-    this.scheduleIconWrite(x, y, path, icon);
+    if (this.paintIconGmOnly) {
+      // ── GM icon — additive badge, terrain icon untouched ────────────────
+      if (hexEl) {
+        if (icon) {
+          hexEl.dataset.gmIcon = icon;
+        } else {
+          delete hexEl.dataset.gmIcon;
+        }
+        if (icon !== null) hexEl.addClass("duckmage-hex-exists");
+      }
+      this.updateGmIcons();
+      this.scheduleGmIconWrite(x, y, path, icon);
+    } else {
+      // ── Regular icon override — existing behaviour ───────────────────────
+      if (hexEl) {
+        hexEl.querySelector(".duckmage-hex-icon")?.remove();
+        if (icon) {
+          const img = hexEl.createEl("img", { cls: "duckmage-hex-icon" });
+          img.src = getIconUrl(this.plugin, icon);
+          img.alt = icon;
+          hexEl.insertBefore(img, hexEl.querySelector(".duckmage-hex-label"));
+          hexEl.dataset.iconOverride = icon;
+        } else {
+          delete hexEl.dataset.iconOverride;
+        }
+        if (icon !== null) hexEl.addClass("duckmage-hex-exists");
+      }
+      this.updatePathOverlay();
+      this.scheduleIconWrite(x, y, path, icon);
+    }
   }
 
   private async onHexTableLinkClick(x: number, y: number): Promise<void> {
@@ -1838,6 +1876,7 @@ export class HexMapView extends ItemView {
     const count =
       this.pendingTerrainWrites.size +
       this.pendingIconWrites.size +
+      this.pendingGmIconWrites.size +
       this.flushing.size;
     if (this.savingIndicatorEl) {
       if (count > 0) {
@@ -1968,6 +2007,69 @@ export class HexMapView extends ItemView {
             attempt++;
             console.warn(
               `[duckmage] icon write attempt ${attempt} failed for ${path}:`,
+              err,
+            );
+          }
+        }
+      }
+    } finally {
+      this.flushing.delete(key);
+      this.updateSavingIndicator();
+    }
+  }
+
+  private scheduleGmIconWrite(
+    x: number,
+    y: number,
+    path: string,
+    icon: string | null,
+  ): void {
+    this.pendingGmIconWrites.set(path, { x, y, icon });
+    this.updateSavingIndicator();
+    if (!this.flushing.has(`g:${path}`)) void this.flushGmIconWrites(path);
+  }
+
+  private async flushGmIconWrites(path: string): Promise<void> {
+    const key = `g:${path}`;
+    this.flushing.add(key);
+    this.updateSavingIndicator();
+    try {
+      while (this.pendingGmIconWrites.has(path)) {
+        const { x, y, icon } = this.pendingGmIconWrites.get(path)!;
+        this.pendingGmIconWrites.delete(path);
+        let attempt = 0;
+        while (true) {
+          if (attempt > 0)
+            await new Promise<void>((r) =>
+              setTimeout(r, Math.min(200 * (1 << (attempt - 1)), 2000)),
+            );
+          try {
+            const onDisk = !!this.app.vault.getAbstractFileByPath(path);
+            if (icon === null) {
+              if (onDisk) await setGmIconInFile(this.app, path, null);
+            } else {
+              if (!onDisk) {
+                if (
+                  !(await this.plugin.createHexNote(
+                    x,
+                    y,
+                    this.activeMapName,
+                  ))
+                ) {
+                  this.renderGrid();
+                  return;
+                }
+                this.viewportEl
+                  ?.querySelector<HTMLElement>(`[data-x="${x}"][data-y="${y}"]`)
+                  ?.addClass("duckmage-hex-exists");
+              }
+              await setGmIconInFile(this.app, path, icon);
+            }
+            break; // success
+          } catch (err) {
+            attempt++;
+            console.warn(
+              `[duckmage] gm-icon write attempt ${attempt} failed for ${path}:`,
               err,
             );
           }
@@ -2145,9 +2247,11 @@ export class HexMapView extends ItemView {
       });
 
     const region = this.getActiveMap();
+    const gmLayerActive = region.showGmLayer ?? true;
     const hasContent =
       region.pathChains.some((c) => c.hexes.length > 0) ||
-      this.activePathEnd !== null;
+      this.activePathEnd !== null ||
+      (gmLayerActive && gridContainer.querySelector("[data-gm-icon]") !== null);
     if (!hasContent) return;
 
     // Build hex center map — offsetLeft/offsetTop are unaffected by CSS transform
@@ -2315,6 +2419,29 @@ export class HexMapView extends ItemView {
         svg.appendChild(textEl);
       });
 
+    // GM layer icons — small badge in the top-right quadrant of the hex.
+    // Rendered above coord labels so they're always visible.
+    // The terrain icon is NOT hidden — gm-icon is purely additive.
+    if (gmLayerActive) {
+      gridContainer
+        .querySelectorAll<HTMLElement>("[data-gm-icon]")
+        .forEach((hexEl) => {
+          const gmIconName = hexEl.dataset.gmIcon!;
+          const key = `${hexEl.dataset.x!}_${hexEl.dataset.y!}`;
+          const pos = centerMap.get(key);
+          if (!pos) return;
+          const size = Math.round(hexEl.offsetWidth * 0.38);
+          const imgEl = document.createElementNS(svgNS, "image");
+          imgEl.setAttribute("x", String(pos.cx + hexEl.offsetWidth * 0.12));
+          imgEl.setAttribute("y", String(pos.cy - hexEl.offsetHeight * 0.46));
+          imgEl.setAttribute("width", String(size));
+          imgEl.setAttribute("height", String(size));
+          imgEl.setAttribute("href", getIconUrl(this.plugin, gmIconName));
+          imgEl.setAttribute("class", "duckmage-svg-gm-icon");
+          svg.appendChild(imgEl);
+        });
+    }
+
     this.viewportEl?.addClass("duckmage-svg-labels-active");
     this.viewportEl?.appendChild(svg);
   }
@@ -2328,6 +2455,16 @@ export class HexMapView extends ItemView {
       return;
     }
     this.renderPathOverlay(gridContainer);
+  }
+
+  // GM icons live inside the path SVG. Re-render that SVG only if the grid
+  // already exists — never fall back to renderGrid (would cause infinite loop
+  // when called from syncToRegion inside an in-progress renderGrid).
+  private updateGmIcons(): void {
+    const gridContainer = this.viewportEl?.querySelector<HTMLElement>(
+      ".duckmage-hex-map-grid",
+    );
+    if (gridContainer) this.renderPathOverlay(gridContainer);
   }
 
   private updateFactionOverlay(): void {
