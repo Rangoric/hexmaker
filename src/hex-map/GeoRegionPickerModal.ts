@@ -2,16 +2,15 @@ import { App, Notice, Setting, TFile } from "obsidian";
 import { HexmakerModal } from "../HexmakerModal";
 import type HexmakerPlugin from "../HexmakerPlugin";
 import { normalizeFolder } from "../utils";
-import { getFactionColorFromFile, setFactionColorInFile } from "../frontmatter";
+import { getRegionColorFromFile, setRegionColorInFile } from "../frontmatter";
 
-// ── Faction editor sub-modal ─────────────────────────────────────────────────
+// ── Region editor sub-modal ───────────────────────────────────────────────────
 
-class FactionEditorModal extends HexmakerModal {
+class GeoRegionEditorModal extends HexmakerModal {
   constructor(
     app: App,
     private file: TFile,
     private initialColor: string | null,
-    /** Called on save with the (possibly updated) color and basename. */
     private onSaved: (color: string | null, newBasename: string) => void,
   ) {
     super(app);
@@ -46,9 +45,7 @@ class FactionEditorModal extends HexmakerModal {
 
     void (async () => {
       const raw = await this.app.vault.read(this.file);
-      // Strip YAML frontmatter
       const body = raw.replace(/^---[\s\S]*?---\n?/, "").trim();
-      // First non-empty paragraph
       const para = (body.split(/\n{2,}/).find((p) => p.trim()) ?? "").trim();
       const preview = para.length > 400 ? para.slice(0, 400) + "…" : para;
       descText.setText(preview || "(no description)");
@@ -79,18 +76,14 @@ class FactionEditorModal extends HexmakerModal {
     });
     saveBtn.addEventListener("click", () => {
       void (async () => {
-        // Rename first so this.file.path is updated before the color write
         let newBasename = this.file.basename;
         if (pendingName && pendingName !== this.file.basename) {
           const folder = this.file.parent?.path ?? "";
-          const newPath = folder
-            ? `${folder}/${pendingName}.md`
-            : `${pendingName}.md`;
+          const newPath = folder ? `${folder}/${pendingName}.md` : `${pendingName}.md`;
           await this.app.fileManager.renameFile(this.file, newPath);
           newBasename = pendingName;
         }
-        // this.file.path is updated in-place by Obsidian after rename
-        await setFactionColorInFile(this.app, this.file.path, pendingColor);
+        await setRegionColorInFile(this.app, this.file.path, pendingColor);
         this.onSaved(pendingColor, newBasename);
         this.close();
       })();
@@ -103,7 +96,7 @@ class FactionEditorModal extends HexmakerModal {
     if (!this.initialColor) clearBtn.disabled = true;
     clearBtn.addEventListener("click", () => {
       void (async () => {
-        await setFactionColorInFile(this.app, this.file.path, null);
+        await setRegionColorInFile(this.app, this.file.path, null);
         this.onSaved(null, this.file.basename);
         this.close();
       })();
@@ -115,9 +108,9 @@ class FactionEditorModal extends HexmakerModal {
   }
 }
 
-// ── Faction palette picker ───────────────────────────────────────────────────
+// ── Region palette picker ─────────────────────────────────────────────────────
 
-export class FactionPickerModal extends HexmakerModal {
+export class GeoRegionPickerModal extends HexmakerModal {
   private pendingColorOverrides = new Map<string, string>();
 
   constructor(
@@ -129,7 +122,7 @@ export class FactionPickerModal extends HexmakerModal {
   }
 
   onOpen(): void {
-    this.titleEl.setText("Factions");
+    this.titleEl.setText("Regions");
     this.makeDraggable();
     this.buildPalette();
   }
@@ -139,11 +132,11 @@ export class FactionPickerModal extends HexmakerModal {
     contentEl.empty();
     contentEl.addClass("duckmage-faction-picker");
 
-    const folder = normalizeFolder(this.plugin.settings.factionsFolder);
+    const folder = normalizeFolder(this.plugin.settings.regionsFolder);
 
     if (!folder) {
       contentEl.createEl("p", {
-        text: "No factions folder configured.",
+        text: "No regions folder configured.",
         cls: "duckmage-faction-picker-empty",
       });
       return;
@@ -156,14 +149,14 @@ export class FactionPickerModal extends HexmakerModal {
 
     if (files.length === 0) {
       contentEl.createEl("p", {
-        text: `No faction notes found in "${folder}".`,
+        text: `No region notes found in "${folder}".`,
         cls: "duckmage-faction-picker-empty",
       });
     } else {
       const grid = contentEl.createDiv({ cls: "duckmage-faction-palette" });
 
       for (const file of files) {
-        let color = this.pendingColorOverrides.get(file.path) ?? getFactionColorFromFile(this.app, file.path);
+        let color = this.pendingColorOverrides.get(file.path) ?? getRegionColorFromFile(this.app, file.path);
 
         const tile = grid.createDiv({ cls: "duckmage-faction-tile" });
 
@@ -174,14 +167,12 @@ export class FactionPickerModal extends HexmakerModal {
           preview.addClass("duckmage-faction-tile-preview-empty");
         }
 
-        // Edit button — top-right corner, shown on hover via CSS
         const editBtn = tile.createEl("button", {
           cls: "duckmage-faction-tile-edit",
-          attr: { title: "Edit faction" },
+          attr: { title: "Edit region" },
         });
         editBtn.setText("✏");
 
-        // Name label — kept as a reference so rename can update it
         const nameEl = tile.createSpan({
           text: file.basename,
           cls: "duckmage-faction-tile-name",
@@ -189,9 +180,9 @@ export class FactionPickerModal extends HexmakerModal {
 
         editBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          new FactionEditorModal(
+          new GeoRegionEditorModal(
             this.app,
-            file, // TFile mutated in-place by Obsidian on rename
+            file,
             color,
             (newColor, newBasename) => {
               color = newColor;
@@ -207,7 +198,6 @@ export class FactionPickerModal extends HexmakerModal {
           ).open();
         });
 
-        // Main tile click → select faction for painting (file.path reflects renames)
         tile.addEventListener("click", () => {
           this.onPicked(file.path);
           this.close();
@@ -215,50 +205,45 @@ export class FactionPickerModal extends HexmakerModal {
       }
     }
 
-    // ── New faction row ───────────────────────────────────────────────────────
+    // ── New region row ────────────────────────────────────────────────────────
     const addRow = contentEl.createDiv({ cls: "duckmage-faction-picker-add" });
     const nameInput = addRow.createEl("input", {
       cls: "duckmage-faction-picker-add-input",
-      attr: { type: "text", placeholder: "New faction name…" },
+      attr: { type: "text", placeholder: "New region name…" },
     });
     const createBtn = addRow.createEl("button", {
       text: "Create",
       cls: "mod-cta duckmage-faction-picker-add-btn",
     });
 
-    const doCreate = () => void this.createFaction(nameInput.value.trim(), folder);
+    const doCreate = () => void this.createRegion(nameInput.value.trim(), folder);
     createBtn.addEventListener("click", doCreate);
     nameInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") doCreate();
     });
   }
 
-  private async createFaction(name: string, folder: string): Promise<void> {
+  private async createRegion(name: string, folder: string): Promise<void> {
     if (!name || name.startsWith("_")) return;
 
     const filePath = `${folder}/${name}.md`;
 
     if (this.app.vault.getAbstractFileByPath(filePath)) {
-      new Notice(`A faction note named "${name}" already exists.`);
+      new Notice(`A region note named "${name}" already exists.`);
       return;
     }
 
-    // Ensure folder exists
     if (!this.app.vault.getAbstractFileByPath(folder)) {
       await this.app.vault.createFolder(folder);
     }
 
     const file = await this.app.vault.create(filePath, "");
+    void this.plugin.ensureRegionTable(name);
 
-    new FactionEditorModal(
-      this.app,
-      file,
-      null,
-      (newColor) => {
-        if (newColor) this.pendingColorOverrides.set(file.path, newColor);
-        this.buildPalette();
-      },
-    ).open();
+    new GeoRegionEditorModal(this.app, file, null, (newColor) => {
+      if (newColor) this.pendingColorOverrides.set(file.path, newColor);
+      this.buildPalette();
+    }).open();
   }
 
   onClose(): void {

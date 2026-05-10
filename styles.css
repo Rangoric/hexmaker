@@ -3282,7 +3282,7 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
     line-height: 1.2;
 }
 
-/* Edit button — top-right corner, appears on hover */
+/* Edit button — top-right corner, faintly visible at rest */
 .duckmage-faction-tile-edit {
     position: absolute;
     top: 2px;
@@ -3298,7 +3298,7 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 0;
+    opacity: 0.35;
     transition: opacity 0.1s;
     z-index: 1;
 }
@@ -3350,4 +3350,83 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
     gap: 8px;
     margin-top: 12px;
     justify-content: flex-end;
+}
+
+/* Region overlay SVG */
+.duckmage-region-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 3; /* below faction (4) and path (5) SVGs */
+    overflow: visible;
+}
+
+.duckmage-region-label {
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    fill: var(--text-normal);
+    paint-order: stroke fill;
+    stroke: var(--background-primary);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+    text-shadow: none;
+    pointer-events: none;
+    user-select: none;
+}
+
+/* Faction overlay legend — floats in the void to the right of the hex grid */
+.duckmage-faction-legend {
+    position: absolute;
+    z-index: 6;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+
+.duckmage-faction-legend-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+}
+
+.duckmage-faction-legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    border: 1px solid var(--background-modifier-border);
+    flex-shrink: 0;
+}
+
+.duckmage-faction-legend-name {
+    font-size: 0.8em;
+    color: var(--text-normal);
+    white-space: nowrap;
+}
+
+/* New faction add row */
+.duckmage-faction-picker-add {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.duckmage-faction-picker-add-input {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 8px;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    color: var(--text-normal);
+    font-size: 0.9em;
+}
+
+.duckmage-faction-picker-add-btn {
+    flex-shrink: 0;
 }

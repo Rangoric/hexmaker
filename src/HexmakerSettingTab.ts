@@ -48,6 +48,7 @@ export class HexmakerSettingTab extends PluginSettingTab {
               ["questsFolder", `${world}/quests`],
               ["featuresFolder", `${world}/features`],
               ["factionsFolder", `${world}/factions`],
+              ["regionsFolder",  `${world}/regions`],
               ["tablesFolder", `${world}/tables`],
               ["workflowsFolder", `${world}/workflows`],
             ];
@@ -183,6 +184,21 @@ export class HexmakerSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.factionsFolder)
           .onChange(async (value) => {
             this.plugin.settings.factionsFolder = normalizeFolder(value ?? "");
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Regions folder")
+      .setDesc(
+        "Vault-relative folder for geographic region notes (used by the region overlay paint tool). Files starting with _ are excluded.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("World/regions")
+          .setValue(this.plugin.settings.regionsFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.regionsFolder = normalizeFolder(value ?? "");
             await this.plugin.saveSettings();
           }),
       );
@@ -390,6 +406,7 @@ export class HexmakerSettingTab extends PluginSettingTab {
               await this.plugin.ensureTerrainTables();
               await this.plugin.ensureAllRollerLinks();
               await this.plugin.backfillTerrainLinks();
+              await this.plugin.backfillRegionLinks();
             } finally {
               btn.setDisabled(false);
               btn.setButtonText("Generate");

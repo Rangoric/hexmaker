@@ -624,6 +624,129 @@ export default class HexmakerPlugin extends Plugin {
     );
   }
 
+  // ── Region encounter tables ────────────────────────────────────────────────
+
+  /** Create a region encounters table file if it does not already exist. */
+  async ensureRegionTable(regionName: string): Promise<void> {
+    const folder = normalizeFolder(this.settings.tablesFolder);
+    const subfolder = folder ? `${folder}/regions` : "regions";
+
+    if (!this.app.vault.getAbstractFileByPath(subfolder)) {
+      try {
+        await this.app.vault.createFolder(subfolder);
+      } catch {
+        /* may already exist */
+      }
+    }
+
+    const path = `${subfolder}/${regionName}.md`;
+    if (!this.app.vault.getAbstractFileByPath(path)) {
+      try {
+        await this.app.vault.create(
+          path,
+          makeTableTemplate(
+            this.settings.defaultTableDice,
+            {
+              region: regionName,
+              "table-type": "encounters",
+              "roll-filter": false,
+              "encounter-filter": false,
+            },
+            this.buildRollerLink(),
+          ),
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  /**
+   * Add the region's encounters table link to a hex's "Encounters Table" section,
+   * or remove it when regionName is null (hex removed from region).
+   * Any existing link pointing into the regions subfolder is replaced.
+   */
+  async syncHexRegionTableLink(
+    hexFilePath: string,
+    regionName: string | null,
+  ): Promise<void> {
+    const tablesFolder = normalizeFolder(this.settings.tablesFolder);
+    const subfolder = tablesFolder ? `${tablesFolder}/regions` : "regions";
+
+    // Remove any existing region table link
+    const existing = await getLinksInSection(
+      this.app,
+      hexFilePath,
+      "Encounters Table",
+    );
+    for (const linkTarget of existing) {
+      const resolved = this.app.metadataCache.getFirstLinkpathDest(
+        linkTarget,
+        hexFilePath,
+      );
+      if (resolved && resolved.path.startsWith(subfolder + "/")) {
+        await removeLinkFromSection(
+          this.app,
+          hexFilePath,
+          "Encounters Table",
+          linkTarget,
+        );
+      }
+    }
+
+    if (!regionName) return;
+
+    const tablePath = `${subfolder}/${regionName}.md`;
+    const tableFile = this.app.vault.getAbstractFileByPath(tablePath);
+    if (!(tableFile instanceof TFile)) return;
+
+    const linkText = `[[${this.app.metadataCache.fileToLinktext(tableFile, hexFilePath)}]]`;
+    await addLinkToSection(this.app, hexFilePath, "Encounters Table", linkText);
+  }
+
+  /**
+   * For every region note in the regions folder, ensure its encounters table exists.
+   * For every hex note that has a `region` frontmatter key, ensure the region table
+   * link is present in its "Encounters Table" section.
+   */
+  async backfillRegionLinks(): Promise<void> {
+    const regionsFolder = normalizeFolder(this.settings.regionsFolder);
+    const hexFolder = normalizeFolder(this.settings.hexFolder);
+
+    // Ensure tables for all region notes (even unpainted ones)
+    if (regionsFolder) {
+      const regionFiles = this.app.vault
+        .getMarkdownFiles()
+        .filter(
+          (f) =>
+            !f.basename.startsWith("_") &&
+            f.path.startsWith(regionsFolder + "/"),
+        );
+      for (const f of regionFiles) {
+        await this.ensureRegionTable(f.basename);
+      }
+    }
+
+    // Sync hex → region table links
+    const hexFiles = this.app.vault.getMarkdownFiles().filter((f) => {
+      if (hexFolder && !f.path.startsWith(hexFolder + "/")) return false;
+      return /^(-?\d+)_(-?\d+)\.md$/.test(f.name);
+    });
+
+    let linked = 0;
+    for (const file of hexFiles) {
+      const cache = this.app.metadataCache.getFileCache(file);
+      const region = cache?.frontmatter?.["region"];
+      if (typeof region !== "string" || !region) continue;
+      await this.syncHexRegionTableLink(file.path, region);
+      linked++;
+    }
+
+    new Notice(
+      `Hexmaker: linked region encounter tables for ${linked} hex${linked !== 1 ? "es" : ""}.`,
+    );
+  }
+
   /** Update every hex note whose terrain matches oldName to newName.
    *  Reads file content directly (not the metadata cache) so successive renames
    *  don't miss hexes whose cache entry hasn't refreshed yet.

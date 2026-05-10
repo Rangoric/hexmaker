@@ -12,7 +12,7 @@ import { HexEditorModal } from "./HexEditorModal";
 import { TerrainPickerModal } from "./TerrainPickerModal";
 import { IconPickerModal } from "./IconPickerModal";
 import { addLinkToSection, getLinksInSection, removeLinkFromSection } from "../sections";
-import { getFactionColorFromFile } from "../frontmatter";
+import { getFactionColorFromFile, getRegionColorFromFile, setHexRegionInFile } from "../frontmatter";
 import {
   VIEW_TYPE_HEX_MAP,
   VIEW_TYPE_HEX_TABLE,
@@ -32,6 +32,7 @@ import { GotoHexModal } from "./GotoHexModal";
 import { HexHelpModal } from "./HexHelpModal";
 import { FolderTreePickerModal } from "./FolderTreePickerModal";
 import { FactionPickerModal } from "./FactionPickerModal";
+import { GeoRegionPickerModal } from "./GeoRegionPickerModal";
 import { DrawingToolPanel, OverlayPanel } from "./HexSidePanel";
 
 type TerrainUndoEntry = {
@@ -63,6 +64,7 @@ export class HexMapView extends ItemView {
     | "icon"
     | "tableLink"
     | "factionLink"
+    | "regionLink"
     | "swap"
     | null = null;
   private pathToolbarBtn: HTMLButtonElement | null = null;
@@ -77,6 +79,9 @@ export class HexMapView extends ItemView {
   private factionLinkBtn: HTMLButtonElement | null = null;
   private factionLinkBtnLabel: HTMLSpanElement | null = null;
   private paintFactionPath: string | null = null;
+  private regionLinkBtn: HTMLButtonElement | null = null;
+  private regionLinkBtnLabel: HTMLSpanElement | null = null;
+  private paintRegionPath: string | null = null;
   private swapBtn: HTMLButtonElement | null = null;
   private deselToolBtn: HTMLButtonElement | null = null;
   private overlayPanel: OverlayPanel | null = null;
@@ -107,6 +112,9 @@ export class HexMapView extends ItemView {
   private pendingFactionLinks = new Map<string, Set<string>>();
   // Faction links erased but cache may still reflect them — excluded from overlay
   private erasedFactionLinks = new Map<string, Set<string>>();
+  // Region painted/erased but not yet in metadata cache
+  private pendingRegions = new Map<string, string>(); // hexPath → regionBasename
+  private erasedRegions = new Set<string>();           // hexPaths with cleared region
   private savingIndicatorEl: HTMLElement | null = null;
   // Undo / redo
   private readonly UNDO_DEPTH = 20;
@@ -219,7 +227,7 @@ export class HexMapView extends ItemView {
         return;
       }
       if (e.button !== 0) return;
-      if (this.drawingMode === "terrain" || this.drawingMode === "icon" || this.drawingMode === "factionLink") {
+      if (this.drawingMode === "terrain" || this.drawingMode === "icon" || this.drawingMode === "factionLink" || this.drawingMode === "regionLink") {
         isTerrainPainting = true;
         lastPaintedKey = null;
         if (this.drawingMode === "terrain")
@@ -234,7 +242,8 @@ export class HexMapView extends ItemView {
           lastPaintedKey = `${x}_${y}`;
           if (this.drawingMode === "terrain") this.onHexPaintClick(x, y);
           else if (this.drawingMode === "icon") this.onHexIconClick(x, y);
-          else void this.onHexFactionPaintClick(x, y);
+          else if (this.drawingMode === "factionLink") void this.onHexFactionPaintClick(x, y);
+          else void this.onHexRegionPaintClick(x, y);
           hasDragged = true; // suppress the subsequent click event
         }
         return; // skip pan setup
@@ -267,7 +276,8 @@ export class HexMapView extends ItemView {
             lastPaintedKey = key;
             if (this.drawingMode === "terrain") this.onHexPaintClick(x, y);
             else if (this.drawingMode === "icon") this.onHexIconClick(x, y);
-            else void this.onHexFactionPaintClick(x, y);
+            else if (this.drawingMode === "factionLink") void this.onHexFactionPaintClick(x, y);
+            else void this.onHexRegionPaintClick(x, y);
           }
           this.updateBrushHighlight(x, y);
         } else {
@@ -342,7 +352,7 @@ export class HexMapView extends ItemView {
         }
         if (this.drawingMode === null) return;
         const onHex = (e.target as HTMLElement).closest(".duckmage-hex");
-        if (onHex && (this.drawingMode === "path" || this.drawingMode === "factionLink")) return;
+        if (onHex && (this.drawingMode === "path" || this.drawingMode === "factionLink" || this.drawingMode === "regionLink")) return;
         e.preventDefault();
         e.stopPropagation();
         const now = Date.now();
@@ -353,6 +363,8 @@ export class HexMapView extends ItemView {
           else if (this.drawingMode === "tableLink") this.exitTableLinkMode();
           else if (this.drawingMode === "factionLink")
             this.exitFactionLinkMode();
+          else if (this.drawingMode === "regionLink")
+            this.exitRegionLinkMode();
           else if (this.drawingMode === "swap") this.exitSwapMode();
           else {
             if (this.drawingMode === "path") this.exitPathMode();
@@ -491,6 +503,7 @@ export class HexMapView extends ItemView {
       () => this.viewportEl,
       () => this.getActiveMap(),
       (show) => { if (show) this.updateFactionOverlay(); else this.clearFactionOverlay(); },
+      (show) => { if (show) this.updateRegionOverlay(); else this.clearRegionOverlay(); },
     );
     toolsPanel.onBeforeOpen = () => this.overlayPanel?.close();
     this.overlayPanel.onBeforeOpen = () => toolsPanel.close();
@@ -503,18 +516,28 @@ export class HexMapView extends ItemView {
 
     this.registerEvent(
       this.app.metadataCache.on("changed", (file) => {
-        // Clear stale pending/erased entries for hex files
+        // Clear stale pending/erased entries for this file
         this.pendingFactionLinks.delete(file.path);
         this.erasedFactionLinks.delete(file.path);
+        this.pendingRegions.delete(file.path);
+        this.erasedRegions.delete(file.path);
 
-        // If a faction file's metadata changed (e.g. color edited), refresh the
-        // overlay now that the cache is guaranteed to have the new frontmatter.
         if (this.getActiveMap().showFactionOverlay) {
           const folder = normalizeFolder(this.plugin.settings.factionsFolder);
           const isFactionFile =
             !file.basename.startsWith("_") &&
             (folder ? file.path.startsWith(folder + "/") : true);
           if (isFactionFile) this.updateFactionOverlay();
+        }
+
+        if (this.getActiveMap().showRegionOverlay) {
+          const rFolder = normalizeFolder(this.plugin.settings.regionsFolder);
+          const isRegionNoteFile =
+            !file.basename.startsWith("_") &&
+            (rFolder ? file.path.startsWith(rFolder + "/") : true);
+          if (isRegionNoteFile) this.updateRegionOverlay();
+          // Also re-render when any hex file changes (region assignment may have changed)
+          else this.updateRegionOverlay();
         }
       }),
     );
@@ -684,6 +707,16 @@ export class HexMapView extends ItemView {
     this.factionLinkBtn.addEventListener("click", () =>
       this.handleFactionLinkButton(),
     );
+
+    this.regionLinkBtn = toolbar.createEl("button", {
+      cls: "duckmage-draw-btn duckmage-draw-btn-tablelink",
+    });
+    this.regionLinkBtnLabel = this.regionLinkBtn.createSpan({
+      text: "Regions",
+    });
+    this.regionLinkBtn.addEventListener("click", () =>
+      this.handleRegionLinkButton(),
+    );
   }
 
   private exitPathMode(): void {
@@ -798,6 +831,27 @@ export class HexMapView extends ItemView {
     if (this.drawingMode !== "factionLink") return;
     this.drawingMode = null;
     this.paintFactionPath = null;
+    this.updateToolbarButtonStates();
+  }
+
+  private handleRegionLinkButton(): void {
+    new GeoRegionPickerModal(this.app, this.plugin, (filePath) => {
+      this.drawingMode = "regionLink";
+      this.paintRegionPath = filePath;
+      this.updateToolbarButtonStates();
+      // Auto-enable region overlay when entering paint mode
+      if (!this.getActiveMap().showRegionOverlay) {
+        this.getActiveMap().showRegionOverlay = true;
+        void this.plugin.saveSettings();
+        this.overlayPanel?.syncToRegion();
+      }
+    }).open();
+  }
+
+  private exitRegionLinkMode(): void {
+    if (this.drawingMode !== "regionLink") return;
+    this.drawingMode = null;
+    this.paintRegionPath = null;
     this.updateToolbarButtonStates();
   }
 
@@ -1024,6 +1078,10 @@ export class HexMapView extends ItemView {
       "is-active",
       this.drawingMode === "factionLink",
     );
+    this.regionLinkBtn?.toggleClass(
+      "is-active",
+      this.drawingMode === "regionLink",
+    );
     this.swapBtn?.toggleClass("is-active", this.drawingMode === "swap");
     this.viewportEl?.toggleClass(
       "duckmage-draw-mode",
@@ -1113,6 +1171,18 @@ export class HexMapView extends ItemView {
         this.factionLinkBtnLabel.setText("Link: " + name);
       } else {
         this.factionLinkBtnLabel.setText("Factions");
+      }
+    }
+
+    // Region link button label
+    if (this.regionLinkBtnLabel) {
+      if (this.drawingMode === "regionLink" && this.paintRegionPath) {
+        const name =
+          this.paintRegionPath.split("/").pop()?.replace(/.md$/, "") ??
+          "Region";
+        this.regionLinkBtnLabel.setText("Paint: " + name);
+      } else {
+        this.regionLinkBtnLabel.setText("Regions");
       }
     }
   }
@@ -1293,6 +1363,7 @@ export class HexMapView extends ItemView {
     }
 
     this.renderPathOverlay(gridContainer);
+    this.renderRegionOverlay(gridContainer);
     this.renderFactionOverlay(gridContainer);
   }
 
@@ -1334,6 +1405,10 @@ export class HexMapView extends ItemView {
     }
     if (this.drawingMode === "factionLink") {
       void this.onHexFactionEraseClick(x, y);
+      return;
+    }
+    if (this.drawingMode === "regionLink") {
+      void this.onHexRegionEraseClick(x, y);
       return;
     }
     if (this.drawingMode === "swap") {
@@ -2264,26 +2339,26 @@ export class HexMapView extends ItemView {
 
   private clearFactionOverlay(): void {
     this.viewportEl?.querySelector("svg.duckmage-faction-svg")?.remove();
+    this.viewportEl?.querySelector(".duckmage-faction-legend")?.remove();
   }
 
   private renderFactionOverlay(gridContainer: HTMLElement): void {
     this.viewportEl?.querySelector("svg.duckmage-faction-svg")?.remove();
+    this.viewportEl?.querySelector(".duckmage-faction-legend")?.remove();
     if (!this.getActiveMap().showFactionOverlay) return;
 
-    // Gather hex centers (same pattern as renderPathOverlay)
     const hexEls = Array.from(
       gridContainer.querySelectorAll<HTMLElement>(".duckmage-hex"),
     );
     if (hexEls.length === 0) return;
 
-    let hexW = 0, hexH = 0;
-    let gapPx = 0;
+    // ── Build center map ──────────────────────────────────────────────────────
+    let hexW = 0, hexH = 0, gapPx = 0;
     const centerMap = new Map<string, { cx: number; cy: number }>();
     for (const hexEl of hexEls) {
       if (hexW === 0) {
         hexW = hexEl.offsetWidth;
         hexH = hexEl.offsetHeight;
-        // Read the actual computed margin so polygons expand to cover the gap
         gapPx = parseFloat(window.getComputedStyle(hexEl).marginTop) || 0;
       }
       let ox = hexEl.offsetWidth / 2, oy = hexEl.offsetHeight / 2;
@@ -2296,6 +2371,31 @@ export class HexMapView extends ItemView {
       centerMap.set(`${hexEl.dataset.x}_${hexEl.dataset.y}`, { cx: ox, cy: oy });
     }
 
+    // ── Build faction color map ───────────────────────────────────────────────
+    const folder = normalizeFolder(this.plugin.settings.factionsFolder);
+    const factionColorMap = new Map<string, string>();
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      if (folder && !f.path.startsWith(folder + "/")) continue;
+      const color = getFactionColorFromFile(this.app, f.path);
+      if (color) factionColorMap.set(f.basename, color);
+    }
+
+    // ── Group hexes by faction name ───────────────────────────────────────────
+    const factionHexKeys = new Map<string, string[]>();
+    for (const hexEl of hexEls) {
+      const gx = Number(hexEl.dataset.x);
+      const gy = Number(hexEl.dataset.y);
+      const hexPath = this.plugin.hexPath(gx, gy, this.activeMapName);
+      const links = this.getFactionLinksFromCache(hexPath);
+      const key = `${gx}_${gy}`;
+      for (const link of links) {
+        if (!factionHexKeys.has(link)) factionHexKeys.set(link, []);
+        factionHexKeys.get(link)!.push(key);
+      }
+    }
+    if (factionHexKeys.size === 0) return;
+
+    // ── SVG setup ─────────────────────────────────────────────────────────────
     const svgNS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNS, "svg");
     svg.classList.add("duckmage-faction-svg");
@@ -2306,63 +2406,123 @@ export class HexMapView extends ItemView {
 
     const isFlat = this.plugin.settings.hexOrientation === "flat";
     const W = hexW, H = hexH;
-    // Circumradius: for flat-top = W/2, for pointy-top = H/2
     const r = isFlat ? W / 2 : H / 2;
-    // Expand polygons by gapPx so adjacent same-faction hexes merge seamlessly
     const scale = r > 0 ? (r + gapPx) / r : 1;
 
-    const hexPolygonPoints = (cx: number, cy: number): string => {
+    const hexVerts = (cx: number, cy: number): [number, number][] => {
       const pts = isFlat
         ? [ [-W/4, -H/2], [W/4, -H/2], [W/2, 0], [W/4, H/2], [-W/4, H/2], [-W/2, 0] ]
         : [ [0, -H/2], [W/2, -H/4], [W/2, H/4], [0, H/2], [-W/2, H/4], [-W/2, -H/4] ];
-      return pts
-        .map(([dx, dy]) => `${cx + dx * scale},${cy + dy * scale}`)
-        .join(" ");
+      return pts.map(([dx, dy]) => [cx + dx * scale, cy + dy * scale]);
     };
 
-    // Build faction color map from all faction notes (metadata cache — no file reads)
-    const folder = normalizeFolder(this.plugin.settings.factionsFolder);
-    const factionColorMap = new Map<string, string>();
-    for (const f of this.app.vault.getMarkdownFiles()) {
-      if (folder && !f.path.startsWith(folder + "/")) continue;
-      const color = getFactionColorFromFile(this.app, f.path);
-      if (color) factionColorMap.set(f.basename, color);
-    }
+    const vk = (x: number, y: number) => `${x.toFixed(1)},${y.toFixed(1)}`;
+    const ek = (v1: [number, number], v2: [number, number]) => {
+      const k1 = vk(v1[0], v1[1]), k2 = vk(v2[0], v2[1]);
+      return k1 < k2 ? `${k1}|${k2}` : `${k2}|${k1}`;
+    };
 
-    // Group polygons by faction so group-level opacity composites them together —
-    // overlapping expanded polygons from adjacent hexes don't double-darken.
-    const factionGroups = new Map<string, SVGGElement>();
-    const getFactionGroup = (color: string): SVGGElement => {
-      if (factionGroups.has(color)) return factionGroups.get(color)!;
-      const g = document.createElementNS(svgNS, "g") as SVGGElement;
+    const activeFactions: { name: string; color: string }[] = [];
+    let hasElements = false;
+
+    for (const [factionName, hexKeys] of factionHexKeys) {
+      const color = factionColorMap.get(factionName);
+      if (!color) continue;
+
+      // ── Edge counting ─────────────────────────────────────────────────────
+      type EdgeEntry = { v1: [number, number]; v2: [number, number]; count: number };
+      const edgeCounts = new Map<string, EdgeEntry>();
+
+      for (const key of hexKeys) {
+        const pos = centerMap.get(key);
+        if (!pos) continue;
+        const verts = hexVerts(pos.cx, pos.cy);
+        for (let i = 0; i < 6; i++) {
+          const v1 = verts[i], v2 = verts[(i + 1) % 6];
+          const k = ek(v1, v2);
+          const ex = edgeCounts.get(k);
+          if (ex) { ex.count++; } else { edgeCounts.set(k, { v1, v2, count: 1 }); }
+        }
+      }
+
+      // ── Build vertex adjacency from boundary edges ─────────────────────────
+      const coordOf = new Map<string, [number, number]>();
+      type AdjEntry = { key: string; coord: [number, number]; edgeKey: string };
+      const vertAdj = new Map<string, AdjEntry[]>();
+
+      for (const { v1, v2, count } of edgeCounts.values()) {
+        if (count !== 1) continue;
+        const k1 = vk(v1[0], v1[1]), k2 = vk(v2[0], v2[1]);
+        const edgeKey = ek(v1, v2);
+        coordOf.set(k1, v1); coordOf.set(k2, v2);
+        if (!vertAdj.has(k1)) vertAdj.set(k1, []);
+        if (!vertAdj.has(k2)) vertAdj.set(k2, []);
+        vertAdj.get(k1)!.push({ key: k2, coord: v2, edgeKey });
+        vertAdj.get(k2)!.push({ key: k1, coord: v1, edgeKey });
+      }
+
+      if (coordOf.size === 0) continue;
+
+      // ── Walk all closed rings ──────────────────────────────────────────────
+      const usedEdges = new Set<string>();
+      const rings: [number, number][][] = [];
+
+      for (const { v1, v2, count } of edgeCounts.values()) {
+        if (count !== 1) continue;
+        const initKey = ek(v1, v2);
+        if (usedEdges.has(initKey)) continue;
+
+        usedEdges.add(initKey);
+        const ring: [number, number][] = [v1, v2];
+        const startK = vk(v1[0], v1[1]);
+        let curK = vk(v2[0], v2[1]);
+
+        let safety = 0;
+        while (curK !== startK && safety++ < 10_000) {
+          const next = (vertAdj.get(curK) ?? []).find(
+            (e) => !usedEdges.has(e.edgeKey),
+          );
+          if (!next) break;
+          usedEdges.add(next.edgeKey);
+          if (next.key === startK) break;
+          ring.push(next.coord);
+          curK = next.key;
+        }
+
+        if (ring.length >= 3) rings.push(ring);
+      }
+
+      if (rings.length === 0) continue;
+
+      // ── Render filled blob(s) ─────────────────────────────────────────────
+      const g = document.createElementNS(svgNS, "g");
       g.setAttribute("opacity", "0.45");
       svg.appendChild(g);
-      factionGroups.set(color, g);
-      return g;
-    };
 
-    let hasPolygons = false;
-    for (const hexEl of hexEls) {
-      const x = hexEl.dataset.x!;
-      const y = hexEl.dataset.y!;
-      const hexPath = this.plugin.hexPath(Number(x), Number(y), this.activeMapName);
-      const factionLinks = this.getFactionLinksFromCache(hexPath);
-      const pos = centerMap.get(`${x}_${y}`);
-      if (!pos) continue;
-
-      for (const link of factionLinks) {
-        const color = factionColorMap.get(link);
-        if (!color) continue;
-        const g = getFactionGroup(color);
-        const polygon = document.createElementNS(svgNS, "polygon");
-        polygon.setAttribute("points", hexPolygonPoints(pos.cx, pos.cy));
-        polygon.setAttribute("fill", color);
-        g.appendChild(polygon);
-        hasPolygons = true;
+      for (const ring of rings) {
+        const d =
+          ring
+            .map(
+              (c, i) =>
+                `${i === 0 ? "M" : "L"}${c[0].toFixed(1)},${c[1].toFixed(1)}`,
+            )
+            .join(" ") + " Z";
+        const path = document.createElementNS(svgNS, "path");
+        path.setAttribute("d", d);
+        path.setAttribute("fill", color);
+        path.setAttribute("stroke", color);
+        path.setAttribute("stroke-width", String(gapPx * 2 + 2));
+        path.setAttribute("stroke-linejoin", "round");
+        path.setAttribute("stroke-linecap", "round");
+        path.setAttribute("paint-order", "stroke fill");
+        g.appendChild(path);
       }
+
+      activeFactions.push({ name: factionName, color });
+      hasElements = true;
     }
 
-    if (!hasPolygons) return;
+    if (!hasElements) return;
 
     // Insert before path SVG so roads/labels render on top
     const pathSvg = this.viewportEl?.querySelector("svg.duckmage-path-svg");
@@ -2370,6 +2530,26 @@ export class HexMapView extends ItemView {
       this.viewportEl.insertBefore(svg, pathSvg);
     } else if (this.viewportEl) {
       this.viewportEl.appendChild(svg);
+    }
+
+    this.renderFactionLegend(activeFactions, gridContainer);
+  }
+
+  private renderFactionLegend(
+    factions: { name: string; color: string }[],
+    gridContainer: HTMLElement,
+  ): void {
+    if (!this.viewportEl) return;
+    const legend = this.viewportEl.createDiv({ cls: "duckmage-faction-legend" });
+    // Position the card to the right of the hex grid in the viewport canvas
+    const gridRight = gridContainer.offsetLeft + gridContainer.offsetWidth;
+    legend.style.left = `${gridRight + 24}px`;
+    legend.style.top = `${gridContainer.offsetTop}px`;
+    for (const { name, color } of [...factions].sort((a, b) => a.name.localeCompare(b.name))) {
+      const row = legend.createDiv({ cls: "duckmage-faction-legend-row" });
+      const swatch = row.createDiv({ cls: "duckmage-faction-legend-swatch" });
+      swatch.style.backgroundColor = color;
+      row.createSpan({ text: name, cls: "duckmage-faction-legend-name" });
     }
   }
 
@@ -2414,5 +2594,290 @@ export class HexMapView extends ItemView {
     if (pending) for (const name of pending) merged.add(name);
     if (erased) for (const name of erased) merged.delete(name);
     return [...merged];
+  }
+
+  // ── Region overlay ─────────────────────────────────────────────────────────
+
+  private async onHexRegionPaintClick(x: number, y: number): Promise<void> {
+    if (this.drawingMode !== "regionLink" || !this.paintRegionPath) return;
+    const regionFile = this.app.vault.getAbstractFileByPath(this.paintRegionPath);
+    if (!(regionFile instanceof TFile)) return;
+    const regionBasename = regionFile.basename;
+    const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
+
+    if (this.getHexRegionFromCache(hexPath) === regionBasename) return;
+
+    // Update pending state before await so overlay refreshes immediately
+    this.erasedRegions.delete(hexPath);
+    this.pendingRegions.set(hexPath, regionBasename);
+    if (this.getActiveMap().showRegionOverlay) this.updateRegionOverlay();
+
+    await setHexRegionInFile(this.app, hexPath, regionBasename);
+    void this.plugin.syncHexRegionTableLink(hexPath, regionBasename);
+  }
+
+  private async onHexRegionEraseClick(x: number, y: number): Promise<void> {
+    if (!this.paintRegionPath) return;
+    const regionFile = this.app.vault.getAbstractFileByPath(this.paintRegionPath);
+    if (!(regionFile instanceof TFile)) return;
+    const regionBasename = regionFile.basename;
+    const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
+
+    if (this.getHexRegionFromCache(hexPath) !== regionBasename) return;
+
+    this.pendingRegions.delete(hexPath);
+    this.erasedRegions.add(hexPath);
+    if (this.getActiveMap().showRegionOverlay) this.updateRegionOverlay();
+
+    await setHexRegionInFile(this.app, hexPath, null);
+    void this.plugin.syncHexRegionTableLink(hexPath, null);
+  }
+
+  private getHexRegionFromCache(hexFilePath: string): string | null {
+    if (this.erasedRegions.has(hexFilePath)) return null;
+    const pending = this.pendingRegions.get(hexFilePath);
+    if (pending !== undefined) return pending;
+    const file = this.app.vault.getAbstractFileByPath(hexFilePath);
+    if (!(file instanceof TFile)) return null;
+    const cache = this.app.metadataCache.getFileCache(file);
+    const region = cache?.frontmatter?.["region"];
+    return typeof region === "string" ? region : null;
+  }
+
+  private updateRegionOverlay(): void {
+    const gridContainer = this.viewportEl?.querySelector<HTMLElement>(
+      ".duckmage-hex-map-grid",
+    );
+    if (gridContainer) this.renderRegionOverlay(gridContainer);
+  }
+
+  private clearRegionOverlay(): void {
+    this.viewportEl?.querySelector("svg.duckmage-region-svg")?.remove();
+  }
+
+  private renderRegionOverlay(gridContainer: HTMLElement): void {
+    this.viewportEl?.querySelector("svg.duckmage-region-svg")?.remove();
+    if (!this.getActiveMap().showRegionOverlay) return;
+
+    const hexEls = Array.from(
+      gridContainer.querySelectorAll<HTMLElement>(".duckmage-hex"),
+    );
+    if (hexEls.length === 0) return;
+
+    // ── Build center map ────────────────────────────────────────────────────
+    let hexW = 0, hexH = 0, gapPx = 0;
+    const centerMap = new Map<string, { cx: number; cy: number }>();
+    for (const hexEl of hexEls) {
+      if (hexW === 0) {
+        hexW = hexEl.offsetWidth;
+        hexH = hexEl.offsetHeight;
+        gapPx = parseFloat(window.getComputedStyle(hexEl).marginTop) || 0;
+      }
+      let ox = hexEl.offsetWidth / 2, oy = hexEl.offsetHeight / 2;
+      let cur: HTMLElement | null = hexEl;
+      while (cur && cur !== this.viewportEl) {
+        ox += cur.offsetLeft;
+        oy += cur.offsetTop;
+        cur = cur.offsetParent as HTMLElement | null;
+      }
+      centerMap.set(`${hexEl.dataset.x}_${hexEl.dataset.y}`, { cx: ox, cy: oy });
+    }
+
+    // ── Build region → hex keys map ─────────────────────────────────────────
+    const regionHexKeys = new Map<string, string[]>();
+    for (const hexEl of hexEls) {
+      const gx = Number(hexEl.dataset.x);
+      const gy = Number(hexEl.dataset.y);
+      const hexFilePath = this.plugin.hexPath(gx, gy, this.activeMapName);
+      const regionName = this.getHexRegionFromCache(hexFilePath);
+      if (!regionName) continue;
+      const key = `${gx}_${gy}`;
+      if (!regionHexKeys.has(regionName)) regionHexKeys.set(regionName, []);
+      regionHexKeys.get(regionName)!.push(key);
+    }
+    if (regionHexKeys.size === 0) return;
+
+    // ── Region color map ────────────────────────────────────────────────────
+    const folder = normalizeFolder(this.plugin.settings.regionsFolder);
+    const regionColorMap = new Map<string, string>();
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      if (f.basename.startsWith("_")) continue;
+      if (folder && !f.path.startsWith(folder + "/")) continue;
+      const color = getRegionColorFromFile(this.app, f.path);
+      if (color) regionColorMap.set(f.basename, color);
+    }
+
+    // ── SVG setup ───────────────────────────────────────────────────────────
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.classList.add("duckmage-region-svg");
+    const svgW = gridContainer.offsetLeft + gridContainer.offsetWidth + 40;
+    const svgH = gridContainer.offsetTop + gridContainer.offsetHeight + 40;
+    svg.setAttribute("width", String(svgW));
+    svg.setAttribute("height", String(svgH));
+
+    const isFlat = this.plugin.settings.hexOrientation === "flat";
+    const W = hexW, H = hexH;
+    const r = isFlat ? W / 2 : H / 2;
+    // Expanded vertices: adjacent same-region hexes' shared vertices coincide exactly
+    const scale = r > 0 ? (r + gapPx) / r : 1;
+
+    const hexVerts = (cx: number, cy: number): [number, number][] => {
+      const pts = isFlat
+        ? [ [-W/4, -H/2], [W/4, -H/2], [W/2, 0], [W/4, H/2], [-W/4, H/2], [-W/2, 0] ]
+        : [ [0, -H/2], [W/2, -H/4], [W/2, H/4], [0, H/2], [-W/2, H/4], [-W/2, -H/4] ];
+      return pts.map(([dx, dy]) => [cx + dx * scale, cy + dy * scale]);
+    };
+
+    const vk = (x: number, y: number) => `${x.toFixed(1)},${y.toFixed(1)}`;
+    const ek = (v1: [number, number], v2: [number, number]) => {
+      const k1 = vk(v1[0], v1[1]), k2 = vk(v2[0], v2[1]);
+      return k1 < k2 ? `${k1}|${k2}` : `${k2}|${k1}`;
+    };
+
+    let hasElements = false;
+
+    for (const [regionName, hexKeys] of regionHexKeys) {
+      const color = regionColorMap.get(regionName);
+      if (!color) continue;
+
+      // ── Edge counting ───────────────────────────────────────────────────
+      type EdgeEntry = { v1: [number, number]; v2: [number, number]; count: number };
+      const edgeCounts = new Map<string, EdgeEntry>();
+      const hexCenters: { cx: number; cy: number }[] = [];
+
+      for (const key of hexKeys) {
+        const pos = centerMap.get(key);
+        if (!pos) continue;
+        hexCenters.push(pos);
+        const verts = hexVerts(pos.cx, pos.cy);
+        for (let i = 0; i < 6; i++) {
+          const v1 = verts[i], v2 = verts[(i + 1) % 6];
+          const k = ek(v1, v2);
+          const ex = edgeCounts.get(k);
+          if (ex) { ex.count++; } else { edgeCounts.set(k, { v1, v2, count: 1 }); }
+        }
+      }
+
+      // ── Build vertex adjacency from boundary edges ──────────────────────
+      const coordOf = new Map<string, [number, number]>();
+      type AdjEntry = { key: string; coord: [number, number]; edgeKey: string };
+      const vertAdj = new Map<string, AdjEntry[]>();
+
+      for (const { v1, v2, count } of edgeCounts.values()) {
+        if (count !== 1) continue;
+        const k1 = vk(v1[0], v1[1]), k2 = vk(v2[0], v2[1]);
+        const edgeKey = ek(v1, v2);
+        coordOf.set(k1, v1); coordOf.set(k2, v2);
+        if (!vertAdj.has(k1)) vertAdj.set(k1, []);
+        if (!vertAdj.has(k2)) vertAdj.set(k2, []);
+        vertAdj.get(k1)!.push({ key: k2, coord: v2, edgeKey });
+        vertAdj.get(k2)!.push({ key: k1, coord: v1, edgeKey });
+      }
+
+      if (coordOf.size === 0) continue;
+
+      // ── Walk all closed rings (handles disconnected islands) ────────────
+      const usedEdges = new Set<string>();
+      const rings: [number, number][][] = [];
+
+      for (const { v1, v2, count } of edgeCounts.values()) {
+        if (count !== 1) continue;
+        const initKey = ek(v1, v2);
+        if (usedEdges.has(initKey)) continue;
+
+        usedEdges.add(initKey);
+        const ring: [number, number][] = [v1, v2];
+        const startK = vk(v1[0], v1[1]);
+        let curK = vk(v2[0], v2[1]);
+
+        let safety = 0;
+        while (curK !== startK && safety++ < 10_000) {
+          const next = (vertAdj.get(curK) ?? []).find(
+            (e) => !usedEdges.has(e.edgeKey),
+          );
+          if (!next) break;
+          usedEdges.add(next.edgeKey);
+          if (next.key === startK) break;
+          ring.push(next.coord);
+          curK = next.key;
+        }
+
+        if (ring.length >= 3) rings.push(ring);
+      }
+
+      if (rings.length === 0) continue;
+
+      // ── PCA label angle ─────────────────────────────────────────────────
+      const n = hexCenters.length;
+      const mx = hexCenters.reduce((s, p) => s + p.cx, 0) / n;
+      const my = hexCenters.reduce((s, p) => s + p.cy, 0) / n;
+      let labelAngle = 0;
+      if (n > 1) {
+        const sxx = hexCenters.reduce((s, p) => s + (p.cx - mx) ** 2, 0);
+        const syy = hexCenters.reduce((s, p) => s + (p.cy - my) ** 2, 0);
+        const sxy = hexCenters.reduce((s, p) => s + (p.cx - mx) * (p.cy - my), 0);
+        let ang = (Math.atan2(2 * sxy, sxx - syy) * 180) / Math.PI / 2;
+        if (ang > 90) ang -= 180;
+        if (ang < -90) ang += 180;
+        labelAngle = ang;
+      }
+
+      // ── Render filled blob(s) ───────────────────────────────────────────
+      const g = document.createElementNS(svgNS, "g");
+      g.setAttribute("opacity", "0.45");
+      svg.appendChild(g);
+
+      for (const ring of rings) {
+        const d =
+          ring
+            .map(
+              (c, i) =>
+                `${i === 0 ? "M" : "L"}${c[0].toFixed(1)},${c[1].toFixed(1)}`,
+            )
+            .join(" ") + " Z";
+        const path = document.createElementNS(svgNS, "path");
+        path.setAttribute("d", d);
+        path.setAttribute("fill", color);
+        // Stroke bridges the inter-hex gap; round joins/caps smooth blob edges
+        path.setAttribute("stroke", color);
+        path.setAttribute("stroke-width", String(gapPx * 2 + 2));
+        path.setAttribute("stroke-linejoin", "round");
+        path.setAttribute("stroke-linecap", "round");
+        path.setAttribute("paint-order", "stroke fill");
+        g.appendChild(path);
+      }
+
+      // ── Region name label (full opacity, above fill) ────────────────────
+      // Font size scales with sqrt(hexCount) so larger regions get bigger labels
+      const fontSize = Math.round(Math.min(10 + 3 * Math.sqrt(n), 52));
+      const text = document.createElementNS(svgNS, "text");
+      text.setAttribute("x", mx.toFixed(1));
+      text.setAttribute("y", my.toFixed(1));
+      text.setAttribute("text-anchor", "middle");
+      text.setAttribute("dominant-baseline", "middle");
+      text.setAttribute("font-size", String(fontSize));
+      text.setAttribute(
+        "transform",
+        `rotate(${labelAngle.toFixed(1)},${mx.toFixed(1)},${my.toFixed(1)})`,
+      );
+      text.setAttribute("class", "duckmage-region-label");
+      text.textContent = regionName;
+      svg.appendChild(text);
+
+      hasElements = true;
+    }
+
+    if (!hasElements) return;
+
+    // Regions render below factions and paths
+    const factionSvg = this.viewportEl?.querySelector("svg.duckmage-faction-svg");
+    const pathSvg = this.viewportEl?.querySelector("svg.duckmage-path-svg");
+    const insertBefore = factionSvg ?? pathSvg ?? null;
+    if (insertBefore && this.viewportEl) {
+      this.viewportEl.insertBefore(svg, insertBefore);
+    } else if (this.viewportEl) {
+      this.viewportEl.appendChild(svg);
+    }
   }
 }

@@ -65,6 +65,50 @@ export async function setFactionColorInFile(
   return true;
 }
 
+export function getHexRegionFromFile(app: App, path: string): string | null {
+  const region = getFrontMatter(app, path)?.["region"];
+  return typeof region === "string" ? region : null;
+}
+
+export async function setHexRegionInFile(
+  app: App,
+  path: string,
+  regionName: string | null,
+): Promise<boolean> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return false;
+  await app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+    if (regionName === null) {
+      delete fm["region"];
+    } else {
+      fm["region"] = regionName;
+    }
+  });
+  return true;
+}
+
+export function getRegionColorFromFile(app: App, path: string): string | null {
+  const color = getFrontMatter(app, path)?.["region-color"];
+  return typeof color === "string" ? color : null;
+}
+
+export async function setRegionColorInFile(
+  app: App,
+  path: string,
+  color: string | null,
+): Promise<boolean> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return false;
+  await app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+    if (color === null) {
+      delete fm["region-color"];
+    } else {
+      fm["region-color"] = color;
+    }
+  });
+  return true;
+}
+
 export function getIconOverrideFromFile(app: App, path: string): string | null {
   const icon = getFrontMatter(app, path)?.icon;
   return typeof icon === "string" ? icon : null;

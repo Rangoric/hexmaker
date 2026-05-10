@@ -24,6 +24,7 @@ export interface MapData {
 	showTerrainIcons?: boolean;  // undefined = true
 	showIconOverrides?: boolean; // undefined = true
 	showFactionOverlay?: boolean; // undefined = false (opt-in)
+	showRegionOverlay?: boolean;  // undefined = false (opt-in)
 }
 
 export interface TerrainPalette {
@@ -57,6 +58,7 @@ export interface HexmakerPluginSettings {
 	hexOrientation: "pointy" | "flat";
 	tablesFolder: string;
 	factionsFolder: string;
+	regionsFolder: string;
 	defaultTableDice: number;
 	hexEditorTerrainCollapsed: boolean;
 	hexEditorFeaturesCollapsed: boolean;

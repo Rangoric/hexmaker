@@ -97,8 +97,10 @@ export class OverlayPanel extends HexSidePanel {
   private getViewportEl: () => HTMLElement | null;
   private getActiveMap: () => MapData;
   private onFactionOverlayChange: (show: boolean) => void;
+  private onRegionOverlayChange: (show: boolean) => void;
   private checkboxes = new Map<OverlayKey, HTMLInputElement>();
   private factionOverlayCb: HTMLInputElement | null = null;
+  private regionOverlayCb: HTMLInputElement | null = null;
 
   constructor(
     container: HTMLElement,
@@ -106,12 +108,14 @@ export class OverlayPanel extends HexSidePanel {
     getViewportEl: () => HTMLElement | null,
     getActiveMap: () => MapData,
     onFactionOverlayChange: (show: boolean) => void,
+    onRegionOverlayChange: (show: boolean) => void,
   ) {
     super(container, "layers", 44, "Map overlays");
     this.plugin = plugin;
     this.getViewportEl = getViewportEl;
     this.getActiveMap = getActiveMap;
     this.onFactionOverlayChange = onFactionOverlayChange;
+    this.onRegionOverlayChange = onRegionOverlayChange;
     this.buildPanel(this.panelEl);
   }
 
@@ -166,6 +170,32 @@ export class OverlayPanel extends HexSidePanel {
       factionCb.checked = !factionCb.checked;
       applyFaction();
     });
+
+    // Region overlay — same pattern as faction
+    const regionRow = panel.createDiv({ cls: "duckmage-overlay-row" });
+    const regionCb = document.createElement("input");
+    regionCb.type = "checkbox";
+    regionCb.checked = false;
+    regionRow.appendChild(regionCb);
+    this.regionOverlayCb = regionCb;
+
+    const regionLabel = regionRow.createSpan({
+      text: "Region overlay",
+      cls: "duckmage-overlay-label",
+    });
+
+    const applyRegion = () => {
+      const map = this.getActiveMap();
+      map.showRegionOverlay = regionCb.checked;
+      void this.plugin.saveSettings();
+      this.onRegionOverlayChange(regionCb.checked);
+    };
+
+    regionCb.addEventListener("change", applyRegion);
+    regionLabel.addEventListener("click", () => {
+      regionCb.checked = !regionCb.checked;
+      applyRegion();
+    });
   }
 
   /** Read the current map's saved state and apply it to the viewport + checkboxes. */
@@ -184,6 +214,12 @@ export class OverlayPanel extends HexSidePanel {
       const show = map.showFactionOverlay ?? false;
       this.factionOverlayCb.checked = show;
       this.onFactionOverlayChange(show);
+    }
+    // Region overlay — undefined → false (opt-in)
+    if (this.regionOverlayCb) {
+      const show = map.showRegionOverlay ?? false;
+      this.regionOverlayCb.checked = show;
+      this.onRegionOverlayChange(show);
     }
   }
 
