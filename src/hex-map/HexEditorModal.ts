@@ -512,7 +512,7 @@ export class HexEditorModal extends HexmakerModal {
       const clearGmBtn = gmRow.createEl("button", {
         text: "Clear",
         cls: "duckmage-clear-btn",
-        title: "Remove GM icon",
+        title: "Remove icon",
       });
       clearGmBtn.setCssProps({
         visibility: currentGmIcon ? "visible" : "hidden",

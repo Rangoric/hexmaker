@@ -35,6 +35,15 @@ this.registerEvent(
 ```
 This removes `any` entirely; `unknown as SomeInterface` is fully type-safe.
 
+### `@typescript-eslint/no-unnecessary-type-assertion`
+A cast (`as T`) where TypeScript already knows the value has type `T`.
+
+**Common cause — `createEl` with a specific tag**: Obsidian's `createEl<K>(tag: K, ...)` returns `HTMLElementTagNameMap[K]`, so `createEl("input", ...)` already returns `HTMLInputElement`. Any subsequent `as HTMLInputElement` cast is redundant.
+
+**Common cause — ambient types not imported**: Using `as DomElementInfo` inline causes ESLint's `no-undef` to fire because the ambient type isn't an explicit import. Drop the cast entirely — `{ type: "checkbox" }` is assignable to `DomElementInfo` without a cast.
+
+**Fix**: Delete the redundant cast. If the type isn't narrow enough, use `as unknown as T` (two-step) rather than a direct `as T` — but prefer removing the cast entirely.
+
 ### `obsidianmd/ui/sentence-case`
 UI text must use sentence case: only the first word and proper nouns are capitalised.
 
@@ -43,6 +52,7 @@ UI text must use sentence case: only the first word and proper nouns are capital
   - `"← Pick icons"` → `"← pick icons"`
   - `"↩ Map mode"` → `"↩ map mode"`
 - Parenthetical range notation: `"(A → Z)"` → `"(a → z)"`
+- Mid-sentence acronyms (e.g. "Remove GM icon"): the rule flags consecutive capitals that are not the first word. Reword to move the acronym to the front, avoid it, or use the full term in lowercase: `"Remove icon"` or `"GM icon: remove"`.
 
 **Fix B — eslint-disable** for intentional special-case UI text that would look wrong if sentence-cased:
 - Short abbreviation labels: `"wt ↑"`, `"a→z"`, `"z→a"` — these are symbols/abbreviations, not sentences

@@ -736,7 +736,7 @@ export default class HexmakerPlugin extends Plugin {
     let linked = 0;
     for (const file of hexFiles) {
       const cache = this.app.metadataCache.getFileCache(file);
-      const region = cache?.frontmatter?.["region"];
+      const region: unknown = cache?.frontmatter?.["region"];
       if (typeof region !== "string" || !region) continue;
       await this.syncHexRegionTableLink(file.path, region);
       linked++;

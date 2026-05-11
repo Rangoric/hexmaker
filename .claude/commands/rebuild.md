@@ -1,5 +1,5 @@
 ---
-description: Build the duckmage plugin (type-check + bundle)
+description: Build the duckmage plugin (type-check + bundle + lint + tests)
 allowed-tools: Bash(npm:*)
 ---
 
@@ -15,7 +15,17 @@ Report the build result clearly:
 - If it succeeded, confirm that `main.js` was updated.
 - If it failed, show the full error output and identify the likely cause (TypeScript type error, missing import, syntax error, etc.).
 
-Then, regardless of build result, run the test suite:
+Then run the linter:
+
+```
+cd /mnt/c/Users/markr/Documents/KB/journal/.obsidian/plugins/duckmage-plugin && npm run lint 2>&1
+```
+
+Report the lint result clearly:
+- If there are no issues, confirm it is lint-clean.
+- If there are errors or warnings, list each one with file, line, rule name, and a brief description. Errors from the Obsidian reviewer are **required** fixes; address them before marking the task done.
+
+Then, regardless of build/lint result, run the test suite:
 
 ```
 cd /mnt/c/Users/markr/Documents/KB/journal/.obsidian/plugins/duckmage-plugin && npm test

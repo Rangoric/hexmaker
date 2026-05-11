@@ -39,15 +39,15 @@ export class IconPickerModal extends HexmakerModal {
 
     // GM layer only toggle
     const gmRow = headerRight.createDiv({ cls: "duckmage-icon-gm-toggle-row" });
-    const gmCb = gmRow.createEl("input", { type: "checkbox" } as DomElementInfo);
-    (gmCb as HTMLInputElement).checked = this.gmOnly;
+    const gmCb = gmRow.createEl("input", { type: "checkbox" });
+    gmCb.checked = this.gmOnly;
     const gmLabel = gmRow.createSpan({ text: "GM layer only", cls: "duckmage-icon-gm-toggle-label" });
     const applyGm = () => {
-      this.gmOnly = (gmCb as HTMLInputElement).checked;
+      this.gmOnly = gmCb.checked;
     };
     gmCb.addEventListener("change", applyGm);
     gmLabel.addEventListener("click", () => {
-      (gmCb as HTMLInputElement).checked = !(gmCb as HTMLInputElement).checked;
+      gmCb.checked = !gmCb.checked;
       applyGm();
     });
 

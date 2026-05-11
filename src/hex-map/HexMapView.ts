@@ -2777,7 +2777,7 @@ export class HexMapView extends ItemView {
     const file = this.app.vault.getAbstractFileByPath(hexFilePath);
     if (!(file instanceof TFile)) return null;
     const cache = this.app.metadataCache.getFileCache(file);
-    const region = cache?.frontmatter?.["region"];
+    const region: unknown = cache?.frontmatter?.["region"];
     return typeof region === "string" ? region : null;
   }
 
