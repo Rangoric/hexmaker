@@ -8,11 +8,11 @@ An Obsidian plugin for tabletop RPG hex-map world-building. Each hex on the map 
 
 ## What it does
 
-Hexmaker gives you an interactive hex grid that lives inside Obsidian. Paint terrain, draw roads and rivers, link town and dungeon notes to individual hexes, roll random encounters, and browse everything in a spreadsheet view — all without leaving your vault. Every hex is a plain Markdown file you own.
+Hexmaker gives you an interactive hex grid that lives inside Obsidian. Paint terrain, draw roads and rivers, link town and dungeon notes to individual hexes, overlay faction and geographic region fills, roll random encounters, and browse everything in a spreadsheet view — all without leaving your vault. Every hex is a plain Markdown file you own.
 
 ### Hex editor
 
-Right-click any hex to open the editor: set terrain, override the icon, link Towns, Dungeons, Features, and Encounters Tables, and write freeform notes (Description, Landmark, Hidden, Secret, Weather, Hooks & Rumors). A 🎲 button on each section lets you roll any random table and append the result inline.
+Right-click any hex to open the editor: set terrain, override the icon, link Towns, Dungeons, Features, Quests, Factions, and Encounters Tables, and write freeform notes (Description, Landmark, Hidden, Secret, Weather, Hooks & Rumors). A 🎲 button on each section lets you roll any random table and append the result inline.
 
 ![The hex editor showing terrain, links, and notes for a single hex](docs/Editor.PNG)
 
@@ -40,11 +40,19 @@ A scrollable spreadsheet of every hex note — one row per hex, columns for terr
 
 ![The hex table view showing a grid of hex notes with populated columns](docs/Table.PNG)
 
+### Faction and region overlays
+
+Paint translucent colour fills over hexes to show political control or geographic regions. Adjacent hexes of the same faction or region merge into smooth blobs with a rendered legend. Toggle overlays from the map toolbar; overlay state is saved per map.
+
+### GM layer
+
+Toggle the GM layer from the toolbar to switch between player-facing and GM views. When active, Hidden and Secret sections in the hex editor expand automatically, and hexes with hidden or secret content are highlighted on the map.
+
 ---
 
 ## Manual Installation
 
-1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/sbuffkin/obsidian-hexmaker/releases/latest).
+1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/sbuffkin/hexmaker/releases/latest).
 2. In your vault, create the folder `.obsidian/plugins/hexmaker-plugin/`.
 3. Copy the three downloaded files into that folder.
 4. In Obsidian, open **Settings → Community plugins**, find **Hexmaker** in the list, and enable it.
@@ -93,10 +101,9 @@ A side-panel modal for editing a hex note without leaving the map.
 
 - **Terrain picker** — select the terrain type for the hex from the region's palette.
 - **Icon override** — override the default terrain icon with any icon in your icons folder.
-- **Towns / Dungeons** — link existing notes from their configured folders, or create a new note by name. Linked items are clickable and open in a new tab. Each entry has a remove button.
-- **Features** — free-form wiki-link list for anything else.
+- **Towns / Dungeons / Features / Quests / Factions** — link existing notes from their configured folders, or create a new note by name. Linked items are clickable and open in a new tab. Each entry has a remove button.
 - **Encounters Table** — link random table files to a hex. Clicking a linked table opens the Random Tables view with that table pre-selected.
-- **Notes sections** — Description, Landmark, Hidden, Secret, Encounters, Weather, Hooks & Rumors — inline text areas with a 🎲 roll button to append a result from any random table.
+- **Notes sections** — Description, Landmark, Hidden, Secret, Weather, Hooks & Rumors — inline text areas with a 🎲 roll button to append a result from any random table.
 - **Open note** link next to the hex coordinates opens the full note in a new tab.
 
 ### Random Tables view
@@ -129,6 +136,9 @@ Toggle tools from the toolbar above the map. **Right-click** off a hex to exit a
 | **Terrain** | Paint terrain on a hex (drag to paint multiple) | — |
 | **Icon** | Paint an icon override on a hex | — |
 | **Path** | Add hex to the active path chain | Remove hex from chain |
+| **Faction** | Paint a faction colour on a hex (drag to paint multiple) | Erase faction from hex |
+| **Region** | Paint a geographic region colour on a hex | Erase region from hex |
+| **Table link** | Add the selected random table as a link in a hex's Encounters Table section | — |
 
 **Terrain painter extras:**
 - Clicking the Terrain button always reopens the palette so you can switch colours mid-session.
@@ -141,6 +151,21 @@ Toggle tools from the toolbar above the map. **Right-click** off a hex to exit a
 - **Through** — smooth Bezier curve through hex centres.
 - **Meander** — gentle curve through the midpoints between hex centres (good for rivers).
 - **Edge** — traces strictly along the hex polygon boundary lines between hexes.
+
+### Overlays (faction and region)
+Toggled from the overlay panel on the map toolbar.
+
+- **Faction overlay** — paint a faction colour on any hex. Adjacent hexes of the same faction merge into smooth filled blobs with a coloured border. A legend lists each active faction. Edit faction names and colours from the overlay panel. Faction data is stored as wiki-links in each hex note's `### Factions` section.
+- **Region overlay** — paint a geographic region colour on any hex. Regions render as filled blobs with a scaled label centred on the blob. Region data is stored in each hex note's frontmatter.
+- Both overlays can be shown simultaneously and toggled independently.
+
+### GM layer
+Toggle the GM layer from the map toolbar. When active:
+
+- Hexes with Hidden or Secret content are visually highlighted.
+- The hex editor automatically expands the Hidden and Secret sections when opened.
+
+GM layer state is stored per map and persists across sessions.
 
 ### Hex table view
 Open via **Command palette → "Open Hexmaker hex table"**.
@@ -166,13 +191,16 @@ Open **Settings → Hexmaker** to configure:
 | **Hex folder** | Folder where hex notes are stored, e.g. `RPG/world/hexes`. |
 | **Towns folder** | Scopes the Towns dropdown to a specific folder. |
 | **Dungeons folder** | Scopes the Dungeons dropdown to a specific folder. |
+| **Quests folder** | Scopes the Quests dropdown to a specific folder. |
+| **Factions folder** | Scopes the Factions dropdown to a specific folder. |
 | **Tables folder** | Folder for random table files. Terrain tables are created in a `terrain/` subfolder here. |
+| **Workflows folder** | Folder for workflow definition files and their templates. |
 | **Default die** | Die size used when creating new table files (d4–d100). |
 | **Icons folder** | Folder containing `.png` icon files available as custom terrain/hex icons. |
 | **Template path** | Path to a custom hex note template. Supports `{{x}}`, `{{y}}`, `{{title}}` placeholders. Leave blank to use the built-in template. |
 | **Hex gap** | Gap between hexes in pixels. |
 | **Grid size** | Number of columns and rows in the map grid. |
-| **Hex orientation** | `pointy` (default) or `flat` top hex style. |
+| **Hex orientation** | `flat` (default) or `pointy` top hex style. |
 | **Path types** | Named path types used by the Path drawing tool. Each type has a name, colour, width, line style, and routing mode. Manage them from the Path button on the hex map toolbar. |
 | **Terrain palettes** | Named palettes of terrain types. Each palette has a name and a list of terrain entries (name, colour, optional icon). Palettes are assigned to regions at creation time and cannot be changed after. Edit palette contents from the terrain tool on the hex map. |
 | **Generate** | ⚠️ Configure all folders first. Creates missing terrain table files and links each hex's terrain encounters table into the hex note. |
@@ -199,10 +227,11 @@ terrain: Forest
 | `### Towns` | Links | Settlement links |
 | `### Dungeons` | Links | Dungeon/site links |
 | `### Features` | Links | Other points of interest |
+| `### Quests` | Links | Active quest links |
+| `### Factions` | Links | Faction links (used by the faction overlay) |
 | `### Encounters Table` | Links | Random table links (linked to terrain by Generate) |
 | `### hidden` | Text | Discoverable with effort |
 | `### secret` | Text | Revealed only through investigation |
-| `### encounters` | Text | Encounter table notes |
 | `### weather` | Text | Weather notes |
 | `### hooks & rumors` | Text | Adventure seeds |
 
