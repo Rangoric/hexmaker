@@ -1,4 +1,4 @@
-# Hexmaker
+# Hexmap World Creator
 
 An Obsidian plugin for tabletop RPG hex-map world-building. Each hex on the map is a Markdown note in your vault — attach terrain, locations, paths, and prose directly to the geography of your world.
 

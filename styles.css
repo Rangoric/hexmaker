@@ -113,11 +113,11 @@
 
 /* Terrain icons off: hide plain terrain icons and suppress the fallback */
 .duckmage-hide-terrain-icons .duckmage-hex:not([data-icon-override]) .duckmage-hex-icon { display: none; }
-.duckmage-hide-terrain-icons .duckmage-hex-terrain-icon { display: none !important; }
+.duckmage-hide-terrain-icons .duckmage-hex-terrain-icon { display: none; }
 
-/* Icon overrides off: hide override icon, reveal terrain fallback */
+/* Icon overrides off: hide override icon, reveal terrain fallback (only when terrain icons are not also hidden) */
 .duckmage-hide-icon-overrides .duckmage-hex-override-icon { display: none; }
-.duckmage-hide-icon-overrides .duckmage-hex[data-icon-override] .duckmage-hex-terrain-icon { display: block; }
+.duckmage-hide-icon-overrides:not(.duckmage-hide-terrain-icons) .duckmage-hex[data-icon-override] .duckmage-hex-terrain-icon { display: block; }
 .duckmage-hide-icon-overrides .duckmage-svg-icon-override { display: none; }
 
 .duckmage-hex-map-viewport {
@@ -270,7 +270,7 @@ div.duckmage-hex-icon {
 
 /* Outline keeps coordinates readable over any terrain color */
 .duckmage-hex[style*="background-color"] .duckmage-hex-label {
-    color: #fff;
+    color: #ffffff;
     text-shadow:
         -1px -1px 0 rgba(0, 0, 0, 0.85),
         1px -1px 0 rgba(0, 0, 0, 0.85),
@@ -411,11 +411,11 @@ div.duckmage-hex-icon {
 }
 
 /* ── Draggable / resizable modal ───────────────────────────────────── */
-.duckmage-editor-modal-drag {
+.modal.duckmage-editor-modal-drag {
     overflow: hidden;
-    width: min(620px, 90vw) !important;
-    max-height: min(90vh, 860px) !important;
-    max-width: none !important;
+    width: min(620px, 90vw);
+    max-height: min(90vh, 860px);
+    max-width: none;
     min-width: 320px;
     min-height: 200px;
 }
@@ -739,8 +739,8 @@ div.duckmage-terrain-preview-icon {
 }
 
 /* Duplicate-name error state on terrain name input */
-.duckmage-input-error {
-    border-color: var(--color-red) !important;
+input.duckmage-input-error {
+    border-color: var(--color-red);
     outline: 1px solid var(--color-red);
 }
 
@@ -1254,6 +1254,7 @@ div.duckmage-terrain-preview-icon {
         border-color 0.1s ease,
         background 0.1s ease;
     min-width: 52px;
+    position: relative;
 }
 
 .duckmage-icon-option:hover {
@@ -1351,10 +1352,6 @@ div.duckmage-terrain-preview-icon {
 }
 
 /* Hide button — appears on hover over each icon tile in manage mode */
-.duckmage-icon-option {
-    position: relative;
-}
-
 .duckmage-icon-hide-btn {
     position: absolute;
     top: 2px;
@@ -1780,8 +1777,8 @@ div.duckmage-terrain-preview-icon {
     color: var(--text-error);
 }
 
-.duckmage-row-hidden {
-    display: none !important;
+tr.duckmage-row-hidden {
+    display: none;
 }
 
 .duckmage-terrain-filter-category-heading {
@@ -2430,14 +2427,14 @@ div.duckmage-terrain-preview-icon {
 }
 
 /* Per-entry copy button in the table odds grid */
-.duckmage-rt-copy-col-header {
+.duckmage-random-table .duckmage-rt-copy-col-header {
     width: 24px;
-    padding: 0 !important;
+    padding: 0;
 }
 
-.duckmage-rt-entry-copy-cell {
+.duckmage-random-table .duckmage-rt-entry-copy-cell {
     width: 24px;
-    padding: 0 2px !important;
+    padding: 0 2px;
     text-align: center;
 }
 
@@ -2715,11 +2712,6 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
 }
 
 /* ── Random table view — folder exclusion badges ───────────────────────────── */
-
-.duckmage-rt-folder-header {
-    display: flex;
-    align-items: center;
-}
 
 .duckmage-rt-folder-filter-badges {
     margin-left: auto;
