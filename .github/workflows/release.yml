@@ -29,12 +29,17 @@ jobs:
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
+          if git ls-remote --tags origin "${{ steps.version.outputs.version }}" | grep -q .; then
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Use Node.js
         if: steps.check.outputs.exists == 'false'
         uses: actions/setup-node@v4
         with:
-          node-version: "20.x"
+          node-version: "lts/*"
           cache: "npm"
 
       - name: Install dependencies
@@ -57,8 +62,10 @@ jobs:
           version="${{ steps.version.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$version" -m "$version"
-          git push origin "$version"
+          if [ "${{ steps.check.outputs.tag_exists }}" != "true" ]; then
+            git tag -a "$version" -m "$version"
+            git push origin "$version"
+          fi
           gh release create "$version" \
             --title="$version" \
             --generate-notes \
