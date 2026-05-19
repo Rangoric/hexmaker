@@ -7,6 +7,7 @@ export const EXPANDED_PALETTE_NAME = "Expanded";
 export const VIEW_TYPE_HEX_MAP = "duckmage-hex-map";
 export const VIEW_TYPE_HEX_TABLE = "duckmage-hex-table";
 export const VIEW_TYPE_RANDOM_TABLES = "duckmage-random-tables";
+export const VIEW_TYPE_SETUP_WIZARD = "duckmage-setup-wizard";
 
 export const DEFAULT_TERRAIN_PALETTE: TerrainColor[] = [
   // Sea
@@ -326,4 +327,6 @@ export const DEFAULT_SETTINGS: HexmakerPluginSettings = {
   defaultMap: "default",
   workflowsFolder: "",
   hiddenIcons: [],
+  setupComplete: false,
+  setupDismissed: false,
 };

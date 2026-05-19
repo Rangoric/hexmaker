@@ -15,6 +15,18 @@ export class HexmakerSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     new Setting(containerEl)
+      .setName("Setup wizard")
+      .setDesc("Re-open the setup wizard to reconfigure folders or create a new map.")
+      .addButton((btn) =>
+        btn
+          .setButtonText("Re-run setup wizard")
+          .onClick(() => {
+            this.plugin.settings.setupDismissed = false;
+            void this.plugin.saveSettings().then(() => this.plugin.openSetupWizard());
+          }),
+      );
+
+    new Setting(containerEl)
       .setName("World notes folder")
       .setDesc(
         "Vault-relative path. Scopes the file search when adding links to hexes.",

@@ -11,7 +11,9 @@ import {
   VIEW_TYPE_HEX_MAP,
   VIEW_TYPE_HEX_TABLE,
   VIEW_TYPE_RANDOM_TABLES,
+  VIEW_TYPE_SETUP_WIZARD,
 } from "./constants";
+import { SetupWizardView } from "./SetupWizardView";
 import { normalizeFolder, makeTableTemplate } from "./utils";
 import { BUNDLED_ICONS } from "./bundledIcons";
 import { parseWorkflow, buildWorkflowContent } from "./random-tables/workflow";
@@ -36,9 +38,17 @@ export default class HexmakerPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
-    this.loadAvailableIcons();
+    // Defer until vault metadata cache is ready; calling before layout-ready
+    // returns null for all vault paths so custom icons are silently dropped.
+    this.app.workspace.onLayoutReady(() => {
+      this.loadAvailableIcons();
+      if (!this.settings.setupComplete && !this.settings.setupDismissed) {
+        this.openSetupWizard();
+      }
+    });
     await this.migrateHexFilesToDefaultRegion();
 
+    this.registerView(VIEW_TYPE_SETUP_WIZARD, (leaf) => new SetupWizardView(leaf, this));
     this.registerView(VIEW_TYPE_HEX_MAP, (leaf) => new HexMapView(leaf, this));
     this.registerView(
       VIEW_TYPE_HEX_TABLE,
@@ -228,6 +238,10 @@ export default class HexmakerPlugin extends Plugin {
 
   private openHexMap(): void {
     void this.app.workspace.getLeaf().setViewState({ type: VIEW_TYPE_HEX_MAP });
+  }
+
+  openSetupWizard(): void {
+    void this.app.workspace.getLeaf("tab").setViewState({ type: VIEW_TYPE_SETUP_WIZARD });
   }
 
   async loadSettings() {
@@ -808,22 +822,7 @@ export default class HexmakerPlugin extends Plugin {
     if (preloadedTemplate !== undefined) {
       content = preloadedTemplate;
     } else {
-      const templatePath = normalizeFolder(this.settings.templatePath ?? "");
-      if (templatePath) {
-        const templateFile = this.app.vault.getAbstractFileByPath(templatePath);
-        if (!(templateFile instanceof TFile)) {
-          new Notice("Template not found: " + templatePath);
-          return null;
-        }
-        try {
-          content = await this.app.vault.read(templateFile);
-        } catch {
-          new Notice("Template not found: " + templatePath);
-          return null;
-        }
-      } else {
-        content = DEFAULT_HEX_TEMPLATE;
-      }
+      content = await this.loadHexTemplate();
     }
 
     content = content
@@ -855,22 +854,41 @@ export default class HexmakerPlugin extends Plugin {
   }
 
   /** Read the hex template once (used by bulk generation to avoid N redundant reads). */
-  private async loadHexTemplate(): Promise<string | null> {
+  private async loadHexTemplate(): Promise<string> {
     const templatePath = normalizeFolder(this.settings.templatePath ?? "");
     if (templatePath) {
       const templateFile = this.app.vault.getAbstractFileByPath(templatePath);
-      if (!(templateFile instanceof TFile)) {
-        new Notice("Template not found: " + templatePath);
-        return null;
+      if (templateFile instanceof TFile) {
+        try {
+          return await this.app.vault.read(templateFile);
+        } catch { /* fall through */ }
       }
-      try {
-        return await this.app.vault.read(templateFile);
-      } catch {
-        new Notice("Template not found: " + templatePath);
-        return null;
-      }
+      new Notice(`Hex template not found at "${templatePath}" — using built-in default.`);
     }
     return DEFAULT_HEX_TEMPLATE;
+  }
+
+  /**
+   * Ensure a hex template file exists on disk.
+   * - If templatePath is set and the file exists: no-op.
+   * - If templatePath is set but the file is missing: create it from the built-in default.
+   * - If templatePath is blank: create at {worldFolder}/hextemplate.md and persist the path.
+   */
+  async ensureHexTemplate(): Promise<void> {
+    let templatePath = normalizeFolder(this.settings.templatePath ?? "");
+    if (!templatePath) {
+      const world = normalizeFolder(this.settings.worldFolder) || "world";
+      templatePath = `${world}/hextemplate.md`;
+      this.settings.templatePath = templatePath;
+      await this.saveSettings();
+    }
+    if (!this.app.vault.getAbstractFileByPath(templatePath)) {
+      try {
+        await this.app.vault.create(templatePath, DEFAULT_HEX_TEMPLATE);
+      } catch {
+        /* created concurrently — fine */
+      }
+    }
   }
 
   /**
@@ -957,6 +975,16 @@ export default class HexmakerPlugin extends Plugin {
   private async migrateHexFilesToDefaultRegion(): Promise<void> {
     const hexFolder = normalizeFolder(this.settings.hexFolder);
     if (!hexFolder) return;
+
+    // Scan first — only create the destination folder if there are actually
+    // files to move. On a fresh install the scan returns nothing and we return
+    // early, avoiding spurious folder creation before setup is complete.
+    const candidates = this.app.vault.getMarkdownFiles().filter((f) => {
+      const parent = f.parent?.path ?? "";
+      return parent === hexFolder && /^-?\d+_-?\d+$/.test(f.basename);
+    });
+    if (candidates.length === 0) return;
+
     const defaultFolder = `${hexFolder}/default`;
     if (!this.app.vault.getAbstractFileByPath(defaultFolder)) {
       try {
@@ -965,10 +993,6 @@ export default class HexmakerPlugin extends Plugin {
         /* exists */
       }
     }
-    const candidates = this.app.vault.getMarkdownFiles().filter((f) => {
-      const parent = f.parent?.path ?? "";
-      return parent === hexFolder && /^-?\d+_-?\d+$/.test(f.basename);
-    });
     let moved = 0;
     for (const file of candidates) {
       const newPath = `${defaultFolder}/${file.name}`;

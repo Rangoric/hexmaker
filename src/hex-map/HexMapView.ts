@@ -87,6 +87,7 @@ export class HexMapView extends ItemView {
   private swapBtn: HTMLButtonElement | null = null;
   private deselToolBtn: HTMLButtonElement | null = null;
   private overlayPanel: OverlayPanel | null = null;
+  private toolsPanel: DrawingToolPanel | null = null;
   private swapSource: { x: number; y: number } | null = null;
   private swapDest: { x: number; y: number } | null = null;
   // The last-clicked hex key and the specific chain being extended
@@ -501,9 +502,10 @@ export class HexMapView extends ItemView {
     helpBtn.addEventListener("click", () => new HexHelpModal(this.app).open());
 
     // Side panels — drawing tools (pencil) + overlays (layers), mutually exclusive
-    const toolsPanel = new DrawingToolPanel(controlsEl, (panel) =>
+    this.toolsPanel = new DrawingToolPanel(controlsEl, (panel) =>
       this.buildDrawingToolbarContent(panel),
     );
+    const toolsPanel = this.toolsPanel;
     this.overlayPanel = new OverlayPanel(
       controlsEl,
       this.plugin,
@@ -732,8 +734,13 @@ export class HexMapView extends ItemView {
     this.activePathChain = null;
   }
 
+  openTerrainPicker(): void {
+    this.toolsPanel?.open();
+    this.handleTerrainButton();
+  }
+
   private handleTerrainButton(): void {
-    if (this.drawingMode === "terrain") { this.exitTerrainMode(); return; }
+    if (this.drawingMode === "terrain") this.exitTerrainMode();
 
     // Show crosshair on the viewport while the picker is open
     this.viewportEl?.addClass("duckmage-terrain-picking");

@@ -69,6 +69,8 @@ export interface HexmakerPluginSettings {
 	defaultMap: string;
 	workflowsFolder: string;
 	hiddenIcons: string[];
+	setupComplete: boolean;
+	setupDismissed: boolean;
 }
 
 export const LINK_SECTIONS = ["Towns", "Dungeons", "Features", "Quests", "Factions", "Encounters Table"] as const;

@@ -3448,3 +3448,429 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
 .duckmage-faction-picker-add-btn {
     flex-shrink: 0;
 }
+
+/* ─── Setup Wizard ─────────────────────────────────────────────────────────── */
+
+.duckmage-setup-wizard {
+    padding: 40px 48px;
+    max-width: 640px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.duckmage-wizard-header {
+    margin-bottom: 4px;
+}
+
+.duckmage-wizard-title {
+    font-size: 0.7em;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 0 0 14px 0;
+}
+
+.duckmage-wizard-dots {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.duckmage-wizard-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--background-modifier-border);
+    transition: background 0.2s;
+}
+
+.duckmage-wizard-dot.is-current {
+    background: var(--interactive-accent);
+}
+
+.duckmage-wizard-dot.is-done {
+    background: var(--text-muted);
+}
+
+.duckmage-wizard-step-label {
+    font-size: 0.75em;
+    color: var(--text-faint);
+    margin: 0;
+}
+
+.duckmage-wizard-step-title {
+    font-size: 1.5em;
+    font-weight: 600;
+    margin: 20px 0 24px 0;
+    line-height: 1.2;
+}
+
+.duckmage-wizard-step-content {
+    margin-bottom: 28px;
+}
+
+.duckmage-wizard-text {
+    line-height: 1.65;
+    color: var(--text-normal);
+    margin: 0 0 16px 0;
+}
+
+.duckmage-wizard-tip {
+    color: var(--text-muted);
+    font-size: 0.88em;
+    padding: 10px 14px;
+    border-left: 3px solid var(--interactive-accent);
+    background: var(--background-secondary);
+    border-radius: 0 4px 4px 0;
+    margin-top: 8px;
+}
+
+/* ── Fields ── */
+
+.duckmage-wizard-field {
+    margin-bottom: 22px;
+}
+
+.duckmage-wizard-label {
+    display: block;
+    font-size: 0.78em;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 7px;
+}
+
+.duckmage-wizard-input {
+    width: 100%;
+    padding: 9px 11px;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 5px;
+    color: var(--text-normal);
+    font-size: 0.95em;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+}
+
+.duckmage-wizard-input:focus {
+    border-color: var(--interactive-accent);
+    outline: none;
+}
+
+.duckmage-wizard-input-sm {
+    font-size: 0.85em;
+    padding: 7px 9px;
+}
+
+/* ── Subfolder preview ── */
+
+.duckmage-wizard-preview-wrap {
+    margin-top: -10px;
+    margin-bottom: 22px;
+}
+
+.duckmage-wizard-preview-label {
+    font-size: 0.78em;
+    color: var(--text-muted);
+    margin: 0 0 7px 0;
+}
+
+.duckmage-wizard-preview-list {
+    list-style: none;
+    padding: 10px 14px;
+    margin: 0;
+    background: var(--background-secondary);
+    border-radius: 5px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+}
+
+.duckmage-wizard-preview-item {
+    font-size: 0.8em;
+    color: var(--text-muted);
+    font-family: var(--font-monospace);
+}
+
+/* ── Advanced section ── */
+
+.duckmage-wizard-advanced-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    cursor: pointer;
+}
+
+.duckmage-wizard-advanced-label {
+    font-size: 0.85em;
+    color: var(--text-normal);
+    cursor: pointer;
+}
+
+.duckmage-wizard-advanced-section {
+    padding: 18px;
+    background: var(--background-secondary);
+    border-radius: 5px;
+    margin-bottom: 8px;
+}
+
+/* ── Grid size ── */
+
+.duckmage-wizard-size-inputs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.duckmage-wizard-input-num {
+    width: 68px;
+    padding: 9px 8px;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 5px;
+    color: var(--text-normal);
+    font-size: 0.95em;
+    text-align: center;
+    transition: border-color 0.15s;
+}
+
+.duckmage-wizard-input-num:focus {
+    border-color: var(--interactive-accent);
+    outline: none;
+}
+
+.duckmage-wizard-size-sep {
+    color: var(--text-muted);
+    font-size: 0.9em;
+}
+
+.duckmage-wizard-note-count {
+    margin: 9px 0 0 0;
+    font-size: 0.83em;
+    color: var(--text-accent);
+    font-weight: 500;
+}
+
+/* ── Hex orientation ── */
+
+.duckmage-wizard-orient-row {
+    display: flex;
+    gap: 12px;
+}
+
+.duckmage-wizard-orient-btn {
+    flex: 1;
+    padding: 14px 16px;
+    background: var(--background-secondary);
+    border: 2px solid var(--background-modifier-border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.duckmage-wizard-orient-btn:hover {
+    border-color: var(--interactive-accent-hover);
+}
+
+.duckmage-wizard-orient-btn.is-active {
+    border-color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+}
+
+.duckmage-wizard-orient-label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.9em;
+    margin-bottom: 5px;
+}
+
+.duckmage-wizard-orient-desc {
+    display: block;
+    font-size: 0.78em;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+/* ── Palette select ── */
+
+.duckmage-wizard-select {
+    width: 100%;
+    height: 36px;
+    padding: 0 10px;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 5px;
+    color: var(--text-normal);
+    font-size: 0.95em;
+    box-sizing: border-box;
+}
+
+/* ── Progress message (map generation) ── */
+
+.duckmage-wizard-progress-msg {
+    font-size: 0.83em;
+    color: var(--text-muted);
+    min-height: 18px;
+    margin-top: 6px;
+}
+
+/* ── Nav row ── */
+
+.duckmage-wizard-nav {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-top: 20px;
+    border-top: 1px solid var(--background-modifier-border);
+    margin-bottom: 16px;
+}
+
+.duckmage-wizard-back-btn {
+    padding: 8px 18px;
+    background: transparent;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 5px;
+    cursor: pointer;
+    color: var(--text-normal);
+    font-size: 0.88em;
+    transition: border-color 0.15s;
+}
+
+.duckmage-wizard-back-btn:hover:not(:disabled) {
+    border-color: var(--text-muted);
+}
+
+.duckmage-wizard-back-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.duckmage-wizard-nav-progress {
+    flex: 1;
+    text-align: center;
+    font-size: 0.82em;
+    color: var(--text-muted);
+}
+
+.duckmage-wizard-next-btn {
+    padding: 8px 22px;
+    margin-left: auto;
+    font-size: 0.9em;
+}
+
+/* ── Footer ── */
+
+.duckmage-wizard-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-top: 14px;
+}
+
+.duckmage-wizard-footer-sep {
+    color: var(--text-faint);
+    font-size: 0.8em;
+}
+
+.duckmage-wizard-dismiss-btn {
+    background: none;
+    border: none;
+    padding: 2px 6px;
+    color: var(--text-faint);
+    font-size: 0.78em;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    transition: color 0.15s;
+    white-space: nowrap;
+}
+
+.duckmage-wizard-dismiss-btn:hover {
+    color: var(--text-muted);
+}
+
+/* ── Tips list (done step) ── */
+
+.duckmage-wizard-tips {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.duckmage-wizard-tip-item {
+    font-size: 0.9em;
+    color: var(--text-normal);
+    line-height: 1.5;
+    padding-left: 22px;
+    position: relative;
+}
+
+.duckmage-wizard-tip-item::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    color: var(--interactive-accent);
+    font-weight: 700;
+}
+
+/* ── Done step ── */
+
+.duckmage-wizard-summary {
+    list-style: none;
+    padding: 14px 18px;
+    margin: 0 0 22px 0;
+    background: var(--background-secondary);
+    border-radius: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.duckmage-wizard-summary li {
+    font-size: 0.9em;
+    color: var(--text-normal);
+    padding-left: 20px;
+    position: relative;
+}
+
+.duckmage-wizard-summary li::before {
+    content: "✓";
+    position: absolute;
+    left: 0;
+    color: var(--color-green, #4caf50);
+    font-weight: 700;
+}
+
+.duckmage-wizard-cta-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 8px;
+}
+
+.duckmage-wizard-open-btn {
+    font-size: 0.95em;
+}
+
+.duckmage-wizard-skip-btn {
+    background: none;
+    border: 1px solid var(--background-modifier-border);
+    padding: 8px 18px;
+    border-radius: 5px;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 0.85em;
+    transition: border-color 0.15s;
+}
+
+.duckmage-wizard-skip-btn:hover {
+    border-color: var(--text-muted);
+}
