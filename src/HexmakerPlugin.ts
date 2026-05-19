@@ -42,10 +42,12 @@ export default class HexmakerPlugin extends Plugin {
     // returns null for all vault paths so custom icons are silently dropped.
     this.app.workspace.onLayoutReady(() => {
       this.loadAvailableIcons();
+      void this.autoRegisterMapsFromVault();
       if (!this.settings.setupComplete && !this.settings.setupDismissed) {
         this.openSetupWizard();
       }
     });
+
     await this.migrateHexFilesToDefaultRegion();
 
     this.registerView(VIEW_TYPE_SETUP_WIZARD, (leaf) => new SetupWizardView(leaf, this));
@@ -312,6 +314,18 @@ export default class HexmakerPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
+  // Called by Obsidian Sync when it delivers a new data.json from another device.
+  // Reloads settings into memory and refreshes all open views so the user sees
+  // the synced state without a manual Obsidian restart.
+  async onExternalSettingsChange(): Promise<void> {
+    await this.loadSettings();
+    this.loadAvailableIcons();
+    this.refreshHexMap();
+    this.app.workspace.getLeavesOfType(VIEW_TYPE_HEX_TABLE).forEach((leaf) => {
+      void (leaf.view as HexTableView).loadTable();
+    });
+  }
+
   /**
    * Filter a list of table files using a two-tier system:
    *  1. Per-file frontmatter (`filterKey: false` excludes, `filterKey: true` forces include)
@@ -367,6 +381,61 @@ export default class HexmakerPlugin extends Plugin {
 
     // Combine both sources, deduplicate by filename, sorted
     this.availableIcons = [...new Set([...pluginIcons, ...vaultIcons])].sort();
+  }
+
+  async autoRegisterMapsFromVault(): Promise<void> {
+    const hexFolder = normalizeFolder(this.settings.hexFolder);
+    if (!hexFolder) return;
+    const root = this.app.vault.getAbstractFileByPath(hexFolder);
+    if (!(root instanceof TFolder)) return;
+
+    const registered = new Set(this.settings.maps.map((m) => m.name));
+    const added: string[] = [];
+
+    for (const child of root.children) {
+      if (!(child instanceof TFolder)) continue;
+      if (registered.has(child.name)) continue;
+
+      // Infer grid bounds from hex note filenames (pattern: x_y.md)
+      let minX = Infinity, maxX = -Infinity;
+      let minY = Infinity, maxY = -Infinity;
+      for (const file of child.children) {
+        if (!(file instanceof TFile)) continue;
+        const m = file.basename.match(/^(-?\d+)_(-?\d+)$/);
+        if (!m) continue;
+        const x = parseInt(m[1]), y = parseInt(m[2]);
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+
+      const cols = isFinite(maxX) ? maxX - minX + 1 : 20;
+      const rows = isFinite(maxY) ? maxY - minY + 1 : 16;
+      const offsetX = isFinite(minX) ? minX : 0;
+      const offsetY = isFinite(minY) ? minY : 0;
+      const paletteName =
+        this.settings.terrainPalettes[0]?.name ?? DEFAULT_PALETTE_NAME;
+
+      this.settings.maps.push({
+        name: child.name,
+        paletteName,
+        gridSize: { cols, rows },
+        gridOffset: { x: offsetX, y: offsetY },
+        pathChains: [],
+      });
+      added.push(child.name);
+    }
+
+    if (added.length === 0) return;
+
+    if (!this.settings.defaultMap || !registered.has(this.settings.defaultMap)) {
+      this.settings.defaultMap = added[0];
+    }
+    await this.saveSettings();
+    new Notice(
+      `Hexmaker: auto-registered ${added.length} map${added.length > 1 ? "s" : ""} from vault: ${added.join(", ")}`,
+    );
   }
 
   hexPath(x: number, y: number, mapName: string): string {
