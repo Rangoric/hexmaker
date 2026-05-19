@@ -30,6 +30,7 @@ export class MapModal extends HexmakerModal {
     // Switch map list
     contentEl.createEl("h4", { text: "Switch map" });
     const list = contentEl.createEl("ul", { cls: "duckmage-region-list" });
+    const canDelete = this.plugin.settings.maps.length > 1;
     for (const map of this.plugin.settings.maps) {
       const isActive = map.name === this.view.activeMapName;
       const isConfirming = this.confirmingDelete === map.name;
@@ -74,15 +75,18 @@ export class MapModal extends HexmakerModal {
           cls: "duckmage-region-palette-badge",
           text: map.paletteName,
         });
-        const deleteBtn = li.createEl("button", {
-          text: "Delete",
-          cls: "duckmage-map-delete-btn",
-        });
-        deleteBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          this.confirmingDelete = map.name;
-          this.render();
-        });
+        if (canDelete) {
+          const deleteBtn = li.createEl("button", {
+            text: "✕",
+            cls: "duckmage-map-delete-btn",
+          });
+          deleteBtn.setAttribute("aria-label", "Delete map");
+          deleteBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.confirmingDelete = map.name;
+            this.render();
+          });
+        }
       }
     }
 
