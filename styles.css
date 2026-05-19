@@ -2905,6 +2905,54 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
     font-weight: 600;
 }
 
+/* Map list delete button */
+.duckmage-map-list-item {
+    cursor: default;
+}
+
+.duckmage-map-list-item > span:first-child {
+    cursor: pointer;
+    flex: 1;
+}
+
+.duckmage-map-delete-btn {
+    margin-left: auto;
+    padding: 2px 7px;
+    font-size: 0.78em;
+    opacity: 0;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+}
+
+.duckmage-map-list-item:hover .duckmage-map-delete-btn {
+    opacity: 1;
+}
+
+/* Inline delete confirmation row */
+.duckmage-map-item-confirming {
+    background: var(--background-modifier-error-hover) !important;
+    cursor: default;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 7px 10px;
+}
+
+.duckmage-map-delete-warning {
+    flex: 1 1 100%;
+    font-size: 0.85em;
+    color: var(--text-warning);
+}
+
+.duckmage-map-confirm-btn {
+    padding: 3px 10px;
+    font-size: 0.82em;
+}
+
+.duckmage-map-cancel-btn {
+    padding: 3px 10px;
+    font-size: 0.82em;
+}
+
 .duckmage-region-row {
     display: flex;
     gap: 6px;

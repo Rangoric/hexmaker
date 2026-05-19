@@ -5,6 +5,8 @@ import type { HexMapView } from "./HexMapView";
 import { normalizeFolder } from "../utils";
 
 export class MapModal extends HexmakerModal {
+  private confirmingDelete: string | null = null;
+
   constructor(
     app: App,
     private plugin: HexmakerPlugin,
@@ -29,21 +31,59 @@ export class MapModal extends HexmakerModal {
     contentEl.createEl("h4", { text: "Switch map" });
     const list = contentEl.createEl("ul", { cls: "duckmage-region-list" });
     for (const map of this.plugin.settings.maps) {
+      const isActive = map.name === this.view.activeMapName;
+      const isConfirming = this.confirmingDelete === map.name;
+
       const li = list.createEl("li", {
         cls:
-          "duckmage-region-item" +
-          (map.name === this.view.activeMapName ? " is-active" : ""),
+          "duckmage-region-item duckmage-map-list-item" +
+          (isActive ? " is-active" : ""),
       });
-      li.createSpan({ text: map.name });
-      li.createSpan({
-        cls: "duckmage-region-palette-badge",
-        text: map.paletteName,
-      });
-      li.addEventListener("click", () => {
-        this.view.activeMapName = map.name;
-        this.onChanged();
-        this.close();
-      });
+
+      if (isConfirming) {
+        li.addClass("duckmage-map-item-confirming");
+        li.createSpan({
+          cls: "duckmage-map-delete-warning",
+          text: `Delete "${map.name}"? This will trash all its hex notes.`,
+        });
+        const confirmBtn = li.createEl("button", {
+          text: "Delete",
+          cls: "mod-warning duckmage-map-confirm-btn",
+        });
+        confirmBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void this.deleteMap(map.name);
+        });
+        const cancelBtn = li.createEl("button", {
+          text: "Cancel",
+          cls: "duckmage-map-cancel-btn",
+        });
+        cancelBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.confirmingDelete = null;
+          this.render();
+        });
+      } else {
+        const nameSpan = li.createSpan({ text: map.name });
+        nameSpan.addEventListener("click", () => {
+          this.view.activeMapName = map.name;
+          this.onChanged();
+          this.close();
+        });
+        li.createSpan({
+          cls: "duckmage-region-palette-badge",
+          text: map.paletteName,
+        });
+        const deleteBtn = li.createEl("button", {
+          text: "Delete",
+          cls: "duckmage-map-delete-btn",
+        });
+        deleteBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.confirmingDelete = map.name;
+          this.render();
+        });
+      }
     }
 
     // Rename current map
@@ -117,6 +157,41 @@ export class MapModal extends HexmakerModal {
           paletteSelect,
         ),
     );
+  }
+
+  private async deleteMap(name: string): Promise<void> {
+    const hexFolder = normalizeFolder(this.plugin.settings.hexFolder);
+    const folderPath = hexFolder ? `${hexFolder}/${name}` : name;
+    const folder = this.app.vault.getAbstractFileByPath(folderPath);
+    if (folder instanceof TFolder) {
+      try {
+        await this.app.fileManager.trashFile(folder);
+      } catch (e) {
+        new Notice(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+        this.confirmingDelete = null;
+        this.render();
+        return;
+      }
+    }
+
+    this.plugin.settings.maps = this.plugin.settings.maps.filter(
+      (m) => m.name !== name,
+    );
+
+    if (this.plugin.settings.defaultMap === name) {
+      this.plugin.settings.defaultMap =
+        this.plugin.settings.maps[0]?.name ?? "";
+    }
+
+    if (this.view.activeMapName === name) {
+      this.view.activeMapName = this.plugin.settings.maps[0]?.name ?? "";
+    }
+
+    this.confirmingDelete = null;
+    await this.plugin.saveSettings();
+    this.onChanged();
+    this.render();
+    new Notice(`Map "${name}" deleted.`);
   }
 
   private slugify(name: string): string {
