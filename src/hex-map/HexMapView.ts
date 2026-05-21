@@ -54,11 +54,16 @@ type UndoItem =
       after: PathChain[];
     };
 
+function nullOverrides(paths: string[]): Map<string, null> {
+  return new Map(paths.map((p) => [p, null]));
+}
+
 export class HexMapView extends ItemView {
   plugin: HexmakerPlugin;
   private zoom = 1;
   private panX = 0;
   private panY = 0;
+  private zoomSettleTimer: number | null = null;
   private viewportEl: HTMLElement | null = null;
   private drawingMode:
     | "path"
@@ -192,6 +197,7 @@ export class HexMapView extends ItemView {
         this.panY = cy - (cy - this.panY) * (newZoom / this.zoom);
         this.zoom = newZoom;
         this.applyTransform();
+        this.scheduleZoomBake();
       },
       { passive: false },
     );
@@ -557,83 +563,183 @@ export class HexMapView extends ItemView {
   }
 
   private createExpandButtons(container: HTMLElement): void {
-    const dirs = [
+    const dirs: Array<{
+      groupCls: string;
+      expandAction: () => Promise<void>;
+      shrinkAction: () => Promise<void>;
+      canShrink: () => boolean;
+      edgePaths: () => string[];
+    }> = [
       {
-        cls: "duckmage-expand-top",
-        action: async () => {
+        groupCls: "duckmage-expand-group-top",
+        expandAction: async () => {
           this.getActiveMap().gridOffset.y--;
           this.getActiveMap().gridSize.rows++;
           await this.plugin.saveSettings();
-          this.renderGrid();
           const r = this.getActiveMap();
-          const xs = Array.from(
-            { length: r.gridSize.cols },
-            (_, i) => r.gridOffset.x + i,
-          );
-          void this.plugin.generateHexNotes(this.activeMapName, xs, [
-            r.gridOffset.y,
-          ]);
+          const xs = Array.from({ length: r.gridSize.cols }, (_, i) => r.gridOffset.x + i);
+          const newPaths = xs.map((x) => this.plugin.hexPath(x, r.gridOffset.y, this.activeMapName));
+          this.renderGrid(nullOverrides(newPaths), nullOverrides(newPaths));
+          void this.plugin.generateHexNotes(this.activeMapName, xs, [r.gridOffset.y]);
         },
-      },
-      {
-        cls: "duckmage-expand-bottom",
-        action: async () => {
-          this.getActiveMap().gridSize.rows++;
+        shrinkAction: async () => {
+          this.getActiveMap().gridSize.rows--;
+          this.getActiveMap().gridOffset.y++;
           await this.plugin.saveSettings();
           this.renderGrid();
+        },
+        canShrink: () => this.getActiveMap().gridSize.rows > 1,
+        edgePaths: () => {
           const r = this.getActiveMap();
-          const newY = r.gridOffset.y + r.gridSize.rows - 1;
-          const xs = Array.from(
-            { length: r.gridSize.cols },
-            (_, i) => r.gridOffset.x + i,
+          return Array.from({ length: r.gridSize.cols }, (_, i) =>
+            this.plugin.hexPath(r.gridOffset.x + i, r.gridOffset.y, this.activeMapName),
           );
-          void this.plugin.generateHexNotes(this.activeMapName, xs, [newY]);
         },
       },
       {
-        cls: "duckmage-expand-left",
-        action: async () => {
+        groupCls: "duckmage-expand-group-bottom",
+        expandAction: async () => {
+          this.getActiveMap().gridSize.rows++;
+          await this.plugin.saveSettings();
+          const r = this.getActiveMap();
+          const newY = r.gridOffset.y + r.gridSize.rows - 1;
+          const xs = Array.from({ length: r.gridSize.cols }, (_, i) => r.gridOffset.x + i);
+          const newPaths = xs.map((x) => this.plugin.hexPath(x, newY, this.activeMapName));
+          this.renderGrid(nullOverrides(newPaths), nullOverrides(newPaths));
+          void this.plugin.generateHexNotes(this.activeMapName, xs, [newY]);
+        },
+        shrinkAction: async () => {
+          this.getActiveMap().gridSize.rows--;
+          await this.plugin.saveSettings();
+          this.renderGrid();
+        },
+        canShrink: () => this.getActiveMap().gridSize.rows > 1,
+        edgePaths: () => {
+          const r = this.getActiveMap();
+          const lastY = r.gridOffset.y + r.gridSize.rows - 1;
+          return Array.from({ length: r.gridSize.cols }, (_, i) =>
+            this.plugin.hexPath(r.gridOffset.x + i, lastY, this.activeMapName),
+          );
+        },
+      },
+      {
+        groupCls: "duckmage-expand-group-left",
+        expandAction: async () => {
           this.getActiveMap().gridOffset.x--;
           this.getActiveMap().gridSize.cols++;
           await this.plugin.saveSettings();
-          this.renderGrid();
           const r = this.getActiveMap();
-          const ys = Array.from(
-            { length: r.gridSize.rows },
-            (_, i) => r.gridOffset.y + i,
-          );
-          void this.plugin.generateHexNotes(
-            this.activeMapName,
-            [r.gridOffset.x],
-            ys,
+          const ys = Array.from({ length: r.gridSize.rows }, (_, i) => r.gridOffset.y + i);
+          const newPaths = ys.map((y) => this.plugin.hexPath(r.gridOffset.x, y, this.activeMapName));
+          this.renderGrid(nullOverrides(newPaths), nullOverrides(newPaths));
+          void this.plugin.generateHexNotes(this.activeMapName, [r.gridOffset.x], ys);
+        },
+        shrinkAction: async () => {
+          this.getActiveMap().gridSize.cols--;
+          this.getActiveMap().gridOffset.x++;
+          await this.plugin.saveSettings();
+          this.renderGrid();
+        },
+        canShrink: () => this.getActiveMap().gridSize.cols > 1,
+        edgePaths: () => {
+          const r = this.getActiveMap();
+          return Array.from({ length: r.gridSize.rows }, (_, i) =>
+            this.plugin.hexPath(r.gridOffset.x, r.gridOffset.y + i, this.activeMapName),
           );
         },
       },
       {
-        cls: "duckmage-expand-right",
-        action: async () => {
+        groupCls: "duckmage-expand-group-right",
+        expandAction: async () => {
           this.getActiveMap().gridSize.cols++;
           await this.plugin.saveSettings();
-          this.renderGrid();
           const r = this.getActiveMap();
           const newX = r.gridOffset.x + r.gridSize.cols - 1;
-          const ys = Array.from(
-            { length: r.gridSize.rows },
-            (_, i) => r.gridOffset.y + i,
-          );
+          const ys = Array.from({ length: r.gridSize.rows }, (_, i) => r.gridOffset.y + i);
+          const newPaths = ys.map((y) => this.plugin.hexPath(newX, y, this.activeMapName));
+          this.renderGrid(nullOverrides(newPaths), nullOverrides(newPaths));
           void this.plugin.generateHexNotes(this.activeMapName, [newX], ys);
+        },
+        shrinkAction: async () => {
+          this.getActiveMap().gridSize.cols--;
+          await this.plugin.saveSettings();
+          this.renderGrid();
+        },
+        canShrink: () => this.getActiveMap().gridSize.cols > 1,
+        edgePaths: () => {
+          const r = this.getActiveMap();
+          const lastX = r.gridOffset.x + r.gridSize.cols - 1;
+          return Array.from({ length: r.gridSize.rows }, (_, i) =>
+            this.plugin.hexPath(lastX, r.gridOffset.y + i, this.activeMapName),
+          );
         },
       },
     ];
-    for (const { cls, action } of dirs) {
-      const btn = container.createEl("button", {
-        cls: `duckmage-expand-btn ${cls}`,
-        text: "+",
+
+    for (const { groupCls, expandAction, shrinkAction, canShrink, edgePaths } of dirs) {
+      const group = container.createDiv({
+        cls: `duckmage-expand-group ${groupCls}`,
       });
-      btn.addEventListener("click", () => {
-        void action();
+
+      group.createEl("button", { cls: "duckmage-expand-btn", text: "+" })
+        .addEventListener("click", () => void expandAction());
+
+      const shrinkBtn = group.createEl("button", {
+        cls: "duckmage-shrink-btn",
+        text: "−",
+      });
+      const warnEl = group.createEl("span", { cls: "duckmage-shrink-warn", text: "⚠ has content" });
+
+      const resetShrinkBtn = () => {
+        shrinkBtn.removeClass("is-dirty", "is-confirming");
+        shrinkBtn.setText("−");
+        warnEl.removeClass("is-visible");
+      };
+
+      group.addEventListener("mouseleave", () => resetShrinkBtn());
+
+      let pendingPaths: string[] = [];
+      let confirmTimer: number | null = null;
+      shrinkBtn.addEventListener("click", () => {
+        if (!canShrink()) return;
+        const paths = edgePaths();
+        const dirty = paths.some((p) => this.hexHasContent(p));
+        if (dirty && !shrinkBtn.hasClass("is-confirming")) {
+          pendingPaths = paths;
+          shrinkBtn.addClass("is-dirty", "is-confirming");
+          shrinkBtn.setText("OK?");
+          warnEl.addClass("is-visible");
+          if (confirmTimer !== null) window.clearTimeout(confirmTimer);
+          confirmTimer = window.setTimeout(() => {
+            confirmTimer = null;
+            pendingPaths = [];
+            resetShrinkBtn();
+          }, 3000);
+          return;
+        }
+        if (confirmTimer !== null) { window.clearTimeout(confirmTimer); confirmTimer = null; }
+        const toDelete = dirty ? pendingPaths : paths;
+        pendingPaths = [];
+        resetShrinkBtn();
+        void (async () => {
+          await shrinkAction();
+          for (const p of toDelete) {
+            const f = this.app.vault.getAbstractFileByPath(p);
+            if (f instanceof TFile) await this.app.fileManager.trashFile(f);
+          }
+        })();
       });
     }
+  }
+
+  private hexHasContent(path: string): boolean {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return false;
+    const cache = this.app.metadataCache.getFileCache(file);
+    if (!cache) return false;
+    if (cache.frontmatter?.terrain) return true;
+    if (cache.links && cache.links.length > 0) return true;
+    return false;
   }
 
   private buildDrawingToolbarContent(toolbar: HTMLElement): void {
@@ -797,6 +903,7 @@ export class HexMapView extends ItemView {
         this.paintIconName = iconName;
         this.paintIconGmOnly = gmOnly;
         this.paintTerrainName = null;
+        this.paintBrushSize = 1;
         this.updateToolbarButtonStates();
       },
       this.paintIconGmOnly,
@@ -1220,6 +1327,29 @@ export class HexMapView extends ItemView {
     }
   }
 
+  private scheduleZoomBake(): void {
+    if (this.zoomSettleTimer !== null) window.clearTimeout(this.zoomSettleTimer);
+    this.zoomSettleTimer = window.setTimeout(() => {
+      this.zoomSettleTimer = null;
+      this.bakeZoom();
+    }, 250);
+  }
+
+  // Bake the current CSS scale() into the viewport's font-size so the DOM
+  // renders natively at the zoomed size instead of upscaling a compositor
+  // bitmap (which causes pixelation). Pan offsets stay correct because layout
+  // coordinates scale by the same factor as the transform did.
+  private bakeZoom(): void {
+    if (!this.viewportEl || this.zoom === 1) return;
+    const currentFs = parseFloat(getComputedStyle(this.viewportEl).fontSize);
+    this.viewportEl.style.fontSize = `${currentFs * this.zoom}px`;
+    this.zoom = 1;
+    this.applyTransform();
+    this.updatePathOverlay();
+    this.updateFactionOverlay();
+    this.updateRegionOverlay();
+  }
+
   setSelectedHex(x: number, y: number): void {
     if (this.selectedHex) {
       this.viewportEl
@@ -1262,6 +1392,7 @@ export class HexMapView extends ItemView {
     this.panX = clipRect.width / 2 - hexViewX * targetZoom;
     this.panY = clipRect.height / 2 - hexViewY * targetZoom;
     this.applyTransform();
+    this.scheduleZoomBake();
   }
 
   renderGrid(

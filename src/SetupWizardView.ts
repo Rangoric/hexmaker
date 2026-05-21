@@ -15,7 +15,8 @@ type FolderKey =
 	| "factionsFolder"
 	| "regionsFolder"
 	| "tablesFolder"
-	| "workflowsFolder";
+	| "workflowsFolder"
+	| "iconsFolder";
 
 interface WizardContext {
 	worldFolder: string;
@@ -57,6 +58,7 @@ const FOLDER_KEYS: Array<{ key: FolderKey; label: string; suffix: string }> = [
 	{ key: "regionsFolder",   label: "Regions",    suffix: "regions" },
 	{ key: "tablesFolder",    label: "Tables",     suffix: "tables" },
 	{ key: "workflowsFolder", label: "Workflows",  suffix: "workflows" },
+	{ key: "iconsFolder",     label: "Icons",      suffix: "icons" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
