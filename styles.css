@@ -1142,7 +1142,7 @@ input.duckmage-input-error {
 /* Shrink button: hidden until hovering the group */
 .duckmage-shrink-btn { opacity: 0; }
 .duckmage-expand-group:hover .duckmage-shrink-btn { opacity: 0.5; }
-.duckmage-shrink-btn:hover { opacity: 1 !important; color: var(--text-normal); }
+.duckmage-expand-group:hover .duckmage-shrink-btn:hover { opacity: 1; color: var(--text-normal); }
 
 .duckmage-shrink-btn.is-dirty {
     color: var(--text-error);
@@ -1150,8 +1150,8 @@ input.duckmage-input-error {
 }
 .duckmage-shrink-btn.is-dirty:hover { color: var(--text-error); }
 
-.duckmage-shrink-btn.is-confirming {
-    opacity: 1 !important;
+.duckmage-expand-group:hover .duckmage-shrink-btn.is-confirming {
+    opacity: 1;
     color: var(--text-on-accent);
     background: var(--background-modifier-error);
     border-color: var(--background-modifier-error);
