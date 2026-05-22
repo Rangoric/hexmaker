@@ -1,4 +1,5 @@
 import { App, TFile } from "obsidian";
+import type { TokenEntry, TokenShape, TokenSize } from "./types";
 
 export interface Frontmatter {
   [key: string]: string | string[] | boolean | undefined;
@@ -152,4 +153,134 @@ export async function setGmIconInFile(
     }
   });
   return true;
+}
+
+// ── Token helpers ─────────────────────────────────────────────────────────────
+
+const VALID_SHAPES: TokenShape[] = ["circle", "square", "hexagon"];
+const VALID_SIZES:  TokenSize[]  = ["sm", "md", "lg"];
+
+export function getTokenDataFromCache(app: App, file: TFile): TokenEntry | null {
+  const cache = app.metadataCache.getFileCache(file);
+  const fm = cache?.frontmatter as Frontmatter | undefined;
+  if (!fm?.["token"]) return null;
+  const rawShape = fm["token-shape"] as string | undefined;
+  const rawSize  = fm["token-size"]  as string | undefined;
+  const tokenLink = typeof fm["token-link"] === "string" ? fm["token-link"] : undefined;
+
+  // Resolve display title from the linked note if this is a proxy
+  let title = file.basename;
+  if (tokenLink) {
+    const linked = app.vault.getAbstractFileByPath(tokenLink);
+    if (linked instanceof TFile) title = linked.basename;
+  }
+
+  return {
+    filePath: file.path,
+    title,
+    tokenLink,
+    icon: typeof fm["token-icon"] === "string" ? fm["token-icon"] : undefined,
+    hex: typeof fm["token-hex"] === "string" ? fm["token-hex"] : "",
+    map: typeof fm["token-map"] === "string" ? fm["token-map"] : "",
+    visible: fm["token-visible"] !== false,
+    shape: VALID_SHAPES.includes(rawShape as TokenShape)
+      ? (rawShape as TokenShape)
+      : "circle",
+    size: VALID_SIZES.includes(rawSize as TokenSize)
+      ? (rawSize as TokenSize)
+      : "md",
+    color: typeof fm["token-color"] === "string" ? fm["token-color"] : undefined,
+    border: typeof fm["token-border"] === "string" ? fm["token-border"] : undefined,
+    description: typeof fm["token-description"] === "string" ? fm["token-description"] : undefined,
+  };
+}
+
+export async function setTokenHex(
+  app: App,
+  path: string,
+  hex: string,
+  map: string,
+): Promise<void> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return;
+  await app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+    fm["token-hex"] = hex;
+    fm["token-map"] = map;
+  });
+}
+
+export async function setTokenVisible(
+  app: App,
+  path: string,
+  visible: boolean,
+): Promise<void> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return;
+  await app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+    fm["token-visible"] = visible;
+  });
+}
+
+export async function removeTokenFrontmatter(
+  app: App,
+  path: string,
+): Promise<void> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return;
+  await app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+    delete fm["token"];
+    delete fm["token-icon"];
+    delete fm["token-hex"];
+    delete fm["token-map"];
+    delete fm["token-visible"];
+    delete fm["token-shape"];
+    delete fm["token-size"];
+    delete fm["token-color"];
+    delete fm["token-border"];
+    delete fm["token-link"];
+    delete fm["token-description"];
+  });
+}
+
+export async function applyTokenFrontmatter(
+  app: App,
+  path: string,
+  data: {
+    icon?: string;
+    hex?: string;
+    map?: string;
+    visible?: boolean;
+    shape?: TokenShape;
+    size?: TokenSize;
+    color?: string;
+    border?: string;
+    tokenLink?: string;
+    description?: string;
+  },
+): Promise<void> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return;
+  await app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+    fm["token"] = true;
+    if (data.icon !== undefined) {
+      if (data.icon) fm["token-icon"] = data.icon;
+      else delete fm["token-icon"];
+    }
+    if (data.hex !== undefined) fm["token-hex"] = data.hex;
+    if (data.map !== undefined) fm["token-map"] = data.map;
+    if (data.visible !== undefined) fm["token-visible"] = data.visible;
+    if (data.shape !== undefined) fm["token-shape"] = data.shape;
+    if (data.size !== undefined) fm["token-size"] = data.size;
+    if (data.color !== undefined) {
+      if (data.color) fm["token-color"] = data.color; else delete fm["token-color"];
+    }
+    if (data.border !== undefined) {
+      if (data.border) fm["token-border"] = data.border; else delete fm["token-border"];
+    }
+    if (data.tokenLink !== undefined) fm["token-link"] = data.tokenLink;
+    if (data.description !== undefined) {
+      if (data.description) fm["token-description"] = data.description;
+      else delete fm["token-description"];
+    }
+  });
 }

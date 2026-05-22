@@ -22,7 +22,7 @@ import {
 } from "../constants";
 import { MapModal } from "./MapModal";
 import { PathPickerModal } from "./PathPickerModal";
-import type { MapData, PathChain } from "../types";
+import type { MapData, PathChain, TokenEntry } from "../types";
 import {
   hexNeighbors,
   smoothPath,
@@ -36,6 +36,14 @@ import { FolderTreePickerModal } from "./FolderTreePickerModal";
 import { FactionPickerModal } from "./FactionPickerModal";
 import { GeoRegionPickerModal } from "./GeoRegionPickerModal";
 import { DrawingToolPanel, OverlayPanel } from "./HexSidePanel";
+import { TokenModal } from "./TokenModal";
+import { TokenInfoModal } from "./TokenInfoModal";
+import {
+  getTokenDataFromCache,
+  applyTokenFrontmatter,
+  removeTokenFrontmatter,
+  setTokenHex,
+} from "../frontmatter";
 
 type TerrainUndoEntry = {
   x: number;
@@ -73,6 +81,7 @@ export class HexMapView extends ItemView {
     | "factionLink"
     | "regionLink"
     | "swap"
+    | "placeToken"
     | null = null;
   private pathToolbarBtn: HTMLButtonElement | null = null;
   private pathBtnSwatch: HTMLElement | null = null;
@@ -138,6 +147,10 @@ export class HexMapView extends ItemView {
   private redoBtn: HTMLButtonElement | null = null;
   activeMapName = "default";
   private mapBtn: HTMLButtonElement | null = null;
+  private tokenEntries: TokenEntry[] = [];
+  private pendingTokenNotePath: string | null = null;
+  private pendingTokenPlaceData: { icon?: string; shape: import("../types").TokenShape; size: import("../types").TokenSize; color?: string; border?: string; description?: string } | null = null;
+  private tokenBtn: HTMLButtonElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: HexmakerPlugin) {
     super(leaf);
@@ -520,6 +533,7 @@ export class HexMapView extends ItemView {
       (show) => { if (show) this.updateFactionOverlay(); else this.clearFactionOverlay(); },
       (show) => { if (show) this.updateRegionOverlay(); else this.clearRegionOverlay(); },
       () => { this.updateGmIcons(); },
+      (show) => { if (show) this.updateTokenLayer(); else this.viewportEl?.querySelector(".duckmage-token-layer")?.remove(); },
     );
     toolsPanel.onBeforeOpen = () => this.overlayPanel?.close();
     this.overlayPanel.onBeforeOpen = () => toolsPanel.close();
@@ -555,6 +569,12 @@ export class HexMapView extends ItemView {
           // Also re-render when any hex file changes (region assignment may have changed)
           else this.updateRegionOverlay();
         }
+
+        // Refresh token layer when a token file changes (added, edited, or removed)
+        const cache = this.app.metadataCache.getFileCache(file);
+        const hasToken  = !!cache?.frontmatter?.["token"];
+        const wasToken  = this.tokenEntries.some((t) => t.filePath === file.path);
+        if (hasToken || wasToken) this.updateTokenLayer();
       }),
     );
 
@@ -755,6 +775,7 @@ export class HexMapView extends ItemView {
       else if (this.drawingMode === "tableLink") this.exitTableLinkMode();
       else if (this.drawingMode === "factionLink") this.exitFactionLinkMode();
       else if (this.drawingMode === "swap") this.exitSwapMode();
+      else if (this.drawingMode === "placeToken") this.exitTokenMode();
       else if (this.drawingMode === "path") {
         this.exitPathMode();
         this.drawingMode = null;
@@ -833,6 +854,12 @@ export class HexMapView extends ItemView {
     this.regionLinkBtn.addEventListener("click", () =>
       this.handleRegionLinkButton(),
     );
+
+    this.tokenBtn = toolbar.createEl("button", {
+      cls: "duckmage-draw-btn duckmage-draw-btn-token",
+      text: "Token",
+    });
+    this.tokenBtn.addEventListener("click", () => this.handleTokenButton());
   }
 
   private exitPathMode(): void {
@@ -984,6 +1011,34 @@ export class HexMapView extends ItemView {
     this.updateToolbarButtonStates();
   }
 
+  private handleTokenButton(): void {
+    if (this.drawingMode === "placeToken") {
+      this.exitTokenMode();
+      return;
+    }
+    new TokenModal(
+      this.app,
+      this.plugin,
+      undefined,
+      "",
+      {},
+      (notePath, data) => {
+        this.pendingTokenNotePath  = notePath;
+        this.pendingTokenPlaceData = { icon: data.icon, shape: data.shape, size: data.size, color: data.color, border: data.border, description: data.description };
+        this.drawingMode = "placeToken";
+        this.updateToolbarButtonStates();
+      },
+    ).open();
+  }
+
+  private exitTokenMode(): void {
+    if (this.drawingMode !== "placeToken") return;
+    this.drawingMode = null;
+    this.pendingTokenNotePath = null;
+    this.pendingTokenPlaceData = null;
+    this.updateToolbarButtonStates();
+  }
+
   private handleSwapButton(): void {
     if (this.drawingMode === "swap") {
       this.exitSwapMode();
@@ -1061,6 +1116,19 @@ export class HexMapView extends ItemView {
       this.updatePathOverlay();
       return;
     }
+  }
+
+  private async onHexTokenPlaceClick(x: number, y: number): Promise<void> {
+    if (!this.pendingTokenNotePath || !this.pendingTokenPlaceData) return;
+    const hexKey = `${x}_${y}`;
+    await applyTokenFrontmatter(this.app, this.pendingTokenNotePath, {
+      ...this.pendingTokenPlaceData,
+      hex: hexKey,
+      map: this.activeMapName,
+      visible: true,
+    });
+    this.exitTokenMode();
+    this.updateTokenLayer();
   }
 
   private async performSwap(pathA: string, pathB: string): Promise<void> {
@@ -1218,6 +1286,7 @@ export class HexMapView extends ItemView {
       this.drawingMode === "regionLink",
     );
     this.swapBtn?.toggleClass("is-active", this.drawingMode === "swap");
+    this.tokenBtn?.toggleClass("is-active", this.drawingMode === "placeToken");
     this.viewportEl?.toggleClass(
       "duckmage-draw-mode",
       this.drawingMode !== null,
@@ -1348,6 +1417,7 @@ export class HexMapView extends ItemView {
     this.updatePathOverlay();
     this.updateFactionOverlay();
     this.updateRegionOverlay();
+    this.updateTokenLayer();
   }
 
   setSelectedHex(x: number, y: number): void {
@@ -1528,6 +1598,7 @@ export class HexMapView extends ItemView {
     this.renderPathOverlay(gridContainer);
     this.renderRegionOverlay(gridContainer);
     this.renderFactionOverlay(gridContainer);
+    this.renderTokenLayer(gridContainer);
   }
 
   private openHexEditorModal(x: number, y: number): void {
@@ -1577,6 +1648,10 @@ export class HexMapView extends ItemView {
     }
     if (this.drawingMode === "swap") {
       this.exitSwapMode();
+      return;
+    }
+    if (this.drawingMode === "placeToken") {
+      this.exitTokenMode();
       return;
     }
 
@@ -1638,6 +1713,10 @@ export class HexMapView extends ItemView {
     }
     if (this.drawingMode === "swap") {
       await this.onHexSwapClick(x, y);
+      return;
+    }
+    if (this.drawingMode === "placeToken") {
+      await this.onHexTokenPlaceClick(x, y);
       return;
     }
 
@@ -3154,5 +3233,251 @@ export class HexMapView extends ItemView {
     } else if (this.viewportEl) {
       this.viewportEl.appendChild(svg);
     }
+  }
+
+  // ── Token layer ───────────────────────────────────────────────────────────
+
+  private loadTokensForMap(): void {
+    this.tokenEntries = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const entry = getTokenDataFromCache(this.app, file);
+      if (entry && entry.map === this.activeMapName) {
+        this.tokenEntries.push(entry);
+      }
+    }
+  }
+
+  private buildTokenCenterMap(gridContainer: HTMLElement): Map<string, { cx: number; cy: number }> {
+    const centerMap = new Map<string, { cx: number; cy: number }>();
+    gridContainer.querySelectorAll<HTMLElement>(".duckmage-hex").forEach((hexEl) => {
+      const x = Number(hexEl.dataset.x);
+      const y = Number(hexEl.dataset.y);
+      let ox = hexEl.offsetWidth / 2, oy = hexEl.offsetHeight / 2;
+      let cur: HTMLElement | null = hexEl;
+      while (cur && cur !== this.viewportEl) {
+        ox += cur.offsetLeft;
+        oy += cur.offsetTop;
+        cur = cur.offsetParent as HTMLElement | null;
+      }
+      centerMap.set(`${x}_${y}`, { cx: ox, cy: oy });
+    });
+    return centerMap;
+  }
+
+  private renderTokenLayer(gridContainer: HTMLElement): void {
+    this.viewportEl?.querySelector(".duckmage-token-layer")?.remove();
+    if (this.getActiveMap().showTokens === false) return;
+    this.loadTokensForMap();
+    if (this.tokenEntries.length === 0) return;
+
+    const centerMap = this.buildTokenCenterMap(gridContainer);
+    const layer = this.viewportEl!.createDiv({ cls: "duckmage-token-layer" });
+
+    for (const token of this.tokenEntries) {
+      if (!token.visible) continue;
+      const center = centerMap.get(token.hex);
+      if (!center) continue;
+
+      const size = token.size ?? "md";
+      const tokenEl = layer.createDiv({
+        cls: `duckmage-token duckmage-token-${token.shape} duckmage-token-size-${size}`,
+      });
+      tokenEl.style.left = `${center.cx}px`;
+      tokenEl.style.top  = `${center.cy}px`;
+      tokenEl.title      = token.title;
+      if (token.color)  tokenEl.style.setProperty("--token-color",  token.color);
+      if (token.border) tokenEl.style.setProperty("--token-border", token.border);
+
+      if (token.icon) {
+        const img = tokenEl.createEl("img", { cls: "duckmage-token-icon" });
+        img.src = getIconUrl(this.plugin, token.icon);
+        img.alt = token.title;
+      } else {
+        tokenEl.createSpan({
+          cls: "duckmage-token-label",
+          text: token.title.charAt(0).toUpperCase(),
+        });
+      }
+
+      const snapToken = { ...token }; // capture for closures
+
+      tokenEl.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (this.drawingMode !== null) return;
+        this.showTokenContextMenu(e, snapToken);
+      });
+
+      // Single mousedown handler — startTokenDrag calls onClickInstead if no drag occurs.
+      tokenEl.addEventListener("mousedown", (e) => {
+        if (e.button !== 0 || this.drawingMode !== null) return;
+        e.stopPropagation();
+        this.startTokenDrag(snapToken, tokenEl, e, centerMap, () => {
+          new TokenInfoModal(
+            this.app,
+            snapToken,
+            (x, y) => this.centerOnHex(x, y),
+            () => {
+              void removeTokenFrontmatter(this.app, snapToken.filePath)
+                .then(() => this.updateTokenLayer());
+            },
+            () => this.openTokenEditor(snapToken),
+          ).open();
+        });
+      });
+    }
+  }
+
+  private updateTokenLayer(): void {
+    const gridContainer = this.viewportEl?.querySelector<HTMLElement>(
+      ".duckmage-hex-map-grid",
+    );
+    if (!gridContainer) return;
+    this.renderTokenLayer(gridContainer);
+  }
+
+  private startTokenDrag(
+    token: TokenEntry,
+    tokenEl: HTMLElement,
+    startEvt: MouseEvent,
+    centerMap: Map<string, { cx: number; cy: number }>,
+    onClickInstead: () => void,
+  ): void {
+    const startClientX = startEvt.clientX;
+    const startClientY = startEvt.clientY;
+    const origLeft = parseFloat(tokenEl.style.left);
+    const origTop  = parseFloat(tokenEl.style.top);
+    let isDragging  = false;
+    let closestHex: string | null = null;
+
+    const onMove = (e: MouseEvent) => {
+      if (!isDragging) {
+        if (Math.hypot(e.clientX - startClientX, e.clientY - startClientY) < 4) return;
+        isDragging = true;
+        tokenEl.addClass("duckmage-token-dragging");
+      }
+      const dx = (e.clientX - startClientX) / this.zoom;
+      const dy = (e.clientY - startClientY) / this.zoom;
+      tokenEl.style.left = `${origLeft + dx}px`;
+      tokenEl.style.top  = `${origTop  + dy}px`;
+
+      const cx = origLeft + dx;
+      const cy = origTop  + dy;
+      let best: string | null = null;
+      let bestDist = Infinity;
+      for (const [key, center] of centerMap) {
+        const dist = Math.hypot(center.cx - cx, center.cy - cy);
+        if (dist < bestDist) { bestDist = dist; best = key; }
+      }
+      if (best !== closestHex) {
+        if (closestHex) {
+          const [px, py] = closestHex.split("_").map(Number);
+          this.viewportEl
+            ?.querySelector<HTMLElement>(`[data-x="${px}"][data-y="${py}"]`)
+            ?.removeClass("duckmage-token-drop-target");
+        }
+        closestHex = best;
+        if (best) {
+          const [px, py] = best.split("_").map(Number);
+          this.viewportEl
+            ?.querySelector<HTMLElement>(`[data-x="${px}"][data-y="${py}"]`)
+            ?.addClass("duckmage-token-drop-target");
+        }
+      }
+    };
+
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      tokenEl.removeClass("duckmage-token-dragging");
+
+      if (closestHex) {
+        const [px, py] = closestHex.split("_").map(Number);
+        this.viewportEl
+          ?.querySelector<HTMLElement>(`[data-x="${px}"][data-y="${py}"]`)
+          ?.removeClass("duckmage-token-drop-target");
+      }
+
+      if (!isDragging) {
+        onClickInstead();
+        return;
+      }
+
+      if (closestHex && closestHex !== token.hex) {
+        // Snap to new hex center immediately; the cache `changed` event re-renders the layer
+        // once the write lands. Calling updateTokenLayer() here would render stale cache
+        // data (old hex), then re-render again on the changed event — causing visible flicker.
+        const newCenter = centerMap.get(closestHex);
+        if (newCenter) {
+          tokenEl.style.left = `${newCenter.cx}px`;
+          tokenEl.style.top  = `${newCenter.cy}px`;
+        }
+        void setTokenHex(this.app, token.filePath, closestHex, token.map);
+      } else {
+        const orig = centerMap.get(token.hex);
+        if (orig) {
+          tokenEl.style.left = `${orig.cx}px`;
+          tokenEl.style.top  = `${orig.cy}px`;
+        }
+      }
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
+  private openTokenEditor(token: TokenEntry): void {
+    new TokenModal(
+      this.app,
+      this.plugin,
+      token.filePath,
+      token.title,
+      { icon: token.icon, shape: token.shape, size: token.size, color: token.color, border: token.border, description: token.description },
+      (_notePath, data) => {
+        void applyTokenFrontmatter(this.app, token.filePath, data)
+          .then(() => this.updateTokenLayer());
+      },
+      () => {
+        void removeTokenFrontmatter(this.app, token.filePath)
+          .then(() => this.updateTokenLayer());
+      },
+    ).open();
+  }
+
+  private showTokenContextMenu(evt: MouseEvent, token: TokenEntry): void {
+    const menu = new Menu();
+
+    menu.addItem((item) =>
+      item
+        .setTitle("Edit token")
+        .setIcon("pencil")
+        .onClick(() => this.openTokenEditor(token)),
+    );
+
+    menu.addItem((item) =>
+      item
+        .setTitle("Open note")
+        .setIcon("file-text")
+        .onClick(() => {
+          const file = this.app.vault.getAbstractFileByPath(token.filePath);
+          if (file instanceof TFile) {
+            void this.app.workspace.getLeaf("tab").openFile(file);
+          }
+        }),
+    );
+
+    menu.addSeparator();
+
+    menu.addItem((item) =>
+      item
+        .setTitle("Remove token")
+        .setIcon("trash")
+        .onClick(() => {
+          void removeTokenFrontmatter(this.app, token.filePath)
+            .then(() => this.updateTokenLayer());
+        }),
+    );
+
+    menu.showAtMouseEvent(evt);
   }
 }

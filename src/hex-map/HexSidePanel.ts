@@ -99,10 +99,12 @@ export class OverlayPanel extends HexSidePanel {
   private onFactionOverlayChange: (show: boolean) => void;
   private onRegionOverlayChange: (show: boolean) => void;
   private onGmLayerChange: (show: boolean) => void;
+  private onTokensChange: (show: boolean) => void;
   private checkboxes = new Map<OverlayKey, HTMLInputElement>();
   private factionOverlayCb: HTMLInputElement | null = null;
   private regionOverlayCb: HTMLInputElement | null = null;
   private gmLayerCb: HTMLInputElement | null = null;
+  private tokensCb: HTMLInputElement | null = null;
 
   constructor(
     container: HTMLElement,
@@ -112,6 +114,7 @@ export class OverlayPanel extends HexSidePanel {
     onFactionOverlayChange: (show: boolean) => void,
     onRegionOverlayChange: (show: boolean) => void,
     onGmLayerChange: (show: boolean) => void,
+    onTokensChange: (show: boolean) => void,
   ) {
     super(container, "layers", 44, "Map overlays");
     this.plugin = plugin;
@@ -120,6 +123,7 @@ export class OverlayPanel extends HexSidePanel {
     this.onFactionOverlayChange = onFactionOverlayChange;
     this.onRegionOverlayChange = onRegionOverlayChange;
     this.onGmLayerChange = onGmLayerChange;
+    this.onTokensChange = onTokensChange;
     this.buildPanel(this.panelEl);
   }
 
@@ -148,6 +152,32 @@ export class OverlayPanel extends HexSidePanel {
         apply();
       });
     }
+
+    // Show tokens — default on
+    const tokensRow = panel.createDiv({ cls: "duckmage-overlay-row" });
+    const tokensCb = document.createElement("input");
+    tokensCb.type = "checkbox";
+    tokensCb.checked = true;
+    tokensRow.appendChild(tokensCb);
+    this.tokensCb = tokensCb;
+
+    const tokensLabel = tokensRow.createSpan({
+      text: "Show tokens",
+      cls: "duckmage-overlay-label",
+    });
+
+    const applyTokens = () => {
+      const map = this.getActiveMap();
+      map.showTokens = tokensCb.checked;
+      void this.plugin.saveSettings();
+      this.onTokensChange(tokensCb.checked);
+    };
+
+    tokensCb.addEventListener("change", applyTokens);
+    tokensLabel.addEventListener("click", () => {
+      tokensCb.checked = !tokensCb.checked;
+      applyTokens();
+    });
 
     // Faction overlay — triggers a re-render rather than a CSS class toggle
     const factionRow = panel.createDiv({ cls: "duckmage-overlay-row" });
@@ -226,6 +256,8 @@ export class OverlayPanel extends HexSidePanel {
       gmCb.checked = !gmCb.checked;
       applyGm();
     });
+
+
   }
 
   /** Read the current map's saved state and apply it to the viewport + checkboxes. */
@@ -256,6 +288,12 @@ export class OverlayPanel extends HexSidePanel {
       const show = map.showGmLayer ?? true;
       this.gmLayerCb.checked = show;
       this.onGmLayerChange(show);
+    }
+    // Show tokens — undefined → true (on by default)
+    if (this.tokensCb) {
+      const show = map.showTokens ?? true;
+      this.tokensCb.checked = show;
+      this.onTokensChange(show);
     }
   }
 

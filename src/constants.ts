@@ -327,6 +327,7 @@ export const DEFAULT_SETTINGS: HexmakerPluginSettings = {
   defaultMap: "default",
   workflowsFolder: "",
   hiddenIcons: [],
+  iconOrder: [],
   setupComplete: false,
   setupDismissed: false,
 };

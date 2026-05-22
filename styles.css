@@ -1337,6 +1337,48 @@ input.duckmage-input-error {
     max-width: 54px;
 }
 
+/* Selected state */
+.duckmage-icon-option.is-selected {
+    border-color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+}
+
+/* Inline variant used inside HexEditorModal / TokenModal (2-row, scrollable) */
+.duckmage-icon-picker-inline {
+    max-height: 132px;
+    margin-bottom: 0.5em;
+}
+
+/* Token modal title row with inline preview */
+.duckmage-token-modal-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+
+.duckmage-token-modal-title-row h2 {
+    margin: 0;
+}
+
+.duckmage-icon-inline-label {
+    font-size: 0.8em;
+    color: var(--text-muted);
+    margin: 8px 0 3px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* Drag state for icon tiles in manage mode */
+.duckmage-icon-option.duckmage-palette-dragging {
+    opacity: 0.4;
+}
+
+.duckmage-icon-option.duckmage-palette-drop-target {
+    border-color: var(--interactive-accent);
+}
+
 /* ── Icon picker: header + manage mode ───────────────────────────────────── */
 
 .duckmage-icon-picker-header {
@@ -3957,4 +3999,261 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
 
 .duckmage-wizard-skip-btn:hover {
     border-color: var(--text-muted);
+}
+
+/* ── Token layer ─────────────────────────────────────────────────────────── */
+
+.duckmage-token-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.duckmage-token {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: var(--token-size, 2em);
+    height: var(--token-size, 2em);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--token-color, #4a90e2);
+    /* outline renders outside the box, follows border-radius, not clipped by fill */
+    outline: 3px solid var(--token-border, transparent);
+    outline-offset: 2px;
+    cursor: grab;
+    pointer-events: auto;
+    user-select: none;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.45);
+    transition: box-shadow 0.1s;
+}
+
+/* Inline preview inside the token modal title row — overrides .duckmage-token positioning */
+.duckmage-token-modal-title-row .duckmage-token {
+    --token-size: 28px;
+    position: relative;
+    transform: none;
+    left: auto;
+    top: auto;
+    flex-shrink: 0;
+    cursor: default;
+    pointer-events: none;
+}
+
+.duckmage-token:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+}
+
+.duckmage-token-circle {
+    border-radius: 50%;
+}
+
+.duckmage-token-square {
+    border-radius: 3px;
+}
+
+.duckmage-token-hexagon {
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    border-radius: 0;
+    /* outline is clipped by clip-path; stack 8 zero-blur drop-shadows to form a solid ring */
+    outline: none;
+    filter:
+        drop-shadow(0 3px 0 var(--token-border, transparent))
+        drop-shadow(0 -3px 0 var(--token-border, transparent))
+        drop-shadow(3px 0 0 var(--token-border, transparent))
+        drop-shadow(-3px 0 0 var(--token-border, transparent))
+        drop-shadow(2.1px 2.1px 0 var(--token-border, transparent))
+        drop-shadow(-2.1px 2.1px 0 var(--token-border, transparent))
+        drop-shadow(2.1px -2.1px 0 var(--token-border, transparent))
+        drop-shadow(-2.1px -2.1px 0 var(--token-border, transparent));
+}
+
+.duckmage-token-icon {
+    width: 70%;
+    height: 70%;
+    object-fit: contain;
+    pointer-events: none;
+}
+
+.duckmage-token-label {
+    font-size: 1em;
+    font-weight: 700;
+    color: #fff;
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+
+/* Token size variants */
+.duckmage-token-size-sm { --token-size: 1.35em; }
+.duckmage-token-size-md { --token-size: 2em; }
+.duckmage-token-size-lg { --token-size: 2.85em; }
+
+.duckmage-token-dragging {
+    cursor: grabbing;
+    opacity: 0.85;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+    z-index: 20;
+}
+
+/* Hex highlighted as a drop target when dragging a token */
+.duckmage-token-drop-target::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(255,255,255,0.25);
+    pointer-events: none;
+}
+
+/* Inline note picker results — shown below the Note input on focus */
+.duckmage-note-picker-results {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    margin: 0 0 8px 0;
+    max-height: 180px;
+    overflow-y: auto;
+    background: var(--background-primary);
+}
+
+.duckmage-note-picker-item {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+.duckmage-note-picker-item:hover {
+    background: var(--background-modifier-hover);
+}
+
+.duckmage-note-picker-empty {
+    padding: 6px 10px;
+    font-size: 0.85em;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Token size radio group */
+.duckmage-token-size-group {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.duckmage-token-size-option {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+.duckmage-token-desc-textarea {
+    width: 100%;
+}
+
+/* Token modal styles */
+.duckmage-token-modal-buttons {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+.duckmage-token-modal-title {
+    font-weight: 600;
+    font-size: 1.05em;
+    margin: 0 0 12px 0;
+    color: var(--text-normal);
+}
+
+.duckmage-token-info-content {
+    display: flex;
+    flex-direction: column;
+    min-height: 200px;
+}
+
+.duckmage-token-info-note-wrap {
+    margin-top: 8px;
+    margin-bottom: 14px;
+}
+
+.duckmage-token-info-note-label {
+    display: block;
+    font-size: 0.78em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.duckmage-token-info-note-rendered {
+    min-height: 140px;
+    max-height: 320px;
+    overflow-y: auto;
+    font-size: 0.88em;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    padding: 6px 10px;
+    box-sizing: border-box;
+}
+
+.duckmage-token-info-note-rendered img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 2px;
+}
+
+.duckmage-token-info-empty {
+    color: var(--text-muted);
+    font-style: italic;
+    margin: 0;
+}
+
+.duckmage-token-info-loc {
+    color: var(--text-muted);
+    font-size: 0.85em;
+    margin: 2px 0 6px;
+}
+
+.duckmage-token-info-desc {
+    font-size: 0.95em;
+    color: var(--text-normal);
+    margin-bottom: 12px;
+    white-space: pre-wrap;
+}
+
+.duckmage-token-info-edit-btn {
+    font-size: 0.8em;
+    padding: 2px 8px;
+    flex-shrink: 0;
+    align-self: center;
+}
+
+.duckmage-token-info-remove-btn {
+    margin-top: auto;
+    align-self: flex-start;
+    font-size: 0.8em;
+    padding: 2px 8px;
+    color: var(--text-error);
+    background: transparent;
+    border: 1px solid var(--text-error);
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.duckmage-token-info-remove-btn:hover {
+    opacity: 1;
+    background: color-mix(in srgb, var(--text-error) 10%, transparent);
+}
+
+.duckmage-token-info-remove-btn--confirming {
+    opacity: 1;
+    background: color-mix(in srgb, var(--text-error) 18%, transparent);
+    border-color: var(--text-error);
 }

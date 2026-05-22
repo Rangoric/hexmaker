@@ -1,3 +1,21 @@
+export type TokenShape = "circle" | "square" | "hexagon";
+export type TokenSize  = "sm" | "md" | "lg";
+
+export interface TokenEntry {
+	filePath: string;
+	title: string;
+	icon: string | undefined;
+	hex: string;         // "x_y"
+	map: string;
+	visible: boolean;
+	shape: TokenShape;
+	size: TokenSize;
+	color: string | undefined;   // fill color
+	border: string | undefined;  // border/ring color
+	tokenLink: string | undefined;    // proxy → original note path
+	description: string | undefined;  // token-description frontmatter
+}
+
 export type PathLineStyle = "solid" | "dashed" | "dotted";
 export type PathRouting   = "through" | "meander" | "edge";
 
@@ -26,6 +44,7 @@ export interface MapData {
 	showFactionOverlay?: boolean; // undefined = false (opt-in)
 	showRegionOverlay?: boolean;  // undefined = false (opt-in)
 	showGmLayer?: boolean;        // undefined = true (on by default)
+	showTokens?: boolean;         // undefined = true (on by default)
 }
 
 export interface TerrainPalette {
@@ -69,6 +88,7 @@ export interface HexmakerPluginSettings {
 	defaultMap: string;
 	workflowsFolder: string;
 	hiddenIcons: string[];
+	iconOrder: string[];
 	setupComplete: boolean;
 	setupDismissed: boolean;
 }

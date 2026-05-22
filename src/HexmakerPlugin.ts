@@ -379,8 +379,12 @@ export default class HexmakerPlugin extends Plugin {
       }
     }
 
-    // Combine both sources, deduplicate by filename, sorted
-    this.availableIcons = [...new Set([...pluginIcons, ...vaultIcons])].sort();
+    // Combine, deduplicate, then apply saved order (ordered first, remainder sorted)
+    const all = [...new Set([...pluginIcons, ...vaultIcons])];
+    const order = this.settings.iconOrder ?? [];
+    const ordered = order.filter((i) => all.includes(i));
+    const rest = all.filter((i) => !order.includes(i)).sort();
+    this.availableIcons = [...ordered, ...rest];
   }
 
   async autoRegisterMapsFromVault(): Promise<void> {

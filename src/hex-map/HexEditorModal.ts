@@ -431,114 +431,86 @@ export class HexEditorModal extends HexmakerModal {
       });
     }
 
-    // Icon override row
-    const iconRow = section.createDiv({ cls: "duckmage-icon-override-row" });
-    iconRow.createSpan({
-      text: "Icon override",
-      cls: "duckmage-icon-override-label",
-    });
-    const iconSelect = iconRow.createEl("select", {
-      cls: "duckmage-icon-override-select",
-    });
-    iconSelect.createEl("option", {
-      value: "",
-      text: "— use terrain default —",
-    });
-    for (const icon of this.plugin.availableIcons) {
-      const label = icon
-        .replace(/^bw-/, "")
-        .replace(/\.png$/, "")
-        .replace(/-/g, " ");
-      iconSelect.createEl("option", { value: icon, text: label });
-    }
-    // Use directly-read icon value (not the stale metadata cache)
-    iconSelect.value = currentIcon ?? "";
     // Keep terrain in the overrides map so renderGrid doesn't lose it during
     // the brief window when Obsidian clears the metadata cache on file modify.
     const terrainOverrides: Map<string, string | null> | undefined =
       currentTerrain ? new Map([[path, currentTerrain]]) : undefined;
 
-    iconSelect.addEventListener("change", () => {
-      void (async () => {
-        await this.ensureHexNote();
-        await setIconOverrideInFile(this.app, path, iconSelect.value || null);
-        this.onChanged(
-          terrainOverrides,
-          new Map([[path, iconSelect.value || null]]),
-        );
-      })();
-    });
-    const clearIconBtn = iconRow.createEl("button", {
-      text: "Clear",
-      cls: "duckmage-clear-btn",
-      title: "Remove icon override",
-    });
-    clearIconBtn.setCssProps({
-      visibility: currentIcon ? "visible" : "hidden",
-    });
-    clearIconBtn.addEventListener("click", () => {
-      void (async () => {
-        await this.ensureHexNote();
-        await setIconOverrideInFile(this.app, path, null);
-        this.onChanged(terrainOverrides, new Map([[path, null]]));
-        iconSelect.value = "";
-        clearIconBtn.setCssProps({ visibility: "hidden" });
-      })();
-    });
-    // Show/hide clear button as icon selection changes
-    iconSelect.addEventListener("change", () => {
-      clearIconBtn.setCssProps({
-        visibility: iconSelect.value ? "visible" : "hidden",
-      });
-    });
+    // Icon override palette
+    const hidden = new Set(this.plugin.settings.hiddenIcons ?? []);
+    const visibleIcons = this.plugin.availableIcons.filter((i) => !hidden.has(i));
 
-    // GM icon — only visible when GM layer is active
+    section.createEl("p", { text: "Icon override", cls: "duckmage-icon-inline-label" });
+    this.renderIconGrid(
+      section,
+      visibleIcons,
+      currentIcon,
+      "— terrain default —",
+      async (picked) => {
+        await this.ensureHexNote();
+        await setIconOverrideInFile(this.app, path, picked);
+        this.onChanged(terrainOverrides, new Map([[path, picked]]));
+      },
+    );
+
+    // GM icon palette — only when GM layer is active
     if (this.options.gmLayerActive) {
-      const gmRow = section.createDiv({ cls: "duckmage-icon-override-row" });
-      gmRow.createSpan({ text: "GM icon", cls: "duckmage-icon-override-label" });
-      const gmSelect = gmRow.createEl("select", {
-        cls: "duckmage-icon-override-select",
-      });
-      gmSelect.createEl("option", { value: "", text: "— none —" });
-      for (const icon of this.plugin.availableIcons) {
-        const label = icon
-          .replace(/^bw-/, "")
-          .replace(/\.png$/, "")
-          .replace(/-/g, " ");
-        gmSelect.createEl("option", { value: icon, text: label });
-      }
-      gmSelect.value = currentGmIcon ?? "";
-
-      const clearGmBtn = gmRow.createEl("button", {
-        text: "Clear",
-        cls: "duckmage-clear-btn",
-        title: "Remove icon",
-      });
-      clearGmBtn.setCssProps({
-        visibility: currentGmIcon ? "visible" : "hidden",
-      });
-
-      gmSelect.addEventListener("change", () => {
-        void (async () => {
+      section.createEl("p", { text: "GM icon", cls: "duckmage-icon-inline-label" }); // eslint-disable-line obsidianmd/ui/sentence-case
+      this.renderIconGrid(
+        section,
+        visibleIcons,
+        currentGmIcon,
+        "— none —",
+        async (picked) => {
           await this.ensureHexNote();
-          await setGmIconInFile(this.app, path, gmSelect.value || null);
+          await setGmIconInFile(this.app, path, picked);
           this.onChanged();
-          clearGmBtn.setCssProps({
-            visibility: gmSelect.value ? "visible" : "hidden",
-          });
-        })();
-      });
-
-      clearGmBtn.addEventListener("click", () => {
-        void (async () => {
-          await this.ensureHexNote();
-          await setGmIconInFile(this.app, path, null);
-          this.onChanged();
-          gmSelect.value = "";
-          clearGmBtn.setCssProps({ visibility: "hidden" });
-        })();
-      });
+        },
+      );
     }
+  }
+
+  private renderIconGrid(
+    container: HTMLElement,
+    icons: string[],
+    current: string | null,
+    noneLabel: string,
+    onPick: (icon: string | null) => Promise<void>,
+  ): void {
+    let selected = current;
+    const grid = container.createDiv({ cls: "duckmage-icon-picker duckmage-icon-picker-inline" });
+
+    const makeTile = (icon: string | null) => {
+      const label = icon
+        ? icon.replace(/^bw-/, "").replace(/\.(png|jpg|jpeg|gif|svg|webp)$/i, "").replace(/-/g, " ")
+        : noneLabel;
+      const tile = grid.createDiv({
+        cls: `duckmage-icon-option${selected === icon ? " is-selected" : ""}`,
+      });
+      const preview = tile.createDiv({
+        cls: `duckmage-icon-preview${!icon ? " duckmage-icon-preview-clear" : ""}`,
+      });
+      if (icon) {
+        const img = preview.createEl("img", { cls: "duckmage-icon-preview-img" });
+        img.src = getIconUrl(this.plugin, icon);
+        img.alt = label;
+      }
+      tile.createSpan({ text: label, cls: "duckmage-icon-option-name" });
+      tile.addEventListener("click", () => {
+        void (async () => {
+          selected = icon;
+          grid.querySelectorAll(".duckmage-icon-option").forEach((el) =>
+            el.toggleClass("is-selected", (el as HTMLElement).dataset["icon"] === (icon ?? "")),
+          );
+          await onPick(icon);
+        })();
+      });
+      tile.dataset["icon"] = icon ?? "";
+      return tile;
+    };
+
+    makeTile(null);
+    for (const icon of icons) makeTile(icon);
   }
 
   private getFilesForDropdown(

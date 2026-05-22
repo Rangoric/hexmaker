@@ -70,7 +70,7 @@ Open **Settings → Hexmaker** and enter a root folder name in **World folder** 
 Click **Generate folders**. This fills in the hex, towns, dungeons, tables, and other folder settings with sensible defaults under your world folder and creates them in your vault. Any field you've already filled in is left untouched.
 
 ### 3. Open the Hex Map
-Click the map icon in the left ribbon (or use the command palette: **Open Hexmaker hex map**). You'll be prompted to create your first region — give it a name, choose its size, and pick a terrain palette.
+Click the map icon in the left ribbon (or use the command palette: **Open Hexmaker hex map**). You'll be prompted to create your first map — give it a name, choose its size, and pick a terrain palette.
 
 ### 4. Generate terrain tables
 Once your folders are set, go back to **Settings → Hexmaker** and click **Generate terrain tables & hex links**. This creates a description and encounters table file for every terrain type and links them into any existing hex notes. It's safe to run again at any time.
@@ -139,6 +139,7 @@ Toggle tools from the toolbar above the map. **Right-click** off a hex to exit a
 | **Faction** | Paint a faction colour on a hex (drag to paint multiple) | Erase faction from hex |
 | **Region** | Paint a geographic region colour on a hex | Erase region from hex |
 | **Table link** | Add the selected random table as a link in a hex's Encounters Table section | — |
+| **Token** | Open the token creator, then click a hex to place the new token | Cancel placement |
 
 **Terrain painter extras:**
 - Clicking the Terrain button always reopens the palette so you can switch colours mid-session.
@@ -166,6 +167,21 @@ Toggle the GM layer from the map toolbar. When active:
 - The hex editor automatically expands the Hidden and Secret sections when opened.
 
 GM layer state is stored per map and persists across sessions.
+
+### Tokens
+Place movable tokens on the map — useful for tracking party position, NPCs, or any note-backed marker.
+
+**Creating a token:**
+1. Click the **Token** button in the drawing toolbar.
+2. Fill in the token form: choose a note (existing or new), icon, shape (circle / square / hexagon), fill colour, and border colour.
+3. Click **Next: place on map**, then click any hex to place the token there.
+
+**Interacting with tokens:**
+- **Click** a token to open its info card — shows the linked note title and hex position, with a "Jump to hex" button and an "Open note" link.
+- **Drag** a token to a different hex to move it. The target hex is highlighted as you drag.
+- **Right-click** a token to edit its properties (icon, shape, colours) or remove it from the map.
+
+Token state is stored in the linked note's frontmatter (`token`, `token-hex`, `token-map`, `token-icon`, `token-shape`, `token-color`, `token-border`, `token-visible`). Tokens follow the map they were placed on and persist with the note.
 
 ### Hex table view
 Open via **Command palette → "Open Hexmaker hex table"**.
@@ -209,7 +225,7 @@ Open **Settings → Hexmaker** to configure:
 
 ## Hex notes
 
-Each hex note lives at `{hexFolder}/{region}/{x}_{y}.md` (e.g. `RPG/world/hexes/Overworld/3_7.md`).
+Each hex note lives at `{hexFolder}/{map}/{x}_{y}.md` (e.g. `RPG/world/hexes/Overworld/3_7.md`).
 
 **Frontmatter:**
 ```yaml
@@ -282,6 +298,8 @@ src/
     PathPickerModal.ts           ← path type picker
     PathTypeEditorModal.ts       ← edit a single path type
     FileLinkSuggestModal.ts      ← file picker scoped to a folder
+    TokenModal.ts                ← create/edit a token (icon, shape, colour)
+    TokenInfoModal.ts            ← token info card (jump to hex, open note)
   hex-table/
     HexTableView.ts              ← hex reference table (ItemView)
     HexCellModal.ts              ← inline cell editor

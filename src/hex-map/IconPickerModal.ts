@@ -82,13 +82,36 @@ export class IconPickerModal extends HexmakerModal {
         this.onSelect(null, this.gmOnly);
         this.close();
       });
+
+      const icons = this.plugin.availableIcons.filter((i) => !hidden.has(i));
+      for (const icon of icons) {
+        const label = icon
+          .replace(/^bw-/, "")
+          .replace(/\.(png|jpg|jpeg|gif|svg|webp)$/i, "")
+          .replace(/-/g, " ");
+        const btn = grid.createDiv({ cls: "duckmage-icon-option" });
+        const preview = btn.createDiv({ cls: "duckmage-icon-preview" });
+        const img = preview.createEl("img", { cls: "duckmage-icon-preview-img" });
+        img.src = getIconUrl(this.plugin, icon);
+        img.alt = label;
+        btn.createSpan({ text: label, cls: "duckmage-icon-option-name" });
+        btn.addEventListener("click", () => {
+          this.onSelect(icon, this.gmOnly);
+          this.close();
+        });
+      }
+    } else {
+      this.renderManageGrid(grid, hidden);
     }
+  }
 
-    const icons = this.manageMode
-      ? this.plugin.availableIcons
-      : this.plugin.availableIcons.filter((i) => !hidden.has(i));
+  private renderManageGrid(grid: HTMLElement, hidden: Set<string>): void {
+    grid.empty();
+    const icons = this.plugin.availableIcons;
+    let dragSrcIndex = -1;
 
-    for (const icon of icons) {
+    for (let i = 0; i < icons.length; i++) {
+      const icon = icons[i];
       const isHidden = hidden.has(icon);
       const label = icon
         .replace(/^bw-/, "")
@@ -98,32 +121,66 @@ export class IconPickerModal extends HexmakerModal {
       const btn = grid.createDiv({
         cls: `duckmage-icon-option${isHidden ? " duckmage-icon-hidden" : ""}`,
       });
+      btn.draggable = true;
+
+      // Grip handle
+      btn.createSpan({ cls: "duckmage-terrain-edit-grip", text: "⠿" });
+
       const preview = btn.createDiv({ cls: "duckmage-icon-preview" });
       const img = preview.createEl("img", { cls: "duckmage-icon-preview-img" });
       img.src = getIconUrl(this.plugin, icon);
       img.alt = label;
       btn.createSpan({ text: label, cls: "duckmage-icon-option-name" });
 
-      if (this.manageMode) {
-        const hideBtn = btn.createEl("button", {
-          cls: "duckmage-icon-hide-btn",
-          attr: { title: isHidden ? "Show icon" : "Hide icon" },
+      const hideBtn = btn.createEl("button", {
+        cls: "duckmage-icon-hide-btn",
+        attr: { title: isHidden ? "Show icon" : "Hide icon" },
+      });
+      setIcon(hideBtn, isHidden ? "eye" : "eye-off");
+      hideBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const list = this.plugin.settings.hiddenIcons ?? [];
+        this.plugin.settings.hiddenIcons = isHidden
+          ? list.filter((h) => h !== icon)
+          : [...list, icon];
+        void this.plugin.saveSettings().then(() => {
+          this.plugin.loadAvailableIcons();
+          this.renderManageGrid(grid, new Set(this.plugin.settings.hiddenIcons ?? []));
         });
-        setIcon(hideBtn, isHidden ? "eye" : "eye-off");
-        hideBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const list = this.plugin.settings.hiddenIcons ?? [];
-          this.plugin.settings.hiddenIcons = isHidden
-            ? list.filter((h) => h !== icon)
-            : [...list, icon];
-          void this.plugin.saveSettings().then(() => this.render());
+      });
+
+      // Drag-to-reorder
+      btn.addEventListener("dragstart", (e: DragEvent) => {
+        dragSrcIndex = i;
+        btn.addClass("duckmage-palette-dragging");
+        e.dataTransfer?.setDragImage(btn, 0, 0);
+      });
+      btn.addEventListener("dragend", () => {
+        btn.removeClass("duckmage-palette-dragging");
+        grid.querySelectorAll(".duckmage-palette-drop-target").forEach((el) =>
+          el.classList.remove("duckmage-palette-drop-target"),
+        );
+      });
+      btn.addEventListener("dragover", (e: DragEvent) => {
+        e.preventDefault();
+        grid.querySelectorAll(".duckmage-palette-drop-target").forEach((el) =>
+          el.classList.remove("duckmage-palette-drop-target"),
+        );
+        btn.addClass("duckmage-palette-drop-target");
+      });
+      btn.addEventListener("drop", (e: DragEvent) => {
+        e.preventDefault();
+        if (dragSrcIndex === -1 || dragSrcIndex === i) return;
+        const reordered = [...icons];
+        const [moved] = reordered.splice(dragSrcIndex, 1);
+        reordered.splice(i, 0, moved);
+        this.plugin.settings.iconOrder = reordered;
+        dragSrcIndex = -1;
+        void this.plugin.saveSettings().then(() => {
+          this.plugin.loadAvailableIcons();
+          this.renderManageGrid(grid, new Set(this.plugin.settings.hiddenIcons ?? []));
         });
-      } else {
-        btn.addEventListener("click", () => {
-          this.onSelect(icon, this.gmOnly);
-          this.close();
-        });
-      }
+      });
     }
   }
 
