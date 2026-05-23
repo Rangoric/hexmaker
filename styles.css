@@ -4208,7 +4208,8 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
     display: flex;
     gap: 8px;
     justify-content: flex-end;
-    margin-top: 16px;
+    margin-top: auto;
+    padding-top: 16px;
 }
 
 .duckmage-token-modal-title {
