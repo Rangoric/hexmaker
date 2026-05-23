@@ -14,7 +14,7 @@ import { HexEditorModal } from "./HexEditorModal";
 import { TerrainPickerModal } from "./TerrainPickerModal";
 import { IconPickerModal } from "./IconPickerModal";
 import { addLinkToSection, getLinksInSection, removeLinkFromSection } from "../sections";
-import { getFactionColorFromFile, getRegionColorFromFile, setHexRegionInFile } from "../frontmatter";
+import { getFactionColorFromFile, getRegionColorFromFile, setHexRegionInFile, getSubmapFromFile, setSubmapInFile } from "../frontmatter";
 import {
   VIEW_TYPE_HEX_MAP,
   VIEW_TYPE_HEX_TABLE,
@@ -37,6 +37,7 @@ import { FactionPickerModal } from "./FactionPickerModal";
 import { GeoRegionPickerModal } from "./GeoRegionPickerModal";
 import { DrawingToolPanel, OverlayPanel } from "./HexSidePanel";
 import { TokenModal } from "./TokenModal";
+import { SubmapPickerModal } from "./SubmapPickerModal";
 import { TokenInfoModal } from "./TokenInfoModal";
 import {
   getTokenDataFromCache,
@@ -146,7 +147,9 @@ export class HexMapView extends ItemView {
   private undoBtn: HTMLButtonElement | null = null;
   private redoBtn: HTMLButtonElement | null = null;
   activeMapName = "default";
+  private mapHistory: string[] = [];
   private mapBtn: HTMLButtonElement | null = null;
+  private backBtn: HTMLButtonElement | null = null;
   private tokenEntries: TokenEntry[] = [];
   private pendingTokenNotePath: string | null = null;
   private pendingTokenPlaceData: { icon?: string; shape: import("../types").TokenShape; size: import("../types").TokenSize; color?: string; border?: string; description?: string } | null = null;
@@ -170,6 +173,31 @@ export class HexMapView extends ItemView {
 
   private updateMapBtnLabel(): void {
     this.mapBtn?.setText(`${this.activeMapName} ▾`);
+  }
+
+  switchToMap(name: string): void {
+    this.activeMapName = name;
+    this.updateMapBtnLabel();
+    interface WithUpdateHeader { updateHeader?(): void; }
+    (this.leaf as unknown as WithUpdateHeader).updateHeader?.();
+    this.renderGrid();
+  }
+
+  navigateToMap(name: string): void {
+    this.mapHistory.push(this.activeMapName);
+    this.switchToMap(name);
+    this.refreshBackBtn();
+  }
+
+  private navigateBack(): void {
+    const prev = this.mapHistory.pop();
+    if (prev) this.switchToMap(prev);
+    this.refreshBackBtn();
+  }
+
+  private refreshBackBtn(): void {
+    if (this.mapHistory.length > 0) this.backBtn?.show();
+    else this.backBtn?.hide();
   }
 
   onOpen(): Promise<void> {
@@ -472,7 +500,9 @@ export class HexMapView extends ItemView {
       void this.app.workspace.revealLeaf(this.leaf);
     });
 
-    this.mapBtn = controlsEl.createEl("button", {
+    const mapNavGroup = controlsEl.createDiv({ cls: "duckmage-map-nav-group" });
+
+    this.mapBtn = mapNavGroup.createEl("button", {
       cls: "duckmage-region-btn",
       title: "Manage maps",
     });
@@ -492,6 +522,14 @@ export class HexMapView extends ItemView {
         this.renderGrid();
       }).open(),
     );
+
+    this.backBtn = mapNavGroup.createEl("button", {
+      cls: "duckmage-map-back-btn",
+      text: "← Back", // eslint-disable-line obsidianmd/ui/sentence-case
+      title: "Back to previous map",
+    });
+    this.backBtn.hide();
+    this.backBtn.addEventListener("click", () => this.navigateBack());
 
     this.undoBtn = controlsEl.createEl("button", {
       cls: "duckmage-undo-btn-map",
@@ -1616,18 +1654,21 @@ export class HexMapView extends ItemView {
           setTimeout(() => this.renderGrid(), 300);
         }
       },
-      (nx, ny) => this.setSelectedHex(nx, ny),
-      () => {
-        if (this.selectedHex) {
-          this.viewportEl
-            ?.querySelector<HTMLElement>(
-              `[data-x="${this.selectedHex.x}"][data-y="${this.selectedHex.y}"]`,
-            )
-            ?.removeClass("is-selected");
-          this.selectedHex = null;
-        }
+      {
+        gmLayerActive: this.getActiveMap().showGmLayer ?? true,
+        onNavigate: (nx: number, ny: number) => this.setSelectedHex(nx, ny),
+        onModalClose: () => {
+          if (this.selectedHex) {
+            this.viewportEl
+              ?.querySelector<HTMLElement>(
+                `[data-x="${this.selectedHex.x}"][data-y="${this.selectedHex.y}"]`,
+              )
+              ?.removeClass("is-selected");
+            this.selectedHex = null;
+          }
+        },
+        onSwitchMap: (name: string) => this.navigateToMap(name),
       },
-      { gmLayerActive: this.getActiveMap().showGmLayer ?? true },
     );
     modal.open();
   }
@@ -1678,6 +1719,33 @@ export class HexMapView extends ItemView {
               ? existing
               : await this.plugin.createHexNote(x, y, this.activeMapName);
           if (file) await this.app.workspace.getLeaf().openFile(file);
+        }),
+    );
+
+    menu.addItem((item) =>
+      item
+        .setTitle("Link submap")
+        .setIcon("map-pin")
+        .onClick(() => {
+          const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
+          const current = getSubmapFromFile(this.app, hexPath);
+          new SubmapPickerModal(
+            this.app,
+            this.plugin,
+            current,
+            (mapName) => {
+              void (async () => {
+                if (!this.app.vault.getAbstractFileByPath(hexPath)) {
+                  await this.plugin.createHexNote(x, y, this.activeMapName);
+                }
+                await setSubmapInFile(this.app, hexPath, mapName);
+                this.renderGrid();
+              })();
+            },
+            () => {
+              void setSubmapInFile(this.app, hexPath, null).then(() => this.renderGrid());
+            },
+          ).open();
         }),
     );
 

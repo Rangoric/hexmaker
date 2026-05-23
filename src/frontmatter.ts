@@ -284,3 +284,22 @@ export async function applyTokenFrontmatter(
     }
   });
 }
+
+export function getSubmapFromFile(app: App, path: string): string | undefined {
+  const val = getFrontMatter(app, path)?.["duckmage-submap"];
+  return typeof val === "string" ? val : undefined;
+}
+
+export async function setSubmapInFile(
+  app: App,
+  path: string,
+  mapName: string | null,
+): Promise<boolean> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return false;
+  await app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+    if (mapName === null) delete fm["duckmage-submap"];
+    else fm["duckmage-submap"] = mapName;
+  });
+  return true;
+}

@@ -238,12 +238,14 @@ export class MapModal extends HexmakerModal {
         return;
       }
     }
-    const map = this.plugin.getMap(this.view.activeMapName);
+    const oldName = this.view.activeMapName;
+    const map = this.plugin.getMap(oldName);
     if (map) map.name = newName;
-    if (this.plugin.settings.defaultMap === this.view.activeMapName) {
+    if (this.plugin.settings.defaultMap === oldName) {
       this.plugin.settings.defaultMap = newName;
     }
     this.view.activeMapName = newName;
+    await this.plugin.updateSubmapReferences(oldName, newName);
     await this.plugin.saveSettings();
     this.onChanged();
     this.render();

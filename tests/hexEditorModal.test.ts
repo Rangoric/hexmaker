@@ -170,7 +170,6 @@ describe("HexEditorModal — HexEditorOptions", () => {
 		const plugin = makePlugin(() => "hex/1_1.md");
 		const modal = new HexEditorModal(
 			app, plugin, 1, 1, "default", () => {},
-			undefined, undefined,
 			{ gmLayerActive: true },
 		);
 		expect((modal as any).options.gmLayerActive).toBe(true);

@@ -1,0 +1,135 @@
+import { App, Setting } from "obsidian";
+import { HexmakerModal } from "../HexmakerModal";
+import type HexmakerPlugin from "../HexmakerPlugin";
+
+export class MapLinkModal extends HexmakerModal {
+  constructor(
+    app: App,
+    private plugin: HexmakerPlugin,
+    private onInsert: (mapName: string, linkText: string) => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("duckmage-hex-editor");
+    this.makeDraggable();
+
+    contentEl.createEl("h2", { text: "Insert map link" });
+
+    const maps = this.plugin.settings.maps;
+    if (maps.length === 0) {
+      contentEl.createEl("p", {
+        text: "No maps found. Create a map first.",
+        cls: "duckmage-maplinkmodal-empty",
+      });
+      contentEl.createEl("button", { text: "Cancel" })
+        .addEventListener("click", () => this.close());
+      return;
+    }
+
+    let selectedMap = maps[0].name;
+    let linkTextDirty = false;
+    let linkTextInput!: HTMLInputElement;
+
+    // ── Map combo ─────────────────────────────────────────────────────────
+    const mapLabel = contentEl.createDiv({ cls: "setting-item" });
+    mapLabel.createDiv({ cls: "setting-item-info" }).createDiv({
+      cls: "setting-item-name",
+      text: "Map",
+    });
+
+    const controlEl = mapLabel.createDiv({ cls: "setting-item-control" });
+    const comboWrap = controlEl.createDiv({ cls: "duckmage-link-combo" });
+    const mapInput = comboWrap.createEl("input", {
+      type: "text",
+      cls: "duckmage-link-combo-input",
+      attr: { placeholder: "Filter maps…" },
+    });
+    mapInput.value = selectedMap;
+
+    comboWrap.createEl("button", {
+      text: "▾",
+      cls: "duckmage-link-combo-arrow",
+      attr: { title: "Show all" },
+    }).addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      if (dropdown.isShown()) closeDropdown();
+      else openDropdown(mapInput.value);
+    });
+
+    const dropdown = comboWrap.createDiv({ cls: "duckmage-link-combo-dropdown" });
+    dropdown.hide();
+
+    let isOpen = false;
+
+    const populateDropdown = (query: string) => {
+      dropdown.empty();
+      const q = query.trim().toLowerCase();
+      const matches = maps.filter((m) => !q || m.name.toLowerCase().includes(q));
+      if (matches.length === 0) {
+        dropdown.createDiv({ cls: "duckmage-link-combo-empty", text: "No matching maps" });
+        return;
+      }
+      for (const m of matches) {
+        const item = dropdown.createDiv({ cls: "duckmage-link-combo-item" });
+        item.textContent = m.name;
+        item.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          selectedMap = m.name;
+          mapInput.value = m.name;
+          if (!linkTextDirty) linkTextInput.value = m.name;
+          closeDropdown();
+        });
+      }
+    };
+
+    const openDropdown = (query: string) => {
+      isOpen = true;
+      populateDropdown(query);
+      dropdown.show();
+    };
+
+    const closeDropdown = () => {
+      isOpen = false;
+      dropdown.hide();
+    };
+
+    mapInput.addEventListener("focus", () => openDropdown(mapInput.value));
+    mapInput.addEventListener("blur", () => setTimeout(() => closeDropdown(), 150));
+    mapInput.addEventListener("input", () => {
+      if (!isOpen) openDropdown(mapInput.value);
+      else populateDropdown(mapInput.value);
+    });
+    mapInput.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeDropdown();
+    });
+
+    // ── Link text ─────────────────────────────────────────────────────────
+    new Setting(contentEl)
+      .setName("Link text")
+      .addText((t) => {
+        linkTextInput = t.inputEl;
+        t.setValue(selectedMap)
+          .onChange(() => { linkTextDirty = true; });
+      });
+
+    // ── Buttons ───────────────────────────────────────────────────────────
+    const btnRow = contentEl.createDiv({ cls: "duckmage-token-modal-buttons" });
+    btnRow.createEl("button", { text: "Insert", cls: "mod-cta" })
+      .addEventListener("click", () => {
+        const map  = mapInput.value.trim() || selectedMap;
+        const text = linkTextInput.value.trim() || map;
+        this.close();
+        this.onInsert(map, text);
+      });
+    btnRow.createEl("button", { text: "Cancel" })
+      .addEventListener("click", () => this.close());
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}

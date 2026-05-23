@@ -5,6 +5,7 @@ import { RandomTableView } from "./random-tables/RandomTableView";
 import { HexmakerSettingTab } from "./HexmakerSettingTab";
 import { registerRollerBlock } from "./random-tables/RollerBlock";
 import { FileLinkSuggestModal } from "./hex-map/FileLinkSuggestModal";
+import { MapLinkModal } from "./hex-map/MapLinkModal";
 import {
   DEFAULT_PALETTE_NAME,
   DEFAULT_SETTINGS,
@@ -24,7 +25,7 @@ import type {
   TerrainPalette,
 } from "./types";
 import DEFAULT_HEX_TEMPLATE from "./defaultHexTemplate.md";
-import { getTerrainFromFile, setTerrainInFile } from "./frontmatter";
+import { getTerrainFromFile, setTerrainInFile, setSubmapInFile } from "./frontmatter";
 import {
   addLinkToSection,
   getLinksInSection,
@@ -115,6 +116,21 @@ export default class HexmakerPlugin extends Plugin {
                 ).open();
               }),
           );
+          menu.addItem((item) =>
+            item
+              .setTitle("Insert map link")
+              .setIcon("map")
+              .setSection("insert")
+              .onClick(() => {
+                new MapLinkModal(this.app, this, (mapName, linkText) => {
+                  const vault = encodeURIComponent(this.app.vault.getName());
+                  const map   = encodeURIComponent(mapName);
+                  editor.replaceSelection(
+                    `[${linkText}](obsidian://duckmage-openmap?vault=${vault}&map=${map})`,
+                  );
+                }).open();
+              }),
+          );
         },
       ),
     );
@@ -158,6 +174,25 @@ export default class HexmakerPlugin extends Plugin {
           type: VIEW_TYPE_RANDOM_TABLES,
           state: { filePath, mode: "workflows" },
         });
+      }
+    });
+
+    this.registerObsidianProtocolHandler("duckmage-openmap", (params) => {
+      const mapName = params["map"];
+      if (!mapName) return;
+      const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_HEX_MAP);
+      if (leaves.length > 0) {
+        void this.app.workspace.revealLeaf(leaves[0]);
+        (leaves[0].view as HexMapView).switchToMap(mapName);
+      } else {
+        void this.app.workspace.getLeaf("tab")
+          .setViewState({ type: VIEW_TYPE_HEX_MAP })
+          .then(() => {
+            const newLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_HEX_MAP);
+            if (newLeaves.length > 0) {
+              (newLeaves[0].view as HexMapView).switchToMap(mapName);
+            }
+          });
       }
     });
 
@@ -447,6 +482,19 @@ export default class HexmakerPlugin extends Plugin {
     return folder
       ? `${folder}/${mapName}/${x}_${y}.md`
       : `${mapName}/${x}_${y}.md`;
+  }
+
+  /** Update duckmage-submap frontmatter in all hex notes when a map is renamed. */
+  async updateSubmapReferences(oldName: string, newName: string): Promise<void> {
+    const hexFolder = normalizeFolder(this.settings.hexFolder);
+    const files = this.app.vault.getMarkdownFiles().filter(
+      (f) => !hexFolder || f.path.startsWith(hexFolder + "/"),
+    );
+    for (const file of files) {
+      const submap = (this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined)?.["duckmage-submap"];
+      if (submap !== oldName) continue;
+      await setSubmapInFile(this.app, file.path, newName);
+    }
   }
 
   /** Build an embedded roller code block (path-less — reads the current file). */

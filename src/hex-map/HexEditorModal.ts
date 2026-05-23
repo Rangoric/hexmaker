@@ -12,6 +12,7 @@ import {
   setTerrainInFile,
   setIconOverrideInFile,
   setGmIconInFile,
+  getSubmapFromFile,
 } from "../frontmatter";
 import {
   addLinkToSection,
@@ -46,8 +47,6 @@ export class HexEditorModal extends HexmakerModal {
       terrainOverrides?: Map<string, string | null>,
       iconOverrides?: Map<string, string | null>,
     ) => void,
-    private onNavigate?: (x: number, y: number) => void,
-    private onModalClose?: () => void,
     private options: HexEditorOptions = {},
   ) {
     super(app);
@@ -260,7 +259,7 @@ export class HexEditorModal extends HexmakerModal {
   }
 
   onClose() {
-    this.onModalClose?.();
+    this.options.onModalClose?.();
     this.contentEl.empty();
   }
 
@@ -321,7 +320,7 @@ export class HexEditorModal extends HexmakerModal {
         tile.addEventListener("click", () => {
           this.x = nx;
           this.y = ny;
-          this.onNavigate?.(nx, ny);
+          this.options.onNavigate?.(nx, ny);
           void this.loadData().then(() => {
             this.dataPreloaded = true;
             this.onOpen();
@@ -331,6 +330,21 @@ export class HexEditorModal extends HexmakerModal {
       } else {
         tile.title = "Off map";
       }
+    }
+
+    // Centre dot — only shown when a submap is linked
+    const hexPath = this.plugin.hexPath(this.x, this.y, this.mapName);
+    const submap = getSubmapFromFile(this.app, hexPath);
+    if (submap) {
+      const centre = widget.createDiv({ cls: "duckmage-neighbor-centre duckmage-neighbor-centre--linked" });
+      // Flat-top flower center: (30,30); pointy-top: (30,26). Dot is 12×12.
+      const cy = isFlat ? 24 : 20;
+      centre.setCssProps({ left: "24px", top: `${cy}px` });
+      centre.title = `Submap: ${submap}`;
+      centre.addEventListener("click", () => {
+        this.close();
+        this.options.onSwitchMap?.(submap);
+      });
     }
   }
 

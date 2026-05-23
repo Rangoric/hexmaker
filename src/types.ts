@@ -111,4 +111,10 @@ export const TEXT_SECTIONS = [
 export interface HexEditorOptions {
 	/** GM layer is active: force Notes open, highlight Hidden/Secret sections. */
 	gmLayerActive?: boolean;
+	/** Called when the user clicks a neighbour tile to navigate to an adjacent hex. */
+	onNavigate?: (x: number, y: number) => void;
+	/** Called when the modal closes (e.g. to clear the selected-hex highlight). */
+	onModalClose?: () => void;
+	/** Called when the user clicks the submap centre-dot to drill into another map. */
+	onSwitchMap?: (mapName: string) => void;
 }

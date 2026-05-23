@@ -361,7 +361,9 @@ div.duckmage-hex-icon {
     font-size: 0.9em;
     font-weight: 600;
 }
-
+.duckmage-hex-editor .modal-content {
+   padding:0.5em;
+}
 .duckmage-editor-title-row {
     display: flex;
     align-items: flex-start;
@@ -409,10 +411,28 @@ div.duckmage-hex-icon {
     cursor: default;
     pointer-events: none;
 }
+.duckmage-neighbor-centre {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--background-modifier-border);
+    box-sizing: border-box;
+    pointer-events: none;
+}
+.duckmage-neighbor-centre--linked {
+    background: #1a1a1a;
+    border: 1px solid color-mix(in srgb, #fff 30%, transparent);
+    cursor: pointer;
+    pointer-events: auto;
+    transition: transform 0.1s;
+}
+.duckmage-neighbor-centre--linked:hover {
+    transform: scale(1.3);
+}
 
 /* ── Draggable / resizable modal ───────────────────────────────────── */
 .modal.duckmage-editor-modal-drag {
-    overflow: hidden;
     width: min(620px, 90vw);
     max-height: min(90vh, 860px);
     max-width: none;
@@ -421,7 +441,6 @@ div.duckmage-hex-icon {
 }
 .duckmage-editor-modal-drag .modal-content {
     overflow-y: auto;
-    overflow-x: hidden;
     display: flex;
     flex-direction: column;
 }
@@ -2894,11 +2913,20 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
 /* ── Region button & modal ────────────────────────────────────────────────── */
 
 /* Region selector button — always-visible top-left area, after ⊞ and 🎲 */
-.duckmage-region-btn {
+.duckmage-map-nav-group {
     position: absolute;
     top: 8px;
     left: 92px;
     z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    pointer-events: none;
+}
+.duckmage-map-nav-group > * {
+    pointer-events: auto;
+}
+.duckmage-region-btn {
     height: 26px;
     padding: 0 8px;
     max-width: 140px;
@@ -2921,6 +2949,23 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
 .duckmage-region-btn:hover {
     opacity: 1;
     color: var(--text-normal);
+}
+.duckmage-map-back-btn {
+    height: 26px;
+    font-size: 0.78em;
+    padding: 0 8px;
+    opacity: 0.75;
+    background: transparent;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.duckmage-map-back-btn:hover {
+    opacity: 1;
+    color: var(--text-normal);
+    border-color: var(--interactive-accent);
 }
 
 /* Region modal */
