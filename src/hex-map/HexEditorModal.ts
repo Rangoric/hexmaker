@@ -697,6 +697,12 @@ export class HexEditorModal extends HexmakerModal {
     const openDropdown = () => {
       isOpen = true;
       populateDropdown(input.value);
+      const rect = comboWrap.getBoundingClientRect();
+      dropdown.setCssProps({
+        top: `${rect.bottom + 2}px`,
+        left: `${rect.left}px`,
+        width: `${rect.width}px`,
+      });
       dropdown.show();
     };
 

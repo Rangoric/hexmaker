@@ -31,7 +31,6 @@ export class MapLinkModal extends HexmakerModal {
     }
 
     let selectedMap = maps[0].name;
-    let linkTextDirty = false;
     let linkTextInput!: HTMLInputElement;
 
     // ── Map combo ─────────────────────────────────────────────────────────
@@ -48,7 +47,7 @@ export class MapLinkModal extends HexmakerModal {
       cls: "duckmage-link-combo-input",
       attr: { placeholder: "Filter maps…" },
     });
-    mapInput.value = selectedMap;
+    mapInput.value = "";
 
     comboWrap.createEl("button", {
       text: "▾",
@@ -80,7 +79,7 @@ export class MapLinkModal extends HexmakerModal {
           e.preventDefault();
           selectedMap = m.name;
           mapInput.value = m.name;
-          if (!linkTextDirty) linkTextInput.value = m.name;
+          if (!linkTextInput.value.trim()) linkTextInput.value = m.name;
           closeDropdown();
         });
       }
@@ -89,6 +88,12 @@ export class MapLinkModal extends HexmakerModal {
     const openDropdown = (query: string) => {
       isOpen = true;
       populateDropdown(query);
+      const rect = comboWrap.getBoundingClientRect();
+      dropdown.setCssProps({
+        top: `${rect.bottom + 2}px`,
+        left: `${rect.left}px`,
+        width: `${rect.width}px`,
+      });
       dropdown.show();
     };
 
@@ -97,7 +102,7 @@ export class MapLinkModal extends HexmakerModal {
       dropdown.hide();
     };
 
-    mapInput.addEventListener("focus", () => openDropdown(mapInput.value));
+    mapInput.addEventListener("focus", () => openDropdown(""));
     mapInput.addEventListener("blur", () => setTimeout(() => closeDropdown(), 150));
     mapInput.addEventListener("input", () => {
       if (!isOpen) openDropdown(mapInput.value);
@@ -112,8 +117,7 @@ export class MapLinkModal extends HexmakerModal {
       .setName("Link text")
       .addText((t) => {
         linkTextInput = t.inputEl;
-        t.setValue(selectedMap)
-          .onChange(() => { linkTextDirty = true; });
+        t.setValue("");
       });
 
     // ── Buttons ───────────────────────────────────────────────────────────
