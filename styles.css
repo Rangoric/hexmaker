@@ -444,6 +444,9 @@ div.duckmage-hex-icon {
     display: flex;
     flex-direction: column;
 }
+.duckmage-editor-modal-drag .modal-content.duckmage-combo-open {
+    overflow-y: visible;
+}
 .duckmage-editor-title-drag {
     cursor: move;
     user-select: none;
@@ -847,8 +850,11 @@ input.duckmage-input-error {
 }
 
 .duckmage-link-combo-dropdown {
-    position: fixed;
-    z-index: 300;
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    z-index: 100;
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 4px;

@@ -85,21 +85,19 @@ export class MapLinkModal extends HexmakerModal {
       }
     };
 
+    const scrollPane = comboWrap.closest<HTMLElement>(".modal-content");
+
     const openDropdown = (query: string) => {
       isOpen = true;
       populateDropdown(query);
-      const rect = comboWrap.getBoundingClientRect();
-      dropdown.setCssProps({
-        top: `${rect.bottom + 2}px`,
-        left: `${rect.left}px`,
-        width: `${rect.width}px`,
-      });
+      scrollPane?.addClass("duckmage-combo-open");
       dropdown.show();
     };
 
     const closeDropdown = () => {
       isOpen = false;
       dropdown.hide();
+      scrollPane?.removeClass("duckmage-combo-open");
     };
 
     mapInput.addEventListener("focus", () => openDropdown(""));
