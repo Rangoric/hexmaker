@@ -437,7 +437,7 @@ div.duckmage-hex-icon {
     max-height: min(90vh, 860px);
     max-width: none;
     min-width: 320px;
-    min-height: 200px;
+    min-height: 420px;
 }
 .duckmage-editor-modal-drag .modal-content {
     overflow-y: auto;
