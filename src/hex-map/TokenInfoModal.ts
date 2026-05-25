@@ -84,6 +84,17 @@ export class TokenInfoModal extends HexmakerModal {
 
       const rendered = noteWrap.createDiv({ cls: "duckmage-token-info-note-rendered" });
 
+      // MarkdownRenderer creates .internal-link anchors but doesn't attach handlers;
+      // intercept via delegation and open in a new tab.
+      rendered.addEventListener("click", (e) => {
+        const a = (e.target as HTMLElement).closest<HTMLAnchorElement>("a.internal-link");
+        if (!a) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const href = a.dataset.href ?? a.getAttribute("href") ?? "";
+        if (href) void this.app.workspace.openLinkText(href, noteFile2.path, "tab");
+      });
+
       this.renderComp?.unload();
       this.renderComp = new Component();
       this.renderComp.load();
