@@ -54,8 +54,31 @@ type TerrainUndoEntry = {
   oldTerrain: string | null;
   newTerrain: string | null;
 };
+type IconUndoEntry = {
+  x: number;
+  y: number;
+  path: string;
+  oldIcon: string | null;
+  newIcon: string | null;
+  isGm: boolean;
+};
+type FactionUndoEntry = {
+  hexPath: string;
+  factionBasename: string;
+  factionFilePath: string;
+  /** Whether the faction link was present before this stroke began. */
+  wasPresent: boolean;
+};
+type RegionUndoEntry = {
+  hexPath: string;
+  oldRegion: string | null;
+  newRegion: string | null;
+};
 type UndoItem =
   | { kind: "terrain"; entries: TerrainUndoEntry[] }
+  | { kind: "icon"; entries: IconUndoEntry[] }
+  | { kind: "faction"; entries: FactionUndoEntry[] }
+  | { kind: "region"; entries: RegionUndoEntry[] }
   | { kind: "swap"; x1: number; y1: number; x2: number; y2: number }
   | {
       kind: "path";
@@ -66,6 +89,23 @@ type UndoItem =
 
 function nullOverrides(paths: string[]): Map<string, null> {
   return new Map(paths.map((p) => [p, null]));
+}
+
+// Returns [dx, dy] unit offsets (multiply by spread radius) for N tokens on one hex.
+// Presets keep 1-5 tokens visually distinct; 6+ use an even radial ring.
+function tokenGroupOffsets(n: number): [number, number][] {
+  const PRESETS: [number, number][][] = [
+    [[0, 0]],
+    [[-0.55, 0], [0.55, 0]],
+    [[0, -0.6], [-0.55, 0.4], [0.55, 0.4]],
+    [[-0.5, -0.4], [0.5, -0.4], [-0.5, 0.4], [0.5, 0.4]],
+    [[0, -0.65], [-0.6, -0.15], [0.6, -0.15], [-0.38, 0.55], [0.38, 0.55]],
+  ];
+  if (n >= 1 && n <= 5) return PRESETS[n - 1];
+  return Array.from({ length: n }, (_, i) => {
+    const a = (2 * Math.PI * i) / n - Math.PI / 2;
+    return [Math.cos(a) * 0.65, Math.sin(a) * 0.65];
+  });
 }
 
 export class HexMapView extends ItemView {
@@ -149,6 +189,9 @@ export class HexMapView extends ItemView {
   private undoStack: UndoItem[] = [];
   private redoStack: UndoItem[] = [];
   private currentTerrainStroke: Map<string, TerrainUndoEntry> | null = null;
+  private currentIconStroke: Map<string, IconUndoEntry> | null = null;
+  private currentFactionStroke: Map<string, FactionUndoEntry> | null = null;
+  private currentRegionStroke: Map<string, RegionUndoEntry> | null = null;
   private undoBtn: HTMLButtonElement | null = null;
   private redoBtn: HTMLButtonElement | null = null;
   activeMapName = "default";
@@ -305,6 +348,12 @@ export class HexMapView extends ItemView {
         lastPaintedKey = null;
         if (this.drawingMode === "terrain")
           this.currentTerrainStroke = new Map();
+        else if (this.drawingMode === "icon")
+          this.currentIconStroke = new Map();
+        else if (this.drawingMode === "factionLink")
+          this.currentFactionStroke = new Map();
+        else if (this.drawingMode === "regionLink")
+          this.currentRegionStroke = new Map();
         // Paint the hex under the cursor immediately
         const hexEl = (e.target as HTMLElement).closest<HTMLElement>(
           ".duckmage-hex",
@@ -388,8 +437,12 @@ export class HexMapView extends ItemView {
     });
 
     this.registerDomEvent(document, "mouseup", () => {
-      if (isTerrainPainting && this.drawingMode === "terrain")
-        this.commitTerrainStroke();
+      if (isTerrainPainting) {
+        if (this.drawingMode === "terrain") this.commitTerrainStroke();
+        else if (this.drawingMode === "icon") this.commitIconStroke();
+        else if (this.drawingMode === "factionLink") this.commitFactionStroke();
+        else if (this.drawingMode === "regionLink") this.commitRegionStroke();
+      }
       isTerrainPainting = false;
       lastPaintedKey = null;
       isDragging = false;
@@ -1905,7 +1958,10 @@ export class HexMapView extends ItemView {
       if (iconOverride) {
         menu.addItem((item) =>
           item.setTitle("Remove icon override").setIcon("image-off")
-            .onClick(() => this.scheduleIconWrite(x, y, hexPath, null)),
+            .onClick(() => {
+              this.scheduleIconWrite(x, y, hexPath, null);
+              this.renderGrid(undefined, new Map([[hexPath, null]]));
+            }),
         );
       }
     }
@@ -2053,6 +2109,17 @@ export class HexMapView extends ItemView {
 
     if (this.paintIconGmOnly) {
       // ── GM icon — additive badge, terrain icon untouched ────────────────
+      if (this.currentIconStroke && !this.currentIconStroke.has(path)) {
+        this.currentIconStroke.set(path, {
+          x, y, path,
+          oldIcon: hexEl?.dataset.gmIcon ?? null,
+          newIcon: icon,
+          isGm: true,
+        });
+      } else {
+        const existing = this.currentIconStroke?.get(path);
+        if (existing) existing.newIcon = icon;
+      }
       if (hexEl) {
         if (icon) {
           hexEl.dataset.gmIcon = icon;
@@ -2064,7 +2131,18 @@ export class HexMapView extends ItemView {
       this.updateGmIcons();
       this.scheduleGmIconWrite(x, y, path, icon);
     } else {
-      // ── Regular icon override — existing behaviour ───────────────────────
+      // ── Regular icon override ────────────────────────────────────────────
+      if (this.currentIconStroke && !this.currentIconStroke.has(path)) {
+        this.currentIconStroke.set(path, {
+          x, y, path,
+          oldIcon: hexEl?.dataset.iconOverride ?? null,
+          newIcon: icon,
+          isGm: false,
+        });
+      } else {
+        const existing = this.currentIconStroke?.get(path);
+        if (existing) existing.newIcon = icon;
+      }
       if (hexEl) {
         hexEl.querySelector(".duckmage-hex-icon")?.remove();
         if (icon) {
@@ -2178,6 +2256,13 @@ export class HexMapView extends ItemView {
     // Skip silently if already painted (pending or cache both use basenames now)
     if (this.getFactionLinksFromCache(hexPath).includes(factionBasename)) return;
 
+    // Record for undo (first touch only — it was absent before this stroke)
+    if (this.currentFactionStroke && !this.currentFactionStroke.has(hexPath + "\0" + factionBasename)) {
+      this.currentFactionStroke.set(hexPath + "\0" + factionBasename, {
+        hexPath, factionBasename, factionFilePath: this.paintFactionPath, wasPresent: false,
+      });
+    }
+
     // Update the overlay IMMEDIATELY (synchronous) — no awaits before this point
     // If this faction was previously erased (still in cache), un-erase it
     this.erasedFactionLinks.get(hexPath)?.delete(factionBasename);
@@ -2216,6 +2301,13 @@ export class HexMapView extends ItemView {
     const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
 
     if (!this.getFactionLinksFromCache(hexPath).includes(factionBasename)) return;
+
+    // Record for undo (first touch only — it was present before this stroke)
+    if (this.currentFactionStroke && !this.currentFactionStroke.has(hexPath + "\0" + factionBasename)) {
+      this.currentFactionStroke.set(hexPath + "\0" + factionBasename, {
+        hexPath, factionBasename, factionFilePath: this.paintFactionPath, wasPresent: true,
+      });
+    }
 
     // Update overlay immediately (synchronous): remove from pending, add to erased
     this.pendingFactionLinks.get(hexPath)?.delete(factionBasename);
@@ -2275,8 +2367,47 @@ export class HexMapView extends ItemView {
     const entries = [...this.currentTerrainStroke.values()];
     this.undoStack.push({ kind: "terrain", entries });
     if (this.undoStack.length > this.UNDO_DEPTH) this.undoStack.shift();
-    this.redoStack = []; // new paint invalidates redo history
+    this.redoStack = [];
     this.currentTerrainStroke = null;
+    this.updateUndoButton();
+  }
+
+  private commitIconStroke(): void {
+    if (!this.currentIconStroke || this.currentIconStroke.size === 0) {
+      this.currentIconStroke = null;
+      return;
+    }
+    const entries = [...this.currentIconStroke.values()];
+    this.undoStack.push({ kind: "icon", entries });
+    if (this.undoStack.length > this.UNDO_DEPTH) this.undoStack.shift();
+    this.redoStack = [];
+    this.currentIconStroke = null;
+    this.updateUndoButton();
+  }
+
+  private commitFactionStroke(): void {
+    if (!this.currentFactionStroke || this.currentFactionStroke.size === 0) {
+      this.currentFactionStroke = null;
+      return;
+    }
+    const entries = [...this.currentFactionStroke.values()];
+    this.undoStack.push({ kind: "faction", entries });
+    if (this.undoStack.length > this.UNDO_DEPTH) this.undoStack.shift();
+    this.redoStack = [];
+    this.currentFactionStroke = null;
+    this.updateUndoButton();
+  }
+
+  private commitRegionStroke(): void {
+    if (!this.currentRegionStroke || this.currentRegionStroke.size === 0) {
+      this.currentRegionStroke = null;
+      return;
+    }
+    const entries = [...this.currentRegionStroke.values()];
+    this.undoStack.push({ kind: "region", entries });
+    if (this.undoStack.length > this.UNDO_DEPTH) this.undoStack.shift();
+    this.redoStack = [];
+    this.currentRegionStroke = null;
     this.updateUndoButton();
   }
 
@@ -2286,6 +2417,12 @@ export class HexMapView extends ItemView {
     this.redoStack.push(item);
     if (item.kind === "terrain") {
       this.applyStroke(item.entries, "old");
+    } else if (item.kind === "icon") {
+      await this.applyIconStroke(item.entries, "old");
+    } else if (item.kind === "faction") {
+      await this.applyFactionStroke(item.entries, "old");
+    } else if (item.kind === "region") {
+      await this.applyRegionStroke(item.entries, "old");
     } else if (item.kind === "swap") {
       await this.executeHexSwap(item.x1, item.y1, item.x2, item.y2, true);
     } else {
@@ -2300,6 +2437,12 @@ export class HexMapView extends ItemView {
     this.undoStack.push(item);
     if (item.kind === "terrain") {
       this.applyStroke(item.entries, "new");
+    } else if (item.kind === "icon") {
+      await this.applyIconStroke(item.entries, "new");
+    } else if (item.kind === "faction") {
+      await this.applyFactionStroke(item.entries, "new");
+    } else if (item.kind === "region") {
+      await this.applyRegionStroke(item.entries, "new");
     } else if (item.kind === "swap") {
       await this.executeHexSwap(item.x1, item.y1, item.x2, item.y2, true);
     } else {
@@ -2344,6 +2487,80 @@ export class HexMapView extends ItemView {
         );
       }
     }
+  }
+
+  private async applyIconStroke(entries: IconUndoEntry[], which: "old" | "new"): Promise<void> {
+    for (const entry of entries) {
+      const icon = which === "old" ? entry.oldIcon : entry.newIcon;
+      const hexEl = this.viewportEl?.querySelector<HTMLElement>(
+        `[data-x="${entry.x}"][data-y="${entry.y}"]`,
+      );
+      if (entry.isGm) {
+        if (hexEl) {
+          if (icon) hexEl.dataset.gmIcon = icon;
+          else delete hexEl.dataset.gmIcon;
+        }
+        this.scheduleGmIconWrite(entry.x, entry.y, entry.path, icon);
+      } else {
+        if (hexEl) {
+          hexEl.querySelector(".duckmage-hex-icon")?.remove();
+          if (icon) {
+            const img = hexEl.createEl("img", { cls: "duckmage-hex-icon" });
+            img.src = getIconUrl(this.plugin, icon);
+            img.alt = icon;
+            hexEl.insertBefore(img, hexEl.querySelector(".duckmage-hex-label"));
+            hexEl.dataset.iconOverride = icon;
+          } else {
+            delete hexEl.dataset.iconOverride;
+            // Restore the terrain icon that the override was hiding
+            const terrain = getTerrainFromFile(this.app, entry.path);
+            this.applyTerrainToHexEl(hexEl, terrain);
+          }
+        }
+        this.scheduleIconWrite(entry.x, entry.y, entry.path, icon);
+      }
+    }
+    if (entries.some((e) => e.isGm)) this.updateGmIcons();
+    this.updatePathOverlay();
+  }
+
+  private async applyFactionStroke(entries: FactionUndoEntry[], which: "old" | "new"): Promise<void> {
+    for (const entry of entries) {
+      const shouldBePresent = which === "old" ? entry.wasPresent : !entry.wasPresent;
+      const factionFile = this.app.vault.getAbstractFileByPath(entry.factionFilePath);
+      if (!(factionFile instanceof TFile)) continue;
+      const target = this.app.metadataCache.fileToLinktext(factionFile, entry.hexPath);
+      if (shouldBePresent) {
+        this.erasedFactionLinks.get(entry.hexPath)?.delete(entry.factionBasename);
+        const pending = this.pendingFactionLinks.get(entry.hexPath) ?? new Set<string>();
+        pending.add(entry.factionBasename);
+        this.pendingFactionLinks.set(entry.hexPath, pending);
+        await addLinkToSection(this.app, entry.hexPath, "Factions", `[[${target}]]`);
+      } else {
+        this.pendingFactionLinks.get(entry.hexPath)?.delete(entry.factionBasename);
+        const erased = this.erasedFactionLinks.get(entry.hexPath) ?? new Set<string>();
+        erased.add(entry.factionBasename);
+        this.erasedFactionLinks.set(entry.hexPath, erased);
+        await removeLinkFromSection(this.app, entry.hexPath, "Factions", target);
+      }
+    }
+    if (this.getActiveMap().showFactionOverlay) this.updateFactionOverlay();
+  }
+
+  private async applyRegionStroke(entries: RegionUndoEntry[], which: "old" | "new"): Promise<void> {
+    for (const entry of entries) {
+      const region = which === "old" ? entry.oldRegion : entry.newRegion;
+      if (region) {
+        this.erasedRegions.delete(entry.hexPath);
+        this.pendingRegions.set(entry.hexPath, region);
+      } else {
+        this.pendingRegions.delete(entry.hexPath);
+        this.erasedRegions.add(entry.hexPath);
+      }
+      await setHexRegionInFile(this.app, entry.hexPath, region);
+      void this.plugin.syncHexRegionTableLink(entry.hexPath, region);
+    }
+    if (this.getActiveMap().showRegionOverlay) this.updateRegionOverlay();
   }
 
   private updateUndoButton(): void {
@@ -3227,7 +3444,16 @@ export class HexMapView extends ItemView {
     const regionBasename = regionFile.basename;
     const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
 
-    if (this.getHexRegionFromCache(hexPath) === regionBasename) return;
+    const oldRegion = this.getHexRegionFromCache(hexPath);
+    if (oldRegion === regionBasename) return;
+
+    // Record for undo (first touch only)
+    if (this.currentRegionStroke && !this.currentRegionStroke.has(hexPath)) {
+      this.currentRegionStroke.set(hexPath, { hexPath, oldRegion, newRegion: regionBasename });
+    } else {
+      const existing = this.currentRegionStroke?.get(hexPath);
+      if (existing) existing.newRegion = regionBasename;
+    }
 
     // Update pending state before await so overlay refreshes immediately
     this.erasedRegions.delete(hexPath);
@@ -3245,7 +3471,16 @@ export class HexMapView extends ItemView {
     const regionBasename = regionFile.basename;
     const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
 
-    if (this.getHexRegionFromCache(hexPath) !== regionBasename) return;
+    const currentRegion = this.getHexRegionFromCache(hexPath);
+    if (currentRegion !== regionBasename) return;
+
+    // Record for undo (first touch only)
+    if (this.currentRegionStroke && !this.currentRegionStroke.has(hexPath)) {
+      this.currentRegionStroke.set(hexPath, { hexPath, oldRegion: currentRegion, newRegion: null });
+    } else {
+      const existing = this.currentRegionStroke?.get(hexPath);
+      if (existing) existing.newRegion = null;
+    }
 
     this.pendingRegions.delete(hexPath);
     this.erasedRegions.add(hexPath);
@@ -3541,58 +3776,74 @@ export class HexMapView extends ItemView {
     const centerMap = this.buildTokenCenterMap(gridContainer);
     const layer = this.viewportEl!.createDiv({ cls: "duckmage-token-layer" });
 
+    // Spread radius: fraction of the hex's short dimension so offsets scale with zoom.
+    const firstHexEl = gridContainer.querySelector<HTMLElement>(".duckmage-hex");
+    const spread = Math.min(firstHexEl?.offsetWidth ?? 64, firstHexEl?.offsetHeight ?? 64) * 0.28;
+
+    // Group visible tokens by hex key, preserving entry order.
+    const byHex = new Map<string, TokenEntry[]>();
     for (const token of this.tokenEntries) {
       if (!token.visible) continue;
-      const center = centerMap.get(token.hex);
-      if (!center) continue;
+      if (!centerMap.has(token.hex)) continue;
+      if (!byHex.has(token.hex)) byHex.set(token.hex, []);
+      byHex.get(token.hex)!.push(token);
+    }
 
-      const size = token.size ?? "md";
-      const tokenEl = layer.createDiv({
-        cls: `duckmage-token duckmage-token-${token.shape} duckmage-token-size-${size}`,
-      });
-      tokenEl.style.left = `${center.cx}px`;
-      tokenEl.style.top  = `${center.cy}px`;
-      tokenEl.title      = token.title;
-      if (token.color)  tokenEl.style.setProperty("--token-color",  token.color);
-      if (token.border) tokenEl.style.setProperty("--token-border", token.border);
+    for (const [hexKey, tokens] of byHex) {
+      const center = centerMap.get(hexKey)!;
+      const offsets = tokenGroupOffsets(tokens.length);
 
-      if (token.icon) {
-        const img = tokenEl.createEl("img", { cls: "duckmage-token-icon" });
-        img.src = getIconUrl(this.plugin, token.icon);
-        img.alt = token.title;
-      } else {
-        tokenEl.createSpan({
-          cls: "duckmage-token-label",
-          text: token.title.charAt(0).toUpperCase(),
+      for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i];
+        const [odx, ody] = offsets[i];
+        const size = token.size ?? "md";
+        const tokenEl = layer.createDiv({
+          cls: `duckmage-token duckmage-token-${token.shape} duckmage-token-size-${size}`,
+        });
+        tokenEl.style.left = `${center.cx + odx * spread}px`;
+        tokenEl.style.top  = `${center.cy + ody * spread}px`;
+        tokenEl.title      = token.title;
+        if (token.color)  tokenEl.style.setProperty("--token-color",  token.color);
+        if (token.border) tokenEl.style.setProperty("--token-border", token.border);
+
+        if (token.icon) {
+          const img = tokenEl.createEl("img", { cls: "duckmage-token-icon" });
+          img.src = getIconUrl(this.plugin, token.icon);
+          img.alt = token.title;
+        } else {
+          tokenEl.createSpan({
+            cls: "duckmage-token-label",
+            text: token.title.charAt(0).toUpperCase(),
+          });
+        }
+
+        const snapToken = { ...token }; // capture for closures
+
+        tokenEl.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (this.drawingMode !== null) return;
+          this.showTokenContextMenu(e, snapToken);
+        });
+
+        // Single mousedown handler — startTokenDrag calls onClickInstead if no drag occurs.
+        tokenEl.addEventListener("mousedown", (e) => {
+          if (e.button !== 0 || this.drawingMode !== null) return;
+          e.stopPropagation();
+          this.startTokenDrag(snapToken, tokenEl, e, centerMap, () => {
+            new TokenInfoModal(
+              this.app,
+              snapToken,
+              (x, y) => this.centerOnHex(x, y),
+              () => {
+                void removeTokenFrontmatter(this.app, snapToken.filePath)
+                  .then(() => this.updateTokenLayer());
+              },
+              () => this.openTokenEditor(snapToken),
+            ).open();
+          });
         });
       }
-
-      const snapToken = { ...token }; // capture for closures
-
-      tokenEl.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (this.drawingMode !== null) return;
-        this.showTokenContextMenu(e, snapToken);
-      });
-
-      // Single mousedown handler — startTokenDrag calls onClickInstead if no drag occurs.
-      tokenEl.addEventListener("mousedown", (e) => {
-        if (e.button !== 0 || this.drawingMode !== null) return;
-        e.stopPropagation();
-        this.startTokenDrag(snapToken, tokenEl, e, centerMap, () => {
-          new TokenInfoModal(
-            this.app,
-            snapToken,
-            (x, y) => this.centerOnHex(x, y),
-            () => {
-              void removeTokenFrontmatter(this.app, snapToken.filePath)
-                .then(() => this.updateTokenLayer());
-            },
-            () => this.openTokenEditor(snapToken),
-          ).open();
-        });
-      });
     }
   }
 
