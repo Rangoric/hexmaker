@@ -4,6 +4,7 @@ import type HexmakerPlugin from "../HexmakerPlugin";
 import type { HexMapView } from "./HexMapView";
 import { normalizeFolder, slugify, getIconUrl, createIconEl } from "../utils";
 import { renderNewMapFields } from "./newMapFields";
+import { getSubmapFromFile, setSubmapInFile } from "../frontmatter";
 
 export class MapModal extends HexmakerModal {
   private confirmingDelete: string | null = null;
@@ -213,6 +214,12 @@ export class MapModal extends HexmakerModal {
     if (this.view.activeMapName === name) {
       this.view.activeMapName = this.plugin.settings.maps[0]?.name ?? "";
     }
+
+    // Clear duckmage-submap references pointing at the deleted map
+    const submapRefs = this.app.vault.getMarkdownFiles().filter(
+      (f) => getSubmapFromFile(this.app, f.path) === name,
+    );
+    await Promise.all(submapRefs.map((f) => setSubmapInFile(this.app, f.path, null)));
 
     this.confirmingDelete = null;
     await this.plugin.saveSettings();
