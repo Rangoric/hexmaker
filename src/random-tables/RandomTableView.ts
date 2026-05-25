@@ -25,7 +25,7 @@ import {
 } from "./randomTable";
 import { parseWorkflow, generateDefaultTemplate } from "./workflow";
 import { Frontmatter } from "../frontmatter";
-import { buildTree, type TreeNode } from "./FolderTree";
+import { buildTree, renderFolderTree, type TreeNode } from "./FolderTree";
 import { ConfirmDeleteModal } from "./ConfirmDeleteModal";
 
 export const DIE_OPTIONS = [
@@ -776,82 +776,48 @@ export class RandomTableView extends ItemView {
     container: HTMLElement,
     nodes: TreeNode[],
   ): void {
-    for (const node of nodes) {
-      if (node.type === "folder") {
-        const isCollapsed = this.collapsedFolders.has("wf:" + node.path);
-        const folderEl = container.createDiv({ cls: "duckmage-rt-folder" });
-        const folderHeader = folderEl.createDiv({
-          cls: "duckmage-rt-folder-header",
-        });
-        const arrow = folderHeader.createSpan({
-          cls: "duckmage-rt-folder-arrow",
-          text: isCollapsed ? "▶" : "▼",
-        });
-        folderHeader.createSpan({
-          cls: "duckmage-rt-folder-name",
-          text: node.name,
-        });
-
-        const childrenEl = folderEl.createDiv({
-          cls: "duckmage-rt-folder-children",
-        });
-        if (isCollapsed) childrenEl.hide();
-        this.renderWorkflowTreeNodes(childrenEl, node.children);
-
-        folderHeader.addEventListener("click", () => {
-          const key = "wf:" + node.path;
-          const nowCollapsed = !this.collapsedFolders.has(key);
-          if (nowCollapsed) {
-            this.collapsedFolders.add(key);
-            childrenEl.hide();
-            arrow.textContent = "▶";
-          } else {
-            this.collapsedFolders.delete(key);
-            childrenEl.show();
-            arrow.textContent = "▼";
-          }
-        });
-      } else {
-        const row = container.createDiv({ cls: "duckmage-rt-workflow-item" });
-        if (node.file === this.activeFile) row.addClass("is-active");
-        row.setText(node.file.basename);
-        row.title = node.file.path;
-        row.addEventListener("click", () => void this.loadWorkflow(node.file));
-        row.addEventListener("auxclick", (e: MouseEvent) => {
+    renderFolderTree(container, nodes, {
+      collapsedFolders: this.collapsedFolders,
+      keyPrefix: "wf:",
+      activeFile: this.activeFile,
+      itemCls: "duckmage-rt-workflow-item",
+      onFileClick: (file) => void this.loadWorkflow(file),
+      decorateFile: (item, file) => {
+        item.addEventListener("auxclick", (e: MouseEvent) => {
           if (e.button !== 1) return;
           e.preventDefault();
           const leaf = this.app.workspace.getLeaf("tab");
           void leaf.setViewState({
             type: VIEW_TYPE_RANDOM_TABLES,
             active: true,
-            state: { filePath: node.file.path },
+            state: { filePath: file.path },
           });
           void this.app.workspace.revealLeaf(leaf);
         });
-        row.addEventListener("contextmenu", (e: MouseEvent) => {
+        item.addEventListener("contextmenu", (e: MouseEvent) => {
           e.preventDefault();
           const menu = new Menu();
-          menu.addItem((item) => {
-            item.setTitle("Open in new tab");
-            item.setIcon("external-link");
-            item.onClick(() => {
+          menu.addItem((menuItem) => {
+            menuItem.setTitle("Open in new tab");
+            menuItem.setIcon("external-link");
+            menuItem.onClick(() => {
               const leaf = this.app.workspace.getLeaf("tab");
               void leaf.setViewState({
                 type: VIEW_TYPE_RANDOM_TABLES,
                 active: true,
-                state: { filePath: node.file.path },
+                state: { filePath: file.path },
               });
               void this.app.workspace.revealLeaf(leaf);
             });
           });
           menu.addSeparator();
-          menu.addItem((item) => {
-            item.setTitle("Delete workflow");
-            item.setIcon("trash");
-            item.onClick(() => {
-              new ConfirmDeleteModal(this.app, node.file.basename, async () => {
-                await this.app.fileManager.trashFile(node.file);
-                if (this.activeFile === node.file) {
+          menu.addItem((menuItem) => {
+            menuItem.setTitle("Delete workflow");
+            menuItem.setIcon("trash");
+            menuItem.onClick(() => {
+              new ConfirmDeleteModal(this.app, file.basename, async () => {
+                await this.app.fileManager.trashFile(file);
+                if (this.activeFile === file) {
                   this.activeFile = null;
                   this.detailEl?.empty();
                 }
@@ -861,8 +827,8 @@ export class RandomTableView extends ItemView {
           });
           menu.showAtMouseEvent(e);
         });
-      }
-    }
+      },
+    });
   }
 
   private async createWorkflow(initialTablePath?: string): Promise<void> {
@@ -1094,141 +1060,83 @@ export class RandomTableView extends ItemView {
     nodes: TreeNode[],
     forceExpanded: boolean,
   ): void {
-    for (const node of nodes) {
-      if (node.type === "folder") {
-        const isCollapsed =
-          !forceExpanded && this.collapsedFolders.has(node.path);
-
-        const folderEl = container.createDiv({ cls: "duckmage-rt-folder" });
-        const folderHeader = folderEl.createDiv({
-          cls: "duckmage-rt-folder-header",
-        });
-        const arrow = folderHeader.createSpan({
-          cls: "duckmage-rt-folder-arrow",
-          text: isCollapsed ? "▶" : "▼",
-        });
-        folderHeader.createSpan({
-          cls: "duckmage-rt-folder-name",
-          text: node.name,
-        });
-
+    renderFolderTree(container, nodes, {
+      collapsedFolders: this.collapsedFolders,
+      activeFile: this.activeFile,
+      forceExpanded,
+      onFileClick: (file) => void this.loadTable(file),
+      decorateFolder: (header, folderEl, node) => {
         // Exclusion badges
-        const inRoll = this.plugin.settings.rollTableExcludedFolders.includes(
-          node.path,
-        );
-        const inEnc =
-          this.plugin.settings.encounterTableExcludedFolders.includes(
-            node.path,
-          );
+        const inRoll = this.plugin.settings.rollTableExcludedFolders.includes(node.path);
+        const inEnc = this.plugin.settings.encounterTableExcludedFolders.includes(node.path);
         if (inRoll || inEnc) {
-          const badges = folderHeader.createSpan({
-            cls: "duckmage-rt-folder-filter-badges",
-          });
+          const badges = header.createSpan({ cls: "duckmage-rt-folder-filter-badges" });
           if (inRoll) {
-            const b = badges.createSpan({
-              cls: "duckmage-rt-folder-badge",
-              text: "🎲✗",
-            });
+            const b = badges.createSpan({ cls: "duckmage-rt-folder-badge", text: "🎲✗" });
             b.title = "Excluded from roll picker";
           }
           if (inEnc) {
-            const b = badges.createSpan({
-              cls: "duckmage-rt-folder-badge",
-              text: "⚔✗",
-            });
+            const b = badges.createSpan({ cls: "duckmage-rt-folder-badge", text: "⚔✗" });
             b.title = "Excluded from encounters table";
           }
         }
-
-        const childrenEl = folderEl.createDiv({
-          cls: "duckmage-rt-folder-children",
-        });
-        if (isCollapsed) childrenEl.hide();
-
-        this.renderTreeNodes(childrenEl, node.children, forceExpanded);
-
-        // Folder drop target — accept dragged table files
+        // Folder drop target
         let dragCounter = 0;
         folderEl.addEventListener("dragenter", (e: DragEvent) => {
           if (!e.dataTransfer?.types.includes("text/plain")) return;
           dragCounter++;
-          folderHeader.addClass("is-drag-over");
+          header.addClass("is-drag-over");
         });
         folderEl.addEventListener("dragleave", () => {
-          if (--dragCounter <= 0) {
-            dragCounter = 0;
-            folderHeader.removeClass("is-drag-over");
-          }
+          if (--dragCounter <= 0) { dragCounter = 0; header.removeClass("is-drag-over"); }
         });
         folderEl.addEventListener("dragover", (e: DragEvent) => {
           if (!e.dataTransfer?.types.includes("text/plain")) return;
           e.preventDefault();
-          e.stopPropagation(); // don't let the root list show its highlight
+          e.stopPropagation();
         });
         folderEl.addEventListener("drop", (e: DragEvent) => {
           void (async () => {
             e.preventDefault();
             e.stopPropagation();
             dragCounter = 0;
-            folderHeader.removeClass("is-drag-over");
+            header.removeClass("is-drag-over");
             const srcPath = e.dataTransfer?.getData("text/plain") ?? "";
-            const tblFolder = normalizeFolder(
-              this.plugin.settings.tablesFolder,
-            );
-            const destFolder = tblFolder
-              ? `${tblFolder}/${node.path}`
-              : node.path;
+            const tblFolder = normalizeFolder(this.plugin.settings.tablesFolder);
+            const destFolder = tblFolder ? `${tblFolder}/${node.path}` : node.path;
             await this.moveFileTo(srcPath, destFolder);
           })();
         });
-
-        folderHeader.addEventListener("contextmenu", (e: MouseEvent) => {
+        header.addEventListener("contextmenu", (e: MouseEvent) => {
           e.preventDefault();
           this.showFolderContextMenu(e, node.path);
         });
-
-        folderHeader.addEventListener("click", () => {
-          const nowCollapsed = !this.collapsedFolders.has(node.path);
-          if (nowCollapsed) {
-            this.collapsedFolders.add(node.path);
-            childrenEl.hide();
-            arrow.textContent = "▶";
-          } else {
-            this.collapsedFolders.delete(node.path);
-            childrenEl.show();
-            arrow.textContent = "▼";
-          }
-        });
-      } else {
-        const row = container.createDiv({ cls: "duckmage-rt-list-item" });
-        if (node.file === this.activeFile) row.addClass("is-active");
-        row.setText(node.file.basename);
-        row.title = node.file.path;
-        row.addEventListener("click", () => void this.loadTable(node.file));
-        row.addEventListener("auxclick", (e: MouseEvent) => {
+      },
+      decorateFile: (item, file) => {
+        item.addEventListener("auxclick", (e: MouseEvent) => {
           if (e.button !== 1) return;
           e.preventDefault();
           const leaf = this.app.workspace.getLeaf("tab");
           void leaf.setViewState({
             type: VIEW_TYPE_RANDOM_TABLES,
             active: true,
-            state: { filePath: node.file.path },
+            state: { filePath: file.path },
           });
           void this.app.workspace.revealLeaf(leaf);
         });
-        row.addEventListener("contextmenu", (e: MouseEvent) => {
+        item.addEventListener("contextmenu", (e: MouseEvent) => {
           e.preventDefault();
-          this.showFileContextMenu(e, node.file);
+          this.showFileContextMenu(e, file);
         });
-        row.draggable = true;
-        row.addEventListener("dragstart", (e: DragEvent) => {
-          e.dataTransfer?.setData("text/plain", node.file.path);
+        item.draggable = true;
+        item.addEventListener("dragstart", (e: DragEvent) => {
+          e.dataTransfer?.setData("text/plain", file.path);
           if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-          row.addClass("is-dragging");
+          item.addClass("is-dragging");
         });
-        row.addEventListener("dragend", () => row.removeClass("is-dragging"));
-      }
-    }
+        item.addEventListener("dragend", () => item.removeClass("is-dragging"));
+      },
+    });
   }
 
   private showFolderContextMenu(e: MouseEvent, folderPath: string): void {

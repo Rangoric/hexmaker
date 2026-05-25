@@ -1,7 +1,7 @@
 import { App, ItemView, Notice, WorkspaceLeaf } from "obsidian";
 import type HexmakerPlugin from "./HexmakerPlugin";
 import type { HexMapView } from "./hex-map/HexMapView";
-import { normalizeFolder } from "./utils";
+import { normalizeFolder, slugify } from "./utils";
 import { VIEW_TYPE_SETUP_WIZARD, VIEW_TYPE_HEX_MAP } from "./constants";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -62,13 +62,6 @@ const FOLDER_KEYS: Array<{ key: FolderKey; label: string; suffix: string }> = [
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function slugify(name: string): string {
-	return name
-		.toLowerCase()
-		.replace(/[\s_]+/g, "-")
-		.replace(/[^a-z0-9-]/g, "");
-}
 
 async function ensureFolder(app: App, path: string): Promise<void> {
 	if (!app.vault.getAbstractFileByPath(path)) {

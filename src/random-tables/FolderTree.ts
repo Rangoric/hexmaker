@@ -100,3 +100,83 @@ export function buildTree(
 
   return root.children;
 }
+
+export interface RenderFolderTreeOpts {
+  collapsedFolders: Set<string>;
+  /** Prefix prepended to folder paths when keying into `collapsedFolders`. */
+  keyPrefix?: string;
+  activeFile?: TFile | null;
+  forceExpanded?: boolean;
+  /** CSS class for file items. Defaults to `"duckmage-rt-list-item"`. */
+  itemCls?: string;
+  onFileClick: (file: TFile) => void;
+  /**
+   * Called after the folder header is built (arrow + name spans added).
+   * Use to attach badges, drag-drop, or context menus.
+   * `folderEl` is the outer wrapper; `header` is the clickable title row.
+   */
+  decorateFolder?: (header: HTMLElement, folderEl: HTMLElement, node: FolderNode) => void;
+  /** Called after the file item is built. Use to attach extra event listeners. */
+  decorateFile?: (item: HTMLElement, file: TFile) => void;
+}
+
+/**
+ * Shared recursive folder-tree renderer.
+ * Handles the collapse/expand toggle internally; callers inject extras via callbacks.
+ */
+export function renderFolderTree(
+  container: HTMLElement,
+  nodes: TreeNode[],
+  opts: RenderFolderTreeOpts,
+): void {
+  const {
+    collapsedFolders,
+    keyPrefix = "",
+    activeFile,
+    forceExpanded = false,
+    itemCls = "duckmage-rt-list-item",
+    onFileClick,
+    decorateFolder,
+    decorateFile,
+  } = opts;
+
+  for (const node of nodes) {
+    if (node.type === "folder") {
+      const key = keyPrefix + node.path;
+      const isCollapsed = !forceExpanded && collapsedFolders.has(key);
+
+      const folderEl = container.createDiv({ cls: "duckmage-rt-folder" });
+      const folderHeader = folderEl.createDiv({ cls: "duckmage-rt-folder-header" });
+      const arrow = folderHeader.createSpan({
+        cls: "duckmage-rt-folder-arrow",
+        text: isCollapsed ? "▶" : "▼",
+      });
+      folderHeader.createSpan({ cls: "duckmage-rt-folder-name", text: node.name });
+      decorateFolder?.(folderHeader, folderEl, node);
+
+      const childrenEl = folderEl.createDiv({ cls: "duckmage-rt-folder-children" });
+      if (isCollapsed) childrenEl.hide();
+      renderFolderTree(childrenEl, node.children, opts);
+
+      folderHeader.addEventListener("click", () => {
+        const nowCollapsed = !collapsedFolders.has(key);
+        if (nowCollapsed) {
+          collapsedFolders.add(key);
+          childrenEl.hide();
+          arrow.textContent = "▶";
+        } else {
+          collapsedFolders.delete(key);
+          childrenEl.show();
+          arrow.textContent = "▼";
+        }
+      });
+    } else {
+      const item = container.createDiv({ cls: itemCls });
+      if (activeFile && node.file === activeFile) item.addClass("is-active");
+      item.setText(node.file.basename);
+      item.title = node.file.path;
+      item.addEventListener("click", () => onFileClick(node.file));
+      decorateFile?.(item, node.file);
+    }
+  }
+}

@@ -2,6 +2,13 @@ import type HexmakerPlugin from "./HexmakerPlugin";
 import { normalizePath } from "obsidian";
 import { BUNDLED_ICONS } from "./bundledIcons";
 
+export function slugify(name: string): string {
+	return name
+		.toLowerCase()
+		.replace(/[\s_]+/g, "-")
+		.replace(/[^a-z0-9-]/g, "");
+}
+
 export function normalizeFolder(path: string): string {
 	if (!path) return "";
 	return normalizePath(path);

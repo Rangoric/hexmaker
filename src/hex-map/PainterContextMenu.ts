@@ -16,12 +16,8 @@ export class PainterContextMenu {
     private readonly onSwitch: (() => void) | null,
     private readonly onExit: () => void,
     private readonly switchLabel = "Switch",
+    private readonly extra: PainterContextMenuOption[] = [],
   ) {}
-
-  /** Subclasses may override to append tool-specific options after the base items. */
-  protected extraOptions(): PainterContextMenuOption[] {
-    return [];
-  }
 
   open(x: number, y: number): void {
     this.close();
@@ -34,7 +30,7 @@ export class PainterContextMenu {
     const opts: PainterContextMenuOption[] = [];
     if (this.onSwitch) opts.push({ label: this.switchLabel, onClick: this.onSwitch });
     opts.push({ label: "Exit tool", onClick: this.onExit });
-    opts.push(...this.extraOptions());
+    opts.push(...this.extra);
 
     for (const opt of opts) {
       const item = document.createElement("div");

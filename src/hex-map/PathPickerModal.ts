@@ -74,6 +74,7 @@ export class PathPickerModal extends HexmakerModal {
     private currentTypeName: string | null,
     private onSelect: (typeName: string) => void,
     private onDismiss?: () => void,
+    private onErase?: () => void,
   ) {
     super(app);
   }
@@ -126,6 +127,17 @@ export class PathPickerModal extends HexmakerModal {
     const grid = section.createDiv({
       cls: "duckmage-terrain-picker duckmage-terrain-picker-full",
     });
+
+    if (this.onErase) {
+      const removeBtn = grid.createDiv({ cls: "duckmage-terrain-option duckmage-terrain-option-remove" });
+      removeBtn.createDiv({ cls: "duckmage-terrain-preview duckmage-terrain-preview-remove" }).setText("✕");
+      removeBtn.createSpan({ text: "Remove", cls: "duckmage-terrain-option-name" });
+      removeBtn.addEventListener("click", () => {
+        this.selectionMade = true;
+        this.onErase!();
+        this.close();
+      });
+    }
 
     for (const pt of pathTypes) {
       const btn = grid.createDiv({ cls: "duckmage-terrain-option" });

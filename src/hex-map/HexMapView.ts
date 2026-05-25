@@ -80,11 +80,13 @@ export class HexMapView extends ItemView {
     | "terrain"
     | "icon"
     | "tableLink"
+    | "submapLink"
     | "factionLink"
     | "regionLink"
     | "swap"
     | "placeToken"
     | null = null;
+  private isErasingMode = false;
   private pathToolbarBtn: HTMLButtonElement | null = null;
   private pathBtnSwatch: HTMLElement | null = null;
   private terrainToolbarBtn: HTMLButtonElement | null = null;
@@ -94,6 +96,9 @@ export class HexMapView extends ItemView {
   private tableLinkBtn: HTMLButtonElement | null = null;
   private tableLinkBtnLabel: HTMLSpanElement | null = null;
   private paintTablePath: string | null = null;
+  private submapLinkBtn: HTMLButtonElement | null = null;
+  private submapLinkBtnLabel: HTMLSpanElement | null = null;
+  private paintSubmapName: string | null = null;
   private factionLinkBtn: HTMLButtonElement | null = null;
   private factionLinkBtnLabel: HTMLSpanElement | null = null;
   private paintFactionPath: string | null = null;
@@ -175,11 +180,20 @@ export class HexMapView extends ItemView {
     this.mapBtn?.setText(`${this.activeMapName} ▾`);
   }
 
+  private refreshViewHeader(): void {
+    // Update both the inline view header title and the tab strip title.
+    // Directly patching .view-header-title is needed because leaf.updateHeader()
+    // alone doesn't always refresh the in-pane header in all Obsidian versions.
+    const titleEl = this.containerEl.querySelector<HTMLElement>(".view-header-title");
+    if (titleEl) titleEl.setText(this.getDisplayText());
+    interface WithUpdateHeader { updateHeader?(): void; }
+    (this.leaf as unknown as WithUpdateHeader).updateHeader?.();
+  }
+
   switchToMap(name: string): void {
     this.activeMapName = name;
     this.updateMapBtnLabel();
-    interface WithUpdateHeader { updateHeader?(): void; }
-    (this.leaf as unknown as WithUpdateHeader).updateHeader?.();
+    this.refreshViewHeader();
     this.renderGrid();
   }
 
@@ -206,6 +220,10 @@ export class HexMapView extends ItemView {
       this.plugin.settings.defaultMap ||
       this.plugin.settings.maps[0]?.name ||
       "default";
+
+    // Obsidian reads getDisplayText() before onOpen() runs (getting the class-field
+    // default), and the view-header DOM isn't attached yet at this point, so defer.
+    window.requestAnimationFrame(() => this.refreshViewHeader());
 
     const { contentEl } = this;
     contentEl.addClass("duckmage-hex-map-container");
@@ -392,8 +410,7 @@ export class HexMapView extends ItemView {
       { capture: true } as AddEventListenerOptions,
     );
 
-    // Right-click: on a hex in path/faction/region mode → let onHexContextMenu handle delete.
-    // Otherwise (tool active) → show the painter context menu.
+    // When any tool is active, right-click shows the painter context menu.
     this.registerDomEvent(
       contentEl,
       "contextmenu",
@@ -407,7 +424,10 @@ export class HexMapView extends ItemView {
         if (this.drawingMode === null) return;
         e.preventDefault();
         e.stopPropagation();
-        this.showPainterContextMenu(e.clientX, e.clientY);
+        const hexEl = (e.target as HTMLElement).closest<HTMLElement>(".duckmage-hex");
+        const hexX = hexEl ? Number(hexEl.dataset.x) : null;
+        const hexY = hexEl ? Number(hexEl.dataset.y) : null;
+        this.showPainterContextMenu(e.clientX, e.clientY, hexX, hexY);
       },
       { capture: true } as AddEventListenerOptions,
     );
@@ -493,10 +513,7 @@ export class HexMapView extends ItemView {
         this.redoStack = [];
         this.updateUndoButton();
         this.updateMapBtnLabel();
-        interface WithUpdateHeader {
-          updateHeader?(): void;
-        }
-        (this.leaf as unknown as WithUpdateHeader).updateHeader?.();
+        this.refreshViewHeader();
         this.renderGrid();
       }).open(),
     );
@@ -830,6 +847,16 @@ export class HexMapView extends ItemView {
       this.handleTableLinkButton(),
     );
 
+    this.submapLinkBtn = toolbar.createEl("button", {
+      cls: "duckmage-draw-btn duckmage-draw-btn-tablelink",
+    });
+    this.submapLinkBtnLabel = this.submapLinkBtn.createSpan({
+      text: "Link submap",
+    });
+    this.submapLinkBtn.addEventListener("click", () =>
+      this.handleSubmapLinkButton(),
+    );
+
     this.factionLinkBtn = toolbar.createEl("button", {
       cls: "duckmage-draw-btn duckmage-draw-btn-tablelink",
     });
@@ -857,25 +884,43 @@ export class HexMapView extends ItemView {
     this.tokenBtn.addEventListener("click", () => this.handleTokenButton());
   }
 
-  private showPainterContextMenu(clientX: number, clientY: number): void {
+  private showPainterContextMenu(
+    clientX: number,
+    clientY: number,
+    hexX: number | null,
+    hexY: number | null,
+  ): void {
     const mode = this.drawingMode;
     let onSwitch: (() => void) | null = null;
     let switchLabel = "Switch";
+    const extra: { label: string; onClick: () => void }[] = [];
+    const erasing = this.isErasingMode;
+
+    const toggleEraseMode = () => {
+      this.isErasingMode = !erasing;
+      this.updateToolbarButtonStates();
+    };
 
     if (mode === "terrain") {
-      // handleTerrainButton always re-opens the picker even when terrain mode is active.
       onSwitch = () => this.handleTerrainButton();
       switchLabel = "Switch terrain";
+      extra.push({ label: erasing ? "Link mode" : "Erase mode", onClick: toggleEraseMode });
     } else if (mode === "icon") {
       onSwitch = () => { this.exitIconMode(); this.handleIconButton(); };
       switchLabel = "Switch icon";
+      extra.push({ label: erasing ? "Link mode" : "Erase mode", onClick: toggleEraseMode });
     } else if (mode === "tableLink") {
       onSwitch = () => { this.exitTableLinkMode(); this.handleTableLinkButton(); };
       switchLabel = "Switch table";
+      extra.push({ label: erasing ? "Link mode" : "Erase mode", onClick: toggleEraseMode });
+    } else if (mode === "submapLink") {
+      onSwitch = () => { this.exitSubmapLinkMode(); this.handleSubmapLinkButton(); };
+      switchLabel = "Switch submap";
+      extra.push({ label: erasing ? "Link mode" : "Erase mode", onClick: toggleEraseMode });
     } else if (mode === "factionLink") {
-      // no switch — faction is set once when the tool is activated
+      extra.push({ label: erasing ? "Link mode" : "Erase mode", onClick: toggleEraseMode });
     } else if (mode === "regionLink") {
-      // no switch — region is set once when the tool is activated
+      extra.push({ label: erasing ? "Link mode" : "Erase mode", onClick: toggleEraseMode });
     } else if (mode === "path") {
       onSwitch = () => {
         this.exitPathMode();
@@ -885,19 +930,22 @@ export class HexMapView extends ItemView {
         this.handlePathButton();
       };
       switchLabel = "Switch path type";
+      extra.push({ label: erasing ? "Draw mode" : "Erase mode", onClick: toggleEraseMode });
     } else if (mode === "placeToken") {
       onSwitch = () => { this.exitTokenMode(); this.handleTokenButton(); };
       switchLabel = "Switch token";
     }
     // swap: no picker → onSwitch stays null, menu shows only "Exit tool"
 
-    new PainterContextMenu(onSwitch, () => this.exitCurrentMode(), switchLabel).open(clientX, clientY);
+    new PainterContextMenu(onSwitch, () => this.exitCurrentMode(), switchLabel, extra).open(clientX, clientY);
   }
 
   private exitCurrentMode(): void {
+    this.isErasingMode = false;
     if (this.drawingMode === "terrain") this.exitTerrainMode();
     else if (this.drawingMode === "icon") this.exitIconMode();
     else if (this.drawingMode === "tableLink") this.exitTableLinkMode();
+    else if (this.drawingMode === "submapLink") this.exitSubmapLinkMode();
     else if (this.drawingMode === "factionLink") this.exitFactionLinkMode();
     else if (this.drawingMode === "regionLink") this.exitRegionLinkMode();
     else if (this.drawingMode === "swap") this.exitSwapMode();
@@ -934,6 +982,7 @@ export class HexMapView extends ItemView {
       (terrainName: string | null) => {
         this.viewportEl?.removeClass("duckmage-terrain-picking");
         this.drawingMode = "terrain";
+        this.isErasingMode = false;
         this.terrainPickMode = false;
         this.paintTerrainName = terrainName;
         this.paintIconName = null;
@@ -943,6 +992,7 @@ export class HexMapView extends ItemView {
         // Eyedropper: enter terrain mode in pick-from-map state
         this.viewportEl?.removeClass("duckmage-terrain-picking");
         this.drawingMode = "terrain";
+        this.isErasingMode = false;
         this.terrainPickMode = true;
         this.paintTerrainName = null;
         this.updateToolbarButtonStates();
@@ -964,6 +1014,7 @@ export class HexMapView extends ItemView {
     this.drawingMode = null;
     this.paintTerrainName = null;
     this.terrainPickMode = false;
+    this.isErasingMode = false;
     this.updateBrushHighlight(null, null);
     this.updateToolbarButtonStates();
   }
@@ -975,6 +1026,7 @@ export class HexMapView extends ItemView {
       this.plugin,
       (iconName: string | null, gmOnly: boolean) => {
         this.drawingMode = "icon";
+        this.isErasingMode = false;
         this.paintIconName = iconName;
         this.paintIconGmOnly = gmOnly;
         this.paintTerrainName = null;
@@ -990,6 +1042,7 @@ export class HexMapView extends ItemView {
     this.drawingMode = null;
     this.paintIconName = null;
     this.paintIconGmOnly = false;
+    this.isErasingMode = false;
     this.updateBrushHighlight(null, null);
     this.updateToolbarButtonStates();
   }
@@ -1005,6 +1058,7 @@ export class HexMapView extends ItemView {
       "No tables found.",
       (file) => {
         this.drawingMode = "tableLink";
+        this.isErasingMode = false;
         this.paintTablePath = file.path;
         this.updateToolbarButtonStates();
       },
@@ -1020,13 +1074,43 @@ export class HexMapView extends ItemView {
     if (this.drawingMode !== "tableLink") return;
     this.drawingMode = null;
     this.paintTablePath = null;
+    this.isErasingMode = false;
+    this.updateToolbarButtonStates();
+  }
+
+  private handleSubmapLinkButton(): void {
+    if (this.drawingMode === "submapLink") { this.exitSubmapLinkMode(); return; }
+    new SubmapPickerModal(
+      this.app,
+      this.plugin,
+      undefined,
+      (mapName) => {
+        this.drawingMode = "submapLink";
+        this.isErasingMode = false;
+        this.paintSubmapName = mapName;
+        this.updateToolbarButtonStates();
+      },
+      () => { /* unlink not meaningful in tool mode */ },
+    ).open();
+  }
+
+  private exitSubmapLinkMode(): void {
+    if (this.drawingMode !== "submapLink") return;
+    this.drawingMode = null;
+    this.paintSubmapName = null;
+    this.isErasingMode = false;
     this.updateToolbarButtonStates();
   }
 
   private handleFactionLinkButton(): void {
     new FactionPickerModal(this.app, this.plugin, (filePath) => {
       this.drawingMode = "factionLink";
+      this.isErasingMode = false;
       this.paintFactionPath = filePath;
+      this.updateToolbarButtonStates();
+    }, () => {
+      this.drawingMode = "factionLink";
+      this.isErasingMode = true;
       this.updateToolbarButtonStates();
     }).open();
   }
@@ -1035,12 +1119,14 @@ export class HexMapView extends ItemView {
     if (this.drawingMode !== "factionLink") return;
     this.drawingMode = null;
     this.paintFactionPath = null;
+    this.isErasingMode = false;
     this.updateToolbarButtonStates();
   }
 
   private handleRegionLinkButton(): void {
     new GeoRegionPickerModal(this.app, this.plugin, (filePath) => {
       this.drawingMode = "regionLink";
+      this.isErasingMode = false;
       this.paintRegionPath = filePath;
       this.updateToolbarButtonStates();
       // Auto-enable region overlay when entering paint mode
@@ -1049,6 +1135,10 @@ export class HexMapView extends ItemView {
         void this.plugin.saveSettings();
         this.overlayPanel?.syncToRegion();
       }
+    }, () => {
+      this.drawingMode = "regionLink";
+      this.isErasingMode = true;
+      this.updateToolbarButtonStates();
     }).open();
   }
 
@@ -1056,6 +1146,7 @@ export class HexMapView extends ItemView {
     if (this.drawingMode !== "regionLink") return;
     this.drawingMode = null;
     this.paintRegionPath = null;
+    this.isErasingMode = false;
     this.updateToolbarButtonStates();
   }
 
@@ -1074,6 +1165,7 @@ export class HexMapView extends ItemView {
         this.pendingTokenNotePath  = notePath;
         this.pendingTokenPlaceData = { icon: data.icon, shape: data.shape, size: data.size, color: data.color, border: data.border, description: data.description };
         this.drawingMode = "placeToken";
+        this.isErasingMode = false;
         this.updateToolbarButtonStates();
       },
     ).open();
@@ -1092,6 +1184,7 @@ export class HexMapView extends ItemView {
       this.exitSwapMode();
     } else {
       this.drawingMode = "swap";
+      this.isErasingMode = false;
       this.swapSource = null;
       this.swapDest = null;
       this.updateToolbarButtonStates();
@@ -1297,7 +1390,9 @@ export class HexMapView extends ItemView {
   }
 
   private updateToolbarButtonStates(): void {
+    const erasing = this.isErasingMode;
     this.pathToolbarBtn?.toggleClass("is-active", this.drawingMode === "path");
+    this.pathToolbarBtn?.toggleClass("is-erase", erasing && this.drawingMode === "path");
     // Update path button swatch color to show active type
     if (this.pathBtnSwatch) {
       const activeType = this.activePathTypeName
@@ -1322,6 +1417,10 @@ export class HexMapView extends ItemView {
     this.tableLinkBtn?.toggleClass(
       "is-active",
       this.drawingMode === "tableLink",
+    );
+    this.submapLinkBtn?.toggleClass(
+      "is-active",
+      this.drawingMode === "submapLink",
     );
     this.factionLinkBtn?.toggleClass(
       "is-active",
@@ -1401,40 +1500,54 @@ export class HexMapView extends ItemView {
       }
     }
 
+    const prefix = erasing ? "Erase: " : "Link: ";
+
     // Table link button label
     if (this.tableLinkBtnLabel) {
       if (this.drawingMode === "tableLink" && this.paintTablePath) {
-        const name =
-          this.paintTablePath.split("/").pop()?.replace(/.md$/, "") ?? "Table";
-        this.tableLinkBtnLabel.setText("Link: " + name);
+        const name = this.paintTablePath.split("/").pop()?.replace(/.md$/, "") ?? "Table";
+        this.tableLinkBtnLabel.setText(prefix + name);
       } else {
         this.tableLinkBtnLabel.setText("Link table");
       }
     }
+    this.tableLinkBtn?.toggleClass("is-erase", erasing && this.drawingMode === "tableLink");
+
+    // Submap link button label
+    if (this.submapLinkBtnLabel) {
+      if (this.drawingMode === "submapLink") {
+        this.submapLinkBtnLabel.setText(erasing ? "Erase submap" : (this.paintSubmapName ? "Link: " + this.paintSubmapName : "Link submap"));
+      } else {
+        this.submapLinkBtnLabel.setText("Link submap");
+      }
+    }
+    this.submapLinkBtn?.toggleClass("is-erase", erasing && this.drawingMode === "submapLink");
 
     // Faction link button label
     if (this.factionLinkBtnLabel) {
       if (this.drawingMode === "factionLink" && this.paintFactionPath) {
-        const name =
-          this.paintFactionPath.split("/").pop()?.replace(/.md$/, "") ??
-          "Faction";
-        this.factionLinkBtnLabel.setText("Link: " + name);
+        const name = this.paintFactionPath.split("/").pop()?.replace(/.md$/, "") ?? "Faction";
+        this.factionLinkBtnLabel.setText(erasing ? "Erase: " + name : "Link: " + name);
       } else {
         this.factionLinkBtnLabel.setText("Factions");
       }
     }
+    this.factionLinkBtn?.toggleClass("is-erase", erasing && this.drawingMode === "factionLink");
 
     // Region link button label
     if (this.regionLinkBtnLabel) {
       if (this.drawingMode === "regionLink" && this.paintRegionPath) {
-        const name =
-          this.paintRegionPath.split("/").pop()?.replace(/.md$/, "") ??
-          "Region";
-        this.regionLinkBtnLabel.setText("Paint: " + name);
+        const name = this.paintRegionPath.split("/").pop()?.replace(/.md$/, "") ?? "Region";
+        this.regionLinkBtnLabel.setText(erasing ? "Erase: " + name : "Paint: " + name);
       } else {
         this.regionLinkBtnLabel.setText("Regions");
       }
     }
+    this.regionLinkBtn?.toggleClass("is-erase", erasing && this.drawingMode === "regionLink");
+
+    // Terrain / icon erase visual feedback
+    this.terrainToolbarBtn?.toggleClass("is-erase", erasing && this.drawingMode === "terrain");
+    this.iconToolbarBtn?.toggleClass("is-erase", erasing && this.drawingMode === "icon");
   }
   private applyTransform(): void {
     if (this.viewportEl) {
@@ -1683,26 +1796,15 @@ export class HexMapView extends ItemView {
 
   private onHexContextMenu(evt: MouseEvent, x: number, y: number): void {
     evt.preventDefault();
-    if (this.drawingMode === "path") {
-      void this.onHexPathDeleteClick(x, y);
-      return;
-    }
-    if (this.drawingMode === "factionLink") {
-      void this.onHexFactionEraseClick(x, y);
-      return;
-    }
-    if (this.drawingMode === "regionLink") {
-      void this.onHexRegionEraseClick(x, y);
-      return;
-    }
-    if (this.drawingMode === "swap") {
-      this.exitSwapMode();
-      return;
-    }
-    if (this.drawingMode === "placeToken") {
-      this.exitTokenMode();
-      return;
-    }
+    // When any tool is active, the global capture-phase contextmenu handler
+    // intercepts the event and shows the painter context menu — this handler
+    // only fires when drawingMode === null.
+    if (this.drawingMode !== null) return;
+
+    const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
+    const hexExists = this.app.vault.getAbstractFileByPath(hexPath) instanceof TFile;
+    const terrain = hexExists ? getTerrainFromFile(this.app, hexPath) : null;
+    const iconOverride = hexExists ? getIconOverrideFromFile(this.app, hexPath) : null;
 
     const menu = new Menu();
 
@@ -1720,8 +1822,7 @@ export class HexMapView extends ItemView {
         .setTitle("Open note")
         .setIcon("file-text")
         .onClick(async () => {
-          const path = this.plugin.hexPath(x, y, this.activeMapName);
-          const existing = this.app.vault.getAbstractFileByPath(path);
+          const existing = this.app.vault.getAbstractFileByPath(hexPath);
           const file =
             existing instanceof TFile
               ? existing
@@ -1735,7 +1836,6 @@ export class HexMapView extends ItemView {
         .setTitle("Link submap")
         .setIcon("map-pin")
         .onClick(() => {
-          const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
           const current = getSubmapFromFile(this.app, hexPath);
           new SubmapPickerModal(
             this.app,
@@ -1759,6 +1859,29 @@ export class HexMapView extends ItemView {
 
     menu.addItem((item) =>
       item
+        .setTitle("Link table")
+        .setIcon("table")
+        .onClick(() => {
+          new FolderTreePickerModal(
+            this.app,
+            this.plugin,
+            this.plugin.settings.tablesFolder,
+            "Link table",
+            "Filter tables…",
+            "No tables found.",
+            (file) => void this.linkTableToHex(x, y, file),
+            () => {
+              void this.app.workspace
+                .getLeaf("tab")
+                .setViewState({ type: VIEW_TYPE_RANDOM_TABLES });
+            },
+            (file) => void this.openRandomTableAtFile(file),
+          ).open();
+        }),
+    );
+
+    menu.addItem((item) =>
+      item
         .setTitle("Swap hex")
         .setIcon("arrow-left-right")
         .onClick(() => {
@@ -1767,11 +1890,32 @@ export class HexMapView extends ItemView {
         }),
     );
 
+    // ── Contextual delete options ──────────────────────────────────────────
+    if (terrain || iconOverride) {
+      menu.addSeparator();
+      if (terrain) {
+        menu.addItem((item) =>
+          item.setTitle("Clear terrain").setIcon("eraser")
+            .onClick(() => {
+              this.scheduleTerrainWrite(x, y, hexPath, null);
+              this.renderGrid();
+            }),
+        );
+      }
+      if (iconOverride) {
+        menu.addItem((item) =>
+          item.setTitle("Remove icon override").setIcon("image-off")
+            .onClick(() => this.scheduleIconWrite(x, y, hexPath, null)),
+        );
+      }
+    }
+
     menu.showAtMouseEvent(evt);
   }
 
   private async onHexClick(x: number, y: number): Promise<void> {
     if (this.drawingMode === "path") {
+      if (this.isErasingMode) { await this.onHexPathDeleteClick(x, y); return; }
       await this.onHexPathDrawClick(x, y);
       return;
     }
@@ -1785,6 +1929,10 @@ export class HexMapView extends ItemView {
     }
     if (this.drawingMode === "tableLink") {
       await this.onHexTableLinkClick(x, y);
+      return;
+    }
+    if (this.drawingMode === "submapLink") {
+      await this.onHexSubmapLinkClick(x, y);
       return;
     }
     if (this.drawingMode === "swap") {
@@ -1829,7 +1977,7 @@ export class HexMapView extends ItemView {
     if (this.drawingMode !== "terrain") return;
 
     // Eyedropper pick mode: sample this hex's terrain and switch to painting it
-    if (this.terrainPickMode) {
+    if (this.terrainPickMode && !this.isErasingMode) {
       const sampled = getTerrainFromFile(
         this.app,
         this.plugin.hexPath(x, y, this.activeMapName),
@@ -1840,7 +1988,7 @@ export class HexMapView extends ItemView {
       return;
     }
 
-    const terrain = this.paintTerrainName;
+    const terrain = this.isErasingMode ? null : this.paintTerrainName;
     const palette = this.plugin.getMapPalette(this.activeMapName);
     const entry =
       terrain != null ? palette.find((p) => p.name === terrain) : undefined;
@@ -1897,7 +2045,7 @@ export class HexMapView extends ItemView {
 
   private onHexIconClick(x: number, y: number): void {
     if (this.drawingMode !== "icon") return;
-    const icon = this.paintIconName;
+    const icon = this.isErasingMode ? null : this.paintIconName;
     const path = this.plugin.hexPath(x, y, this.activeMapName);
     const hexEl = this.viewportEl?.querySelector<HTMLElement>(
       `[data-x="${x}"][data-y="${y}"]`,
@@ -1937,9 +2085,44 @@ export class HexMapView extends ItemView {
 
   private async onHexTableLinkClick(x: number, y: number): Promise<void> {
     if (this.drawingMode !== "tableLink" || !this.paintTablePath) return;
-    const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
     const tableFile = this.app.vault.getAbstractFileByPath(this.paintTablePath);
     if (!(tableFile instanceof TFile)) return;
+    if (this.isErasingMode) {
+      const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
+      const target = this.app.metadataCache.fileToLinktext(tableFile, hexPath);
+      await removeLinkFromSection(this.app, hexPath, "Encounters Table", target);
+      return;
+    }
+    await this.linkTableToHex(x, y, tableFile);
+  }
+
+  private async onHexSubmapLinkClick(x: number, y: number): Promise<void> {
+    if (this.drawingMode !== "submapLink") return;
+    const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
+    if (this.isErasingMode) {
+      await setSubmapInFile(this.app, hexPath, null);
+      this.renderGrid();
+      return;
+    }
+    if (!this.paintSubmapName) return;
+    if (!this.app.vault.getAbstractFileByPath(hexPath)) {
+      await this.plugin.createHexNote(x, y, this.activeMapName);
+    }
+    await setSubmapInFile(this.app, hexPath, this.paintSubmapName);
+    this.renderGrid();
+
+    // Visual feedback: ripple blip on the linked hex
+    const hexEl = this.viewportEl?.querySelector<HTMLElement>(
+      `[data-x="${x}"][data-y="${y}"]`,
+    );
+    if (hexEl) {
+      const blip = hexEl.createSpan({ cls: "duckmage-hex-blip" });
+      blip.addEventListener("animationend", () => blip.remove(), { once: true });
+    }
+  }
+
+  private async linkTableToHex(x: number, y: number, tableFile: TFile): Promise<void> {
+    const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
 
     // Ensure the hex note exists
     let hexFile = this.app.vault.getAbstractFileByPath(hexPath);
@@ -1952,11 +2135,7 @@ export class HexMapView extends ItemView {
     const linkText = `[[${target}]]`;
 
     // Idempotent — only add if not already present
-    const existing = await getLinksInSection(
-      this.app,
-      hexPath,
-      "Encounters Table",
-    );
+    const existing = await getLinksInSection(this.app, hexPath, "Encounters Table");
     if (existing.includes(target)) {
       new Notice(`Already linked on ${x},${y}`);
       return;
@@ -1971,18 +2150,25 @@ export class HexMapView extends ItemView {
     if (hexEl) {
       hexEl.addClass("duckmage-hex-table-linked");
       hexEl.addClass("duckmage-hex-exists");
-      if (!hexEl.querySelector(".duckmage-hex-link-badge")) {
-        hexEl.createSpan({ cls: "duckmage-hex-link-badge", text: "📋" });
-      }
       const blip = hexEl.createSpan({ cls: "duckmage-hex-blip" });
-      blip.addEventListener("animationend", () => blip.remove(), {
-        once: true,
-      });
+      blip.addEventListener("animationend", () => blip.remove(), { once: true });
     }
+  }
+
+  private async openRandomTableAtFile(file: TFile): Promise<void> {
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_RANDOM_TABLES);
+    const leaf = leaves.length > 0
+      ? leaves[0]
+      : this.app.workspace.getLeaf("tab");
+    await leaf.setViewState({ type: VIEW_TYPE_RANDOM_TABLES, active: true });
+    await this.app.workspace.revealLeaf(leaf);
+    interface WithOpenTable { openTable(path: string): void; }
+    (leaf.view as unknown as WithOpenTable).openTable(file.path);
   }
 
   private async onHexFactionPaintClick(x: number, y: number): Promise<void> {
     if (this.drawingMode !== "factionLink" || !this.paintFactionPath) return;
+    if (this.isErasingMode) { await this.onHexFactionEraseClick(x, y); return; }
     const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
     const factionFile = this.app.vault.getAbstractFileByPath(this.paintFactionPath);
     if (!(factionFile instanceof TFile)) return;
@@ -2389,11 +2575,18 @@ export class HexMapView extends ItemView {
       (typeName) => {
         this.activePathTypeName = typeName;
         this.drawingMode = "path";
+        this.isErasingMode = false;
         this.updateToolbarButtonStates();
         this.updatePathOverlay();
       },
       () => {
         if (this.drawingMode !== "path") this.updateToolbarButtonStates();
+      },
+      () => {
+        this.drawingMode = "path";
+        this.isErasingMode = true;
+        this.updateToolbarButtonStates();
+        this.updatePathOverlay();
       },
     ).open();
   }
@@ -2476,9 +2669,7 @@ export class HexMapView extends ItemView {
   private async onHexPathDeleteClick(x: number, y: number): Promise<void> {
     const key = `${x}_${y}`;
     const region = this.getActiveMap();
-    const chains = this.activePathTypeName
-      ? region.pathChains.filter((c) => c.typeName === this.activePathTypeName)
-      : region.pathChains;
+    const chains = region.pathChains;
     const before = this.cloneChains(region.pathChains);
 
     for (let ci = 0; ci < chains.length; ci++) {
@@ -3030,6 +3221,7 @@ export class HexMapView extends ItemView {
 
   private async onHexRegionPaintClick(x: number, y: number): Promise<void> {
     if (this.drawingMode !== "regionLink" || !this.paintRegionPath) return;
+    if (this.isErasingMode) { await this.onHexRegionEraseClick(x, y); return; }
     const regionFile = this.app.vault.getAbstractFileByPath(this.paintRegionPath);
     if (!(regionFile instanceof TFile)) return;
     const regionBasename = regionFile.basename;

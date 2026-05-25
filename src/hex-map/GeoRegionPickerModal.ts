@@ -117,6 +117,7 @@ export class GeoRegionPickerModal extends HexmakerModal {
     app: App,
     private plugin: HexmakerPlugin,
     private onPicked: (filePath: string) => void,
+    private onErase?: () => void,
   ) {
     super(app);
   }
@@ -154,6 +155,17 @@ export class GeoRegionPickerModal extends HexmakerModal {
       });
     } else {
       const grid = contentEl.createDiv({ cls: "duckmage-faction-palette" });
+
+      if (this.onErase) {
+        const removeBtn = grid.createDiv({ cls: "duckmage-faction-tile duckmage-faction-tile-remove" });
+        const removePreview = removeBtn.createDiv({ cls: "duckmage-faction-tile-preview duckmage-faction-tile-preview-remove" });
+        removePreview.setText("✕");
+        removeBtn.createSpan({ text: "Remove", cls: "duckmage-faction-tile-name" });
+        removeBtn.addEventListener("click", () => {
+          this.onErase!();
+          this.close();
+        });
+      }
 
       for (const file of files) {
         let color = this.pendingColorOverrides.get(file.path) ?? getRegionColorFromFile(this.app, file.path);

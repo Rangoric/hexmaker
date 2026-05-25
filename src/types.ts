@@ -35,6 +35,7 @@ export interface PathChain {
 export interface MapData {
 	name: string;
 	paletteName: string;
+	terrainType?: string;        // terrain name from the map's palette; used as submap center dot color
 	gridSize: { cols: number; rows: number };
 	gridOffset: { x: number; y: number };
 	pathChains: PathChain[];

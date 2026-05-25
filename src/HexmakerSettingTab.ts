@@ -27,225 +27,6 @@ export class HexmakerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("World notes folder")
-      .setDesc(
-        "Vault-relative path. Scopes the file search when adding links to hexes.",
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("World.")
-          .setValue(this.plugin.settings.worldFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.worldFolder = normalizeFolder(value ?? "");
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("Set up folders")
-      .setDesc(
-        "Populates any blank folder settings below with defaults under the world folder, then creates those folders in your vault. Only blank fields are affected — manually set values are left untouched.",
-      )
-      .addButton((btn) =>
-        btn
-          .setButtonText("Generate folders")
-          .setCta()
-          .onClick(async () => {
-            const world =
-              normalizeFolder(this.plugin.settings.worldFolder) || "world";
-            const defaults: [keyof typeof this.plugin.settings, string][] = [
-              ["hexFolder", `${world}/hexes`],
-              ["townsFolder", `${world}/towns`],
-              ["dungeonsFolder", `${world}/dungeons`],
-              ["questsFolder", `${world}/quests`],
-              ["featuresFolder", `${world}/features`],
-              ["factionsFolder", `${world}/factions`],
-              ["regionsFolder",  `${world}/regions`],
-              ["tablesFolder", `${world}/tables`],
-              ["workflowsFolder", `${world}/workflows`],
-            ];
-            for (const [key, path] of defaults) {
-              if (!this.plugin.settings[key]) {
-                (this.plugin.settings as unknown as Record<string, unknown>)[
-                  key
-                ] = path;
-                try {
-                  if (!this.app.vault.getAbstractFileByPath(path)) {
-                    await this.app.vault.createFolder(path);
-                  }
-                } catch {
-                  /* folder already exists */
-                }
-              }
-            }
-            await this.plugin.saveSettings();
-            // Ensure all map subfolders exist and generate hex notes
-            const hexF = normalizeFolder(this.plugin.settings.hexFolder);
-            if (hexF) {
-              let totalCreated = 0;
-              for (const map of this.plugin.settings.maps) {
-                const mapFolder = `${hexF}/${map.name}`;
-                if (!this.app.vault.getAbstractFileByPath(mapFolder)) {
-                  try {
-                    await this.app.vault.createFolder(mapFolder);
-                  } catch {
-                    /* exists */
-                  }
-                }
-                const { cols, rows } = map.gridSize;
-                const { x: ox, y: oy } = map.gridOffset;
-                const xs = Array.from({ length: cols }, (_, i) => ox + i);
-                const ys = Array.from({ length: rows }, (_, i) => oy + i);
-                totalCreated += await this.plugin.generateHexNotes(
-                  map.name,
-                  xs,
-                  ys,
-                );
-              }
-              if (totalCreated > 0)
-                new Notice(
-                  `Hexmaker: generated ${totalCreated} hex note${totalCreated !== 1 ? "s" : ""}.`,
-                );
-            }
-            new Notice("Folders generated.");
-            this.display();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("Hex notes folder")
-      .setDesc("Vault-relative path where hex notes (X_y.md) are stored.")
-      .addText((text) =>
-        text
-          .setPlaceholder("World/hexes")
-          .setValue(this.plugin.settings.hexFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.hexFolder = normalizeFolder(value ?? "");
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("Towns folder")
-      .setDesc(
-        "Vault-relative folder to populate the towns dropdown in the hex editor. Files starting with _ are excluded.",
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("World/towns")
-          .setValue(this.plugin.settings.townsFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.townsFolder = normalizeFolder(value ?? "");
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("Dungeons folder")
-      .setDesc(
-        "Vault-relative folder to populate the dungeons dropdown in the hex editor. Files starting with _ are excluded.",
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("World/dungeons")
-          .setValue(this.plugin.settings.dungeonsFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.dungeonsFolder = normalizeFolder(value ?? "");
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("Quests folder")
-      .setDesc(
-        "Vault-relative folder to populate the quests dropdown in the hex editor. Files starting with _ are excluded.",
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("World/quests")
-          .setValue(this.plugin.settings.questsFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.questsFolder = normalizeFolder(value ?? "");
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("Features folder")
-      .setDesc(
-        "Vault-relative folder to populate the features dropdown in the hex editor. Files starting with _ are excluded.",
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("World/features")
-          .setValue(this.plugin.settings.featuresFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.featuresFolder = normalizeFolder(value ?? "");
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("Factions folder")
-      .setDesc(
-        "Vault-relative folder to populate the factions dropdown in the hex editor. Files starting with _ are excluded.",
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("World/factions")
-          .setValue(this.plugin.settings.factionsFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.factionsFolder = normalizeFolder(value ?? "");
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("Regions folder")
-      .setDesc(
-        "Vault-relative folder for geographic region notes (used by the region overlay paint tool). Files starting with _ are excluded.",
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("World/regions")
-          .setValue(this.plugin.settings.regionsFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.regionsFolder = normalizeFolder(value ?? "");
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("Tables folder")
-      .setDesc(
-        "Vault-relative folder for random table notes. Used by the encounters table section and the random tables view.",
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("World/tables")
-          .setValue(this.plugin.settings.tablesFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.tablesFolder = normalizeFolder(value ?? "");
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("Workflows folder")
-      .setDesc(
-        "Vault-relative folder for workflow notes. Browsable from the random tables view via the workflows tab.",
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("World/workflows")
-          .setValue(this.plugin.settings.workflowsFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.workflowsFolder = normalizeFolder(value ?? "");
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
       .setName("Default die for new tables")
       .setDesc(
         "Die size used when creating new random table notes (d6, d20, d100, etc.).",
@@ -534,5 +315,224 @@ export class HexmakerSettingTab extends PluginSettingTab {
     };
 
     renderPaletteList();
+    new Setting(containerEl)
+      .setName("World notes folder")
+      .setDesc(
+        "Vault-relative path. Scopes the file search when adding links to hexes.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("World.")
+          .setValue(this.plugin.settings.worldFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.worldFolder = normalizeFolder(value ?? "");
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Set up folders")
+      .setDesc(
+        "Populates any blank folder settings below with defaults under the world folder, then creates those folders in your vault. Only blank fields are affected — manually set values are left untouched.",
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Generate folders")
+          .setCta()
+          .onClick(async () => {
+            const world =
+              normalizeFolder(this.plugin.settings.worldFolder) || "world";
+            const defaults: [keyof typeof this.plugin.settings, string][] = [
+              ["hexFolder", `${world}/hexes`],
+              ["townsFolder", `${world}/towns`],
+              ["dungeonsFolder", `${world}/dungeons`],
+              ["questsFolder", `${world}/quests`],
+              ["featuresFolder", `${world}/features`],
+              ["factionsFolder", `${world}/factions`],
+              ["regionsFolder",  `${world}/regions`],
+              ["tablesFolder", `${world}/tables`],
+              ["workflowsFolder", `${world}/workflows`],
+            ];
+            for (const [key, path] of defaults) {
+              if (!this.plugin.settings[key]) {
+                (this.plugin.settings as unknown as Record<string, unknown>)[
+                  key
+                ] = path;
+                try {
+                  if (!this.app.vault.getAbstractFileByPath(path)) {
+                    await this.app.vault.createFolder(path);
+                  }
+                } catch {
+                  /* folder already exists */
+                }
+              }
+            }
+            await this.plugin.saveSettings();
+            // Ensure all map subfolders exist and generate hex notes
+            const hexF = normalizeFolder(this.plugin.settings.hexFolder);
+            if (hexF) {
+              let totalCreated = 0;
+              for (const map of this.plugin.settings.maps) {
+                const mapFolder = `${hexF}/${map.name}`;
+                if (!this.app.vault.getAbstractFileByPath(mapFolder)) {
+                  try {
+                    await this.app.vault.createFolder(mapFolder);
+                  } catch {
+                    /* exists */
+                  }
+                }
+                const { cols, rows } = map.gridSize;
+                const { x: ox, y: oy } = map.gridOffset;
+                const xs = Array.from({ length: cols }, (_, i) => ox + i);
+                const ys = Array.from({ length: rows }, (_, i) => oy + i);
+                totalCreated += await this.plugin.generateHexNotes(
+                  map.name,
+                  xs,
+                  ys,
+                );
+              }
+              if (totalCreated > 0)
+                new Notice(
+                  `Hexmaker: generated ${totalCreated} hex note${totalCreated !== 1 ? "s" : ""}.`,
+                );
+            }
+            new Notice("Folders generated.");
+            this.display();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Hex notes folder")
+      .setDesc("Vault-relative path where hex notes (X_y.md) are stored.")
+      .addText((text) =>
+        text
+          .setPlaceholder("World/hexes")
+          .setValue(this.plugin.settings.hexFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.hexFolder = normalizeFolder(value ?? "");
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Towns folder")
+      .setDesc(
+        "Vault-relative folder to populate the towns dropdown in the hex editor. Files starting with _ are excluded.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("World/towns")
+          .setValue(this.plugin.settings.townsFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.townsFolder = normalizeFolder(value ?? "");
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Dungeons folder")
+      .setDesc(
+        "Vault-relative folder to populate the dungeons dropdown in the hex editor. Files starting with _ are excluded.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("World/dungeons")
+          .setValue(this.plugin.settings.dungeonsFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.dungeonsFolder = normalizeFolder(value ?? "");
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Quests folder")
+      .setDesc(
+        "Vault-relative folder to populate the quests dropdown in the hex editor. Files starting with _ are excluded.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("World/quests")
+          .setValue(this.plugin.settings.questsFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.questsFolder = normalizeFolder(value ?? "");
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Features folder")
+      .setDesc(
+        "Vault-relative folder to populate the features dropdown in the hex editor. Files starting with _ are excluded.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("World/features")
+          .setValue(this.plugin.settings.featuresFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.featuresFolder = normalizeFolder(value ?? "");
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Factions folder")
+      .setDesc(
+        "Vault-relative folder to populate the factions dropdown in the hex editor. Files starting with _ are excluded.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("World/factions")
+          .setValue(this.plugin.settings.factionsFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.factionsFolder = normalizeFolder(value ?? "");
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Regions folder")
+      .setDesc(
+        "Vault-relative folder for geographic region notes (used by the region overlay paint tool). Files starting with _ are excluded.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("World/regions")
+          .setValue(this.plugin.settings.regionsFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.regionsFolder = normalizeFolder(value ?? "");
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Tables folder")
+      .setDesc(
+        "Vault-relative folder for random table notes. Used by the encounters table section and the random tables view.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("World/tables")
+          .setValue(this.plugin.settings.tablesFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.tablesFolder = normalizeFolder(value ?? "");
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Workflows folder")
+      .setDesc(
+        "Vault-relative folder for workflow notes. Browsable from the random tables view via the workflows tab.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("World/workflows")
+          .setValue(this.plugin.settings.workflowsFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.workflowsFolder = normalizeFolder(value ?? "");
+            await this.plugin.saveSettings();
+          }),
+      );
   }
+  
 }

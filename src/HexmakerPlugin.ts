@@ -15,7 +15,7 @@ import {
   VIEW_TYPE_SETUP_WIZARD,
 } from "./constants";
 import { SetupWizardView } from "./SetupWizardView";
-import { normalizeFolder, makeTableTemplate } from "./utils";
+import { normalizeFolder, makeTableTemplate, slugify } from "./utils";
 import { BUNDLED_ICONS } from "./bundledIcons";
 import { parseWorkflow, buildWorkflowContent } from "./random-tables/workflow";
 import type {
@@ -1016,6 +1016,49 @@ export default class HexmakerPlugin extends Plugin {
    * Create hex notes for every (x, y) in the cartesian product of xs × ys,
    * skipping any that already exist on disk.  Returns the number of notes created.
    */
+  async createNewMap(
+    rawName: string,
+    cols: number,
+    rows: number,
+    paletteName: string,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<{ name: string } | { error: string }> {
+    const name = slugify(rawName);
+    if (!name) return { error: "Enter a map name." };
+    if (this.settings.maps.some((r) => r.name === name))
+      return { error: `Map "${name}" already exists.` };
+
+    const hexFolder = normalizeFolder(this.settings.hexFolder);
+    const folderPath = hexFolder ? `${hexFolder}/${name}` : name;
+    if (!this.app.vault.getAbstractFileByPath(folderPath)) {
+      try {
+        await this.app.vault.createFolder(folderPath);
+      } catch { /* already exists */ }
+    }
+
+    this.settings.maps.push({
+      name,
+      paletteName,
+      gridSize: { cols, rows },
+      gridOffset: { x: 0, y: 0 },
+      pathChains: [],
+    });
+    await this.saveSettings();
+
+    const xs = Array.from({ length: cols }, (_, i) => i);
+    const ys = Array.from({ length: rows }, (_, i) => i);
+    const total = cols * rows;
+    const created = await this.generateHexNotes(name, xs, ys, (done) =>
+      onProgress?.(done, total),
+    );
+    if (created > 0)
+      new Notice(
+        `Hexmaker: generated ${created} hex note${created !== 1 ? "s" : ""} for "${name}".`,
+      );
+
+    return { name };
+  }
+
   async generateHexNotes(
     mapName: string,
     xs: number[],

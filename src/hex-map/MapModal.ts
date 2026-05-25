@@ -2,7 +2,8 @@ import { App, Notice, TFolder } from "obsidian";
 import { HexmakerModal } from "../HexmakerModal";
 import type HexmakerPlugin from "../HexmakerPlugin";
 import type { HexMapView } from "./HexMapView";
-import { normalizeFolder } from "../utils";
+import { normalizeFolder, slugify, getIconUrl, createIconEl } from "../utils";
+import { renderNewMapFields } from "./newMapFields";
 
 export class MapModal extends HexmakerModal {
   private confirmingDelete: string | null = null;
@@ -65,7 +66,17 @@ export class MapModal extends HexmakerModal {
           this.render();
         });
       } else {
-        const nameSpan = li.createSpan({ text: map.name });
+        // Terrain color swatch (if a terrain type is configured for this map)
+        const terrainEntry = map.terrainType
+          ? this.plugin.getMapPalette(map.name).find((t) => t.name === map.terrainType)
+          : undefined;
+        const swatch = li.createSpan({ cls: "duckmage-map-terrain-swatch" });
+        if (terrainEntry?.color) {
+          swatch.style.backgroundColor = terrainEntry.color;
+          swatch.addClass("duckmage-map-terrain-swatch--set");
+        }
+
+        const nameSpan = li.createSpan({ text: map.name, cls: "duckmage-map-list-name" });
         nameSpan.addEventListener("click", () => {
           this.view.activeMapName = map.name;
           this.onChanged();
@@ -119,47 +130,59 @@ export class MapModal extends HexmakerModal {
         );
     });
 
-    // Create new map
-    contentEl.createEl("h4", { text: "New map" });
-    const createRow = contentEl.createDiv({ cls: "duckmage-region-row" });
-    const nameInput = createRow.createEl("input", {
-      type: "text",
-      placeholder: "map-name",
-    });
-    const colsInput = createRow.createEl("input", {
-      type: "number",
-      value: "20",
-    });
-    colsInput.setCssProps({ width: "55px" });
-    const rowsInput = createRow.createEl("input", {
-      type: "number",
-      value: "16",
-    });
-    rowsInput.setCssProps({ width: "55px" });
+    // Terrain type for current map (sets submap center dot color)
+    contentEl.createEl("h4", { text: "Map terrain theme" });
+    const currentMap = this.plugin.getMap(this.view.activeMapName);
+    const terrainPalette = this.plugin.getMapPalette(this.view.activeMapName);
+    const terrainGrid = contentEl.createDiv({ cls: "duckmage-terrain-picker" });
 
-    const paletteSelect = createRow.createEl("select");
-    for (const pal of this.plugin.settings.terrainPalettes) {
-      paletteSelect.createEl("option", { value: pal.name, text: pal.name });
+    // "None" clear tile — always first
+    const clearTile = terrainGrid.createDiv({
+      cls: "duckmage-terrain-option duckmage-terrain-option-clear" +
+        (!currentMap?.terrainType ? " is-selected" : ""),
+    });
+    clearTile.createDiv({ cls: "duckmage-terrain-preview duckmage-terrain-preview-clear" });
+    clearTile.createSpan({ text: "None", cls: "duckmage-terrain-option-name" });
+    clearTile.addEventListener("click", () => {
+      const map = this.plugin.getMap(this.view.activeMapName);
+      if (map) { map.terrainType = undefined; void this.plugin.saveSettings().then(() => this.render()); }
+    });
+
+    for (const t of terrainPalette) {
+      const tile = terrainGrid.createDiv({
+        cls: "duckmage-terrain-option" + (currentMap?.terrainType === t.name ? " is-selected" : ""),
+      });
+      const preview = tile.createDiv({ cls: "duckmage-terrain-preview" });
+      preview.setCssProps({ "background-color": t.color });
+      if (t.icon) {
+        createIconEl(preview, getIconUrl(this.plugin, t.icon), t.name, t.iconColor, "duckmage-terrain-preview-icon");
+      }
+      tile.createSpan({ text: t.name, cls: "duckmage-terrain-option-name" });
+      tile.addEventListener("click", () => {
+        const map = this.plugin.getMap(this.view.activeMapName);
+        if (map) { map.terrainType = t.name; void this.plugin.saveSettings().then(() => this.render()); }
+      });
     }
 
-    const createBtn = createRow.createEl("button", {
-      text: "Create",
-      cls: "mod-cta",
-    });
-    createBtn.addEventListener(
-      "click",
-      () =>
-        void this.createMap(
-          nameInput.value.trim(),
-          Number(colsInput.value) || 20,
-          Number(rowsInput.value) || 16,
-          paletteSelect.value,
-          createBtn,
-          nameInput,
-          colsInput,
-          rowsInput,
-          paletteSelect,
-        ),
+    // Create new map
+    contentEl.createEl("h4", { text: "New map" });
+    const { nameInput, colsInput, rowsInput, paletteSelect } =
+      renderNewMapFields(contentEl, this.plugin);
+    const createBtn = nameInput
+      .closest<HTMLElement>(".duckmage-region-row")!
+      .createEl("button", { text: "Create", cls: "mod-cta" });
+    const allInputs: (HTMLInputElement | HTMLSelectElement)[] = [
+      nameInput, colsInput, rowsInput, paletteSelect,
+    ];
+    createBtn.addEventListener("click", () =>
+      void this.handleCreate(
+        nameInput.value.trim(),
+        Number(colsInput.value) || 20,
+        Number(rowsInput.value) || 16,
+        paletteSelect.value,
+        createBtn,
+        allInputs,
+      ),
     );
   }
 
@@ -198,19 +221,12 @@ export class MapModal extends HexmakerModal {
     new Notice(`Map "${name}" deleted.`);
   }
 
-  private slugify(name: string): string {
-    return name
-      .toLowerCase()
-      .replace(/[\s_]+/g, "-")
-      .replace(/[^a-z0-9-]/g, "");
-  }
-
   private async renameMap(
     raw: string,
     btn: HTMLButtonElement,
     input: HTMLInputElement,
   ): Promise<void> {
-    const newName = this.slugify(raw);
+    const newName = slugify(raw);
     if (!newName || newName === this.view.activeMapName) return;
     if (this.plugin.settings.maps.some((r) => r.name === newName)) {
       new Notice(`Map "${newName}" already exists.`);
@@ -251,66 +267,33 @@ export class MapModal extends HexmakerModal {
     this.render();
   }
 
-  private async createMap(
+  private async handleCreate(
     raw: string,
     cols: number,
     rows: number,
     paletteName: string,
     btn: HTMLButtonElement,
-    ...inputs: (HTMLInputElement | HTMLSelectElement)[]
+    inputs: (HTMLInputElement | HTMLSelectElement)[],
   ): Promise<void> {
-    const name = this.slugify(raw);
-    if (!name) {
-      new Notice("Enter a map name.");
-      return;
-    }
-    if (this.plugin.settings.maps.some((r) => r.name === name)) {
-      new Notice(`Map "${name}" already exists.`);
-      return;
-    }
-
-    btn.setText(`Generating 0 / ${cols * rows}…`);
+    btn.setText(`Generating…`);
     btn.disabled = true;
     for (const input of inputs) input.disabled = true;
 
-    const hexFolder = normalizeFolder(this.plugin.settings.hexFolder);
-    const folderPath = hexFolder ? `${hexFolder}/${name}` : name;
-    if (!this.app.vault.getAbstractFileByPath(folderPath)) {
-      try {
-        await this.app.vault.createFolder(folderPath);
-      } catch {
-        /* exists */
-      }
-    }
-    this.plugin.settings.maps.push({
-      name,
-      paletteName,
-      gridSize: { cols, rows },
-      gridOffset: { x: 0, y: 0 },
-      pathChains: [],
-    });
-    this.view.activeMapName = name;
-    await this.plugin.saveSettings();
-    this.onChanged();
-
-    const xs = Array.from({ length: cols }, (_, i) => i);
-    const ys = Array.from({ length: rows }, (_, i) => i);
-    const total = cols * rows;
-    let created;
-    const created_ = await this.plugin.generateHexNotes(
-      name,
-      xs,
-      ys,
-      (done) => {
-        created = done;
-        btn.setText(`Generating ${done} / ${total}…`);
-      },
+    const result = await this.plugin.createNewMap(
+      raw, cols, rows, paletteName,
+      (done, total) => btn.setText(`Generating ${done} / ${total}…`),
     );
-    created = created_;
-    if (created > 0)
-      new Notice(
-        `Hexmaker: generated ${created} hex note${created !== 1 ? "s" : ""} for "${name}".`,
-      );
+
+    if ("error" in result) {
+      new Notice(result.error);
+      btn.setText("Create");
+      btn.disabled = false;
+      for (const input of inputs) input.disabled = false;
+      return;
+    }
+
+    this.view.activeMapName = result.name;
+    this.onChanged();
     this.close();
   }
 

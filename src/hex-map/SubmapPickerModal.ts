@@ -1,6 +1,7 @@
-import { App, Setting } from "obsidian";
+import { App, Notice } from "obsidian";
 import { HexmakerModal } from "../HexmakerModal";
 import type HexmakerPlugin from "../HexmakerPlugin";
+import { getIconUrl, createIconEl } from "../utils";
 
 export class SubmapPickerModal extends HexmakerModal {
   constructor(
@@ -17,125 +18,241 @@ export class SubmapPickerModal extends HexmakerModal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("duckmage-hex-editor");
+    this.modalEl.addClass("duckmage-submap-picker-modal");
     this.makeDraggable();
 
     contentEl.createEl("h2", { text: "Link submap" });
 
-    const maps = this.plugin.settings.maps;
-    if (maps.length === 0) {
-      contentEl.createEl("p", {
-        text: "No maps found. Create a map first.",
-        cls: "duckmage-maplinkmodal-empty",
-      });
-      contentEl.createEl("button", { text: "Cancel" })
-        .addEventListener("click", () => this.close());
-      return;
+    // ── Current submap indicator ──────────────────────────────────────────
+    if (this.current) {
+      const curRow = contentEl.createDiv({ cls: "duckmage-submap-current-row" });
+      curRow.createSpan({ text: "Current: ", cls: "duckmage-submap-current-label" });
+      curRow.createSpan({ text: this.current, cls: "duckmage-submap-current-value" });
     }
 
-    let selectedMap = this.current ?? maps[0].name;
-    let mapInput!: HTMLInputElement;
+    // ── Link existing map ─────────────────────────────────────────────────
+    const maps = this.plugin.settings.maps;
+    let selectedMap = this.current ?? maps[0]?.name ?? "";
 
-    // ── Map combo ─────────────────────────────────────────────────────────
-    const mapLabel = contentEl.createDiv({ cls: "setting-item" });
-    mapLabel.createDiv({ cls: "setting-item-info" }).createDiv({
-      cls: "setting-item-name",
-      text: "Map",
+    if (maps.length > 0) {
+      contentEl.createEl("h4", { text: "Link existing map" });
+
+      const filterInput = contentEl.createEl("input", {
+        type: "text",
+        cls: "duckmage-rt-search",
+        attr: { placeholder: "Filter maps…" },
+      });
+
+      const listEl = contentEl.createDiv({ cls: "duckmage-rt-list duckmage-picker-list" });
+
+      const renderMapList = (query: string) => {
+        listEl.empty();
+        const q = query.trim().toLowerCase();
+        const matches = maps.filter((m) => !q || m.name.toLowerCase().includes(q));
+        if (matches.length === 0) {
+          listEl.createDiv({ cls: "duckmage-picker-list-empty", text: "No matching maps" });
+          return;
+        }
+        for (const m of matches) {
+          const item = listEl.createDiv({
+            cls: "duckmage-rt-list-item duckmage-map-list-item-row" + (m.name === selectedMap ? " is-active" : ""),
+          });
+          const terrainEntry = m.terrainType
+            ? this.plugin.getMapPalette(m.name).find((t) => t.name === m.terrainType)
+            : undefined;
+          const swatch = item.createSpan({ cls: "duckmage-map-terrain-swatch" });
+          if (terrainEntry?.color) {
+            swatch.style.backgroundColor = terrainEntry.color;
+            swatch.addClass("duckmage-map-terrain-swatch--set");
+          }
+          if (terrainEntry?.icon) {
+            createIconEl(
+              swatch,
+              getIconUrl(this.plugin, terrainEntry.icon),
+              terrainEntry.name,
+              terrainEntry.iconColor,
+              "duckmage-map-terrain-swatch-icon",
+            );
+          }
+          item.createSpan({ text: m.name });
+          item.addEventListener("click", () => {
+            selectedMap = m.name;
+            listEl.querySelectorAll<HTMLElement>(".duckmage-rt-list-item").forEach((el) =>
+              el.removeClass("is-active"),
+            );
+            item.addClass("is-active");
+          });
+        }
+      };
+
+      renderMapList("");
+      filterInput.addEventListener("input", () => renderMapList(filterInput.value));
+    }
+
+    // ── Create & link new map (collapsible) ──────────────────────────────
+    const createSection = contentEl.createDiv({ cls: "duckmage-editor-collapsible" });
+    const createHeader = createSection.createDiv({ cls: "duckmage-editor-collapsible-header" });
+    const createArrow = createHeader.createSpan({ cls: "duckmage-editor-collapsible-arrow", text: "▶" });
+    createHeader.createEl("h4", { text: "Create & link new map", cls: "duckmage-editor-collapsible-title" });
+
+    const createBody = createSection.createDiv({ cls: "duckmage-editor-collapsible-body" });
+    createBody.hide();
+
+    createHeader.addEventListener("click", () => {
+      const open = createBody.isShown();
+      createArrow.setText(open ? "▶" : "▼");
+      if (open) createBody.hide(); else createBody.show();
     });
 
-    const controlEl = mapLabel.createDiv({ cls: "setting-item-control" });
-    const comboWrap = controlEl.createDiv({ cls: "duckmage-link-combo" });
-    mapInput = comboWrap.createEl("input", {
+    // Name
+    const nameRow = createBody.createDiv({ cls: "duckmage-submap-create-row" });
+    nameRow.createSpan({ text: "Name", cls: "duckmage-submap-create-label" });
+    const nameInput = nameRow.createEl("input", {
       type: "text",
-      cls: "duckmage-link-combo-input",
-      attr: { placeholder: "Filter maps…" },
-    });
-    // Start blank — selectedMap is just the fallback for the Link action
-    mapInput.value = "";
-
-    comboWrap.createEl("button", {
-      text: "▾",
-      cls: "duckmage-link-combo-arrow",
-      attr: { title: "Show all" },
-    }).addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      if (dropdown.isShown()) closeDropdown();
-      else openDropdown(mapInput.value);
+      placeholder: "map-name",
+      cls: "duckmage-submap-create-name",
     });
 
-    const dropdown = comboWrap.createDiv({ cls: "duckmage-link-combo-dropdown" });
-    dropdown.hide();
+    // Size (cols × rows on one row)
+    const sizeRow = createBody.createDiv({ cls: "duckmage-submap-create-row" });
+    sizeRow.createSpan({ text: "Size", cls: "duckmage-submap-create-label" });
+    const colsInput = sizeRow.createEl("input", { type: "number", value: "20" });
+    colsInput.setCssProps({ width: "55px" });
+    sizeRow.createSpan({ text: "×", cls: "duckmage-submap-create-sep" });
+    const rowsInput = sizeRow.createEl("input", { type: "number", value: "16" });
+    rowsInput.setCssProps({ width: "55px" });
 
-    let isOpen = false;
+    // Palette
+    const paletteRow = createBody.createDiv({ cls: "duckmage-submap-create-row" });
+    paletteRow.createSpan({ text: "Palette", cls: "duckmage-submap-create-label" });
+    const paletteSelect = paletteRow.createEl("select", { cls: "duckmage-submap-create-palette" });
+    for (const pal of this.plugin.settings.terrainPalettes) {
+      paletteSelect.createEl("option", { value: pal.name, text: pal.name });
+    }
 
-    const populateDropdown = (query: string) => {
-      dropdown.empty();
-      const q = query.trim().toLowerCase();
-      const matches = maps.filter((m) => !q || m.name.toLowerCase().includes(q));
-      if (matches.length === 0) {
-        dropdown.createDiv({ cls: "duckmage-link-combo-empty", text: "No matching maps" });
-        return;
-      }
-      for (const m of matches) {
-        const item = dropdown.createDiv({ cls: "duckmage-link-combo-item" });
-        item.textContent = m.name;
-        item.addEventListener("mousedown", (e) => {
-          e.preventDefault();
-          selectedMap = m.name;
-          mapInput.value = m.name;
-          closeDropdown();
+    // Terrain type (updates when palette changes)
+    createBody.createEl("h5", { text: "Map terrain theme", cls: "duckmage-submap-terrain-heading" });
+    let selectedTerrainType: string | undefined;
+    const terrainGrid = createBody.createDiv({ cls: "duckmage-terrain-picker" });
+
+    const renderTerrainGrid = () => {
+      terrainGrid.empty();
+      selectedTerrainType = undefined;
+      const palette = this.plugin.getPaletteByName(paletteSelect.value)?.terrains ?? [];
+
+      const noneTile = terrainGrid.createDiv({
+        cls: "duckmage-terrain-option duckmage-terrain-option-clear is-selected",
+      });
+      noneTile.createDiv({ cls: "duckmage-terrain-preview duckmage-terrain-preview-clear" });
+      noneTile.createSpan({ text: "None", cls: "duckmage-terrain-option-name" });
+      noneTile.addEventListener("click", () => {
+        selectedTerrainType = undefined;
+        terrainGrid.querySelectorAll<HTMLElement>(".duckmage-terrain-option").forEach((el) =>
+          el.removeClass("is-selected"),
+        );
+        noneTile.addClass("is-selected");
+      });
+
+      for (const t of palette) {
+        const tile = terrainGrid.createDiv({ cls: "duckmage-terrain-option" });
+        const preview = tile.createDiv({ cls: "duckmage-terrain-preview" });
+        preview.setCssProps({ "background-color": t.color });
+        if (t.icon) {
+          createIconEl(
+            preview,
+            getIconUrl(this.plugin, t.icon),
+            t.name,
+            t.iconColor,
+            "duckmage-terrain-preview-icon",
+          );
+        }
+        tile.createSpan({ text: t.name, cls: "duckmage-terrain-option-name" });
+        tile.addEventListener("click", () => {
+          selectedTerrainType = t.name;
+          terrainGrid.querySelectorAll<HTMLElement>(".duckmage-terrain-option").forEach((el) =>
+            el.removeClass("is-selected"),
+          );
+          tile.addClass("is-selected");
         });
       }
     };
 
-    const scrollPane = comboWrap.closest<HTMLElement>(".modal-content");
+    renderTerrainGrid();
+    paletteSelect.addEventListener("change", renderTerrainGrid);
 
-    const openDropdown = (query: string) => {
-      isOpen = true;
-      populateDropdown(query);
-      scrollPane?.addClass("duckmage-combo-open");
-      dropdown.show();
-    };
-
-    const closeDropdown = () => {
-      isOpen = false;
-      dropdown.hide();
-      scrollPane?.removeClass("duckmage-combo-open");
-    };
-
-    mapInput.addEventListener("focus", () => openDropdown(""));
-    mapInput.addEventListener("blur", () => setTimeout(() => closeDropdown(), 150));
-    mapInput.addEventListener("input", () => {
-      if (!isOpen) openDropdown(mapInput.value);
-      else populateDropdown(mapInput.value);
+    // Create & link button
+    const createBtn = createBody.createEl("button", {
+      text: "Create & link",
+      cls: "mod-cta duckmage-submap-create-btn",
     });
-    mapInput.addEventListener("keydown", (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeDropdown();
-    });
+    const allInputs: (HTMLInputElement | HTMLSelectElement)[] = [
+      nameInput, colsInput, rowsInput, paletteSelect,
+    ];
+    createBtn.addEventListener("click", () =>
+      void this.handleCreateAndLink(
+        nameInput.value.trim(),
+        Number(colsInput.value) || 20,
+        Number(rowsInput.value) || 16,
+        paletteSelect.value,
+        selectedTerrainType,
+        createBtn,
+        allInputs,
+      ),
+    );
 
-    // ── Current submap indicator ──────────────────────────────────────────
-    if (this.current) {
-      new Setting(contentEl)
-        .setName("Current")
-        .setDesc(this.current);
+    // ── Bottom button row (Link existing + Cancel) ────────────────────────
+    const bottomRow = contentEl.createDiv({ cls: "duckmage-token-modal-buttons" });
+    if (maps.length > 0) {
+      if (this.current) {
+        bottomRow.createEl("button", { text: "Remove link", cls: "mod-warning" })
+          .addEventListener("click", () => { this.close(); this.onUnlink(); });
+      }
+      bottomRow.createEl("button", { text: "Link", cls: "mod-cta" })
+        .addEventListener("click", () => {
+          this.close();
+          this.onLink(selectedMap);
+        });
     }
-
-    // ── Buttons ───────────────────────────────────────────────────────────
-    const btnRow = contentEl.createDiv({ cls: "duckmage-token-modal-buttons" });
-
-    if (this.current) {
-      btnRow.createEl("button", { text: "Remove link", cls: "mod-warning" })
-        .addEventListener("click", () => { this.close(); this.onUnlink(); });
-    }
-
-    btnRow.createEl("button", { text: "Link", cls: "mod-cta" })
-      .addEventListener("click", () => {
-        const map = mapInput.value.trim() || selectedMap;
-        this.close();
-        this.onLink(map);
-      });
-
-    btnRow.createEl("button", { text: "Cancel" })
+    bottomRow.createEl("button", { text: "Cancel" })
       .addEventListener("click", () => this.close());
+  }
+
+  private async handleCreateAndLink(
+    raw: string,
+    cols: number,
+    rows: number,
+    paletteName: string,
+    terrainType: string | undefined,
+    btn: HTMLButtonElement,
+    inputs: (HTMLInputElement | HTMLSelectElement)[],
+  ): Promise<void> {
+    btn.setText("Creating…");
+    btn.disabled = true;
+    for (const input of inputs) input.disabled = true;
+
+    const result = await this.plugin.createNewMap(
+      raw, cols, rows, paletteName,
+      (done, total) => btn.setText(`Creating ${done} / ${total}…`),
+    );
+
+    if ("error" in result) {
+      new Notice(result.error);
+      btn.setText("Create & link");
+      btn.disabled = false;
+      for (const input of inputs) input.disabled = false;
+      return;
+    }
+
+    if (terrainType) {
+      const map = this.plugin.getMap(result.name);
+      if (map) {
+        map.terrainType = terrainType;
+        await this.plugin.saveSettings();
+      }
+    }
+
+    this.close();
+    this.onLink(result.name);
   }
 
   onClose(): void {

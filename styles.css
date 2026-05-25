@@ -777,6 +777,19 @@ input.duckmage-input-error {
     color: var(--text-muted);
 }
 
+.duckmage-terrain-preview-remove {
+    background: var(--background-modifier-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2em;
+    color: var(--color-red);
+}
+
+.duckmage-terrain-option-remove:hover .duckmage-terrain-preview-remove {
+    background: var(--background-modifier-error);
+}
+
 /* ── Terrain entry editor modal buttons ──────────────────────────── */
 .duckmage-tee-buttons {
     display: flex;
@@ -979,6 +992,11 @@ input.duckmage-input-error {
     border-color: var(--interactive-accent);
     color: var(--interactive-accent);
     background: var(--background-modifier-hover);
+}
+
+.duckmage-draw-btn.is-erase {
+    border-color: var(--color-red);
+    color: var(--color-red);
 }
 
 .duckmage-draw-btn-terrain,
@@ -2009,10 +2027,88 @@ tr.duckmage-row-hidden {
     background: var(--background-secondary);
 }
 
-.duckmage-table-picker-modal .duckmage-table-picker-list {
-    max-height: 420px;
-    overflow-y: auto;
-    margin-top: 8px;
+.duckmage-table-picker-topbar {
+    display: flex;
+    margin-bottom: 10px;
+}
+
+.duckmage-table-picker-view-btn {
+    font-size: var(--font-ui-small);
+    padding: 3px 8px;
+}
+
+.duckmage-table-picker-combo {
+    margin-bottom: 0;
+}
+
+.duckmage-table-picker-modal .duckmage-link-combo-dropdown {
+    max-height: 280px;
+}
+
+.duckmage-submap-picker-modal .duckmage-link-combo-dropdown {
+    max-height: 110px;
+}
+
+.modal.duckmage-submap-picker-modal {
+    min-height: 0;
+}
+
+.duckmage-submap-current-row {
+    font-size: 0.9em;
+    color: var(--text-muted);
+    margin-bottom: 0.5em;
+}
+
+.duckmage-submap-current-value {
+    color: var(--text-normal);
+    font-weight: 500;
+}
+
+.duckmage-submap-create-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    margin-bottom: 0.4em;
+}
+
+.duckmage-submap-create-label {
+    min-width: 56px;
+    font-size: 0.85em;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.duckmage-submap-create-name {
+    flex: 1;
+}
+
+.duckmage-submap-create-sep {
+    color: var(--text-muted);
+}
+
+.duckmage-submap-create-palette {
+    flex: 1;
+}
+
+.duckmage-submap-terrain-heading {
+    margin: 0.6em 0 0.3em;
+    font-size: 0.85em;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.duckmage-submap-create-btn {
+    width: 100%;
+    margin-top: 0.5em;
+}
+
+.duckmage-table-picker-new-heading {
+    margin: 16px 0 8px;
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
 }
 
 .duckmage-goto-modal .duckmage-goto-row {
@@ -2104,6 +2200,18 @@ tr.duckmage-row-hidden {
     flex: 1;
     overflow-y: auto;
     padding: 4px 0;
+}
+.duckmage-rt-list.duckmage-picker-list {
+    flex: unset;
+    max-height: 180px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+.duckmage-picker-list-empty {
+    padding: 8px 12px;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
 }
 
 .duckmage-rt-list-item {
@@ -3017,10 +3125,38 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
 .duckmage-map-list-item {
     cursor: default;
 }
+/* Flex row used in the submap picker list */
+.duckmage-map-list-item-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
 
-.duckmage-map-list-item > span:first-child {
+.duckmage-map-list-name {
     cursor: pointer;
     flex: 1;
+}
+
+.duckmage-map-terrain-swatch {
+    position: relative;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--background-modifier-border);
+    border: 1px solid var(--background-modifier-border-hover);
+    overflow: hidden;
+}
+.duckmage-map-terrain-swatch-icon {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.duckmage-map-terrain-swatch--set {
+    border-color: transparent;
 }
 
 .duckmage-map-delete-btn {
@@ -3479,6 +3615,19 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
 
 .duckmage-faction-tile:hover .duckmage-faction-tile-edit {
     opacity: 1;
+}
+
+.duckmage-faction-tile-preview-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4em;
+    color: var(--color-red);
+    background: var(--background-secondary);
+}
+
+.duckmage-faction-tile-remove:hover .duckmage-faction-tile-preview-remove {
+    background: var(--background-modifier-error);
 }
 
 /* Faction editor sub-modal */

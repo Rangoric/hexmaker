@@ -341,6 +341,12 @@ export class HexEditorModal extends HexmakerModal {
       const cy = isFlat ? 24 : 20;
       centre.setCssProps({ left: "24px", top: `${cy}px` });
       centre.title = `Submap: ${submap}`;
+      // Color the dot with the linked map's terrain type color (if configured)
+      const submapData = this.plugin.getMap(submap);
+      if (submapData?.terrainType) {
+        const terrainEntry = this.plugin.getMapPalette(submap).find((t) => t.name === submapData.terrainType);
+        if (terrainEntry?.color) centre.style.backgroundColor = terrainEntry.color;
+      }
       centre.addEventListener("click", () => {
         this.close();
         this.options.onSwitchMap?.(submap);
