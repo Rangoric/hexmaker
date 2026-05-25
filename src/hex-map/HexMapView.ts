@@ -45,6 +45,7 @@ import {
   removeTokenFrontmatter,
   setTokenHex,
 } from "../frontmatter";
+import { PainterContextMenu } from "./PainterContextMenu";
 
 type TerrainUndoEntry = {
   x: number;
@@ -100,7 +101,6 @@ export class HexMapView extends ItemView {
   private regionLinkBtnLabel: HTMLSpanElement | null = null;
   private paintRegionPath: string | null = null;
   private swapBtn: HTMLButtonElement | null = null;
-  private deselToolBtn: HTMLButtonElement | null = null;
   private overlayPanel: OverlayPanel | null = null;
   private toolsPanel: DrawingToolPanel | null = null;
   private swapSource: { x: number; y: number } | null = null;
@@ -392,9 +392,8 @@ export class HexMapView extends ItemView {
       { capture: true } as AddEventListenerOptions,
     );
 
-    // Right-click: on a hex in road/river mode → let onHexContextMenu handle the delete.
-    // Double-right-click off a hex → exit the active tool.
-    let lastOffHexRightClick = 0;
+    // Right-click: on a hex in path/faction/region mode → let onHexContextMenu handle delete.
+    // Otherwise (tool active) → show the painter context menu.
     this.registerDomEvent(
       contentEl,
       "contextmenu",
@@ -406,30 +405,9 @@ export class HexMapView extends ItemView {
           return;
         }
         if (this.drawingMode === null) return;
-        const onHex = (e.target as HTMLElement).closest(".duckmage-hex");
-        if (onHex && (this.drawingMode === "path" || this.drawingMode === "factionLink" || this.drawingMode === "regionLink")) return;
         e.preventDefault();
         e.stopPropagation();
-        const now = Date.now();
-        if (now - lastOffHexRightClick < 400) {
-          lastOffHexRightClick = 0;
-          if (this.drawingMode === "terrain") this.exitTerrainMode();
-          else if (this.drawingMode === "icon") this.exitIconMode();
-          else if (this.drawingMode === "tableLink") this.exitTableLinkMode();
-          else if (this.drawingMode === "factionLink")
-            this.exitFactionLinkMode();
-          else if (this.drawingMode === "regionLink")
-            this.exitRegionLinkMode();
-          else if (this.drawingMode === "swap") this.exitSwapMode();
-          else {
-            if (this.drawingMode === "path") this.exitPathMode();
-            this.drawingMode = null;
-            this.updateToolbarButtonStates();
-            this.updatePathOverlay();
-          }
-        } else {
-          lastOffHexRightClick = now;
-        }
+        this.showPainterContextMenu(e.clientX, e.clientY);
       },
       { capture: true } as AddEventListenerOptions,
     );
@@ -801,27 +779,6 @@ export class HexMapView extends ItemView {
   }
 
   private buildDrawingToolbarContent(toolbar: HTMLElement): void {
-    // "Deselect tool" button — visible only when a tool is active
-    this.deselToolBtn = toolbar.createEl("button", {
-      cls: "duckmage-desel-tool-btn",
-      text: "↩ map mode",
-    });
-    this.deselToolBtn.hide();
-    this.deselToolBtn.addEventListener("click", () => {
-      if (this.drawingMode === "terrain") this.exitTerrainMode();
-      else if (this.drawingMode === "icon") this.exitIconMode();
-      else if (this.drawingMode === "tableLink") this.exitTableLinkMode();
-      else if (this.drawingMode === "factionLink") this.exitFactionLinkMode();
-      else if (this.drawingMode === "swap") this.exitSwapMode();
-      else if (this.drawingMode === "placeToken") this.exitTokenMode();
-      else if (this.drawingMode === "path") {
-        this.exitPathMode();
-        this.drawingMode = null;
-        this.updateToolbarButtonStates();
-        this.updatePathOverlay();
-      }
-    });
-
     const centerHexBtn = toolbar.createEl("button", {
       cls: "duckmage-draw-btn duckmage-center-hex-btn",
       text: "Center hex",
@@ -898,6 +855,59 @@ export class HexMapView extends ItemView {
       text: "Token",
     });
     this.tokenBtn.addEventListener("click", () => this.handleTokenButton());
+  }
+
+  private showPainterContextMenu(clientX: number, clientY: number): void {
+    const mode = this.drawingMode;
+    let onSwitch: (() => void) | null = null;
+    let switchLabel = "Switch";
+
+    if (mode === "terrain") {
+      // handleTerrainButton always re-opens the picker even when terrain mode is active.
+      onSwitch = () => this.handleTerrainButton();
+      switchLabel = "Switch terrain";
+    } else if (mode === "icon") {
+      onSwitch = () => { this.exitIconMode(); this.handleIconButton(); };
+      switchLabel = "Switch icon";
+    } else if (mode === "tableLink") {
+      onSwitch = () => { this.exitTableLinkMode(); this.handleTableLinkButton(); };
+      switchLabel = "Switch table";
+    } else if (mode === "factionLink") {
+      // no switch — faction is set once when the tool is activated
+    } else if (mode === "regionLink") {
+      // no switch — region is set once when the tool is activated
+    } else if (mode === "path") {
+      onSwitch = () => {
+        this.exitPathMode();
+        this.drawingMode = null;
+        this.updateToolbarButtonStates();
+        this.updatePathOverlay();
+        this.handlePathButton();
+      };
+      switchLabel = "Switch path type";
+    } else if (mode === "placeToken") {
+      onSwitch = () => { this.exitTokenMode(); this.handleTokenButton(); };
+      switchLabel = "Switch token";
+    }
+    // swap: no picker → onSwitch stays null, menu shows only "Exit tool"
+
+    new PainterContextMenu(onSwitch, () => this.exitCurrentMode(), switchLabel).open(clientX, clientY);
+  }
+
+  private exitCurrentMode(): void {
+    if (this.drawingMode === "terrain") this.exitTerrainMode();
+    else if (this.drawingMode === "icon") this.exitIconMode();
+    else if (this.drawingMode === "tableLink") this.exitTableLinkMode();
+    else if (this.drawingMode === "factionLink") this.exitFactionLinkMode();
+    else if (this.drawingMode === "regionLink") this.exitRegionLinkMode();
+    else if (this.drawingMode === "swap") this.exitSwapMode();
+    else if (this.drawingMode === "placeToken") this.exitTokenMode();
+    else {
+      if (this.drawingMode === "path") this.exitPathMode();
+      this.drawingMode = null;
+      this.updateToolbarButtonStates();
+      this.updatePathOverlay();
+    }
   }
 
   private exitPathMode(): void {
@@ -1287,8 +1297,6 @@ export class HexMapView extends ItemView {
   }
 
   private updateToolbarButtonStates(): void {
-    if (this.drawingMode !== null) this.deselToolBtn?.show();
-    else this.deselToolBtn?.hide();
     this.pathToolbarBtn?.toggleClass("is-active", this.drawingMode === "path");
     // Update path button swatch color to show active type
     if (this.pathBtnSwatch) {

@@ -950,24 +950,6 @@ input.duckmage-input-error {
 
 /* ── Roads & Rivers toolbar ───────────────────────────────────────────────── */
 
-.duckmage-desel-tool-btn {
-    height: 26px;
-    padding: 0 10px;
-    border-radius: 4px;
-    background: var(--background-secondary);
-    border: 1px solid var(--interactive-accent);
-    color: var(--interactive-accent);
-    font-size: 0.75em;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-    width: 100%;
-}
-
-.duckmage-desel-tool-btn:hover {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-}
 
 .duckmage-draw-btn {
     height: 26px;
@@ -4305,4 +4287,31 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
     opacity: 1;
     background: color-mix(in srgb, var(--text-error) 18%, transparent);
     border-color: var(--text-error);
+}
+
+/* ── Painter tool context menu ───────────────────────────────────────────── */
+
+.duckmage-painter-ctx-menu {
+    position: fixed;
+    z-index: 1000;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    padding: 4px 0;
+    min-width: 130px;
+    font-size: var(--font-ui-small);
+    user-select: none;
+}
+
+.duckmage-painter-ctx-item {
+    padding: 6px 14px;
+    cursor: pointer;
+    color: var(--text-normal);
+    white-space: nowrap;
+}
+
+.duckmage-painter-ctx-item:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-accent);
 }
