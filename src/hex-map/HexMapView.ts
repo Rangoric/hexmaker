@@ -176,6 +176,11 @@ export class HexMapView extends ItemView {
     { x: number; y: number; icon: string | null }
   >();
   private flushing = new Set<string>(); // "t:<path>", "i:<path>", or "g:<path>"
+  // Per-map viewport state saved when navigating away; restored on return (or fit on first visit).
+  // fontSize must be saved alongside zoom/panX/panY because bakeZoom() encodes the visual zoom
+  // into viewportEl.style.fontSize and resets this.zoom to 1. Restoring without the fontSize
+  // would apply the wrong scale on the incoming map.
+  private mapViewport = new Map<string, { zoom: number; panX: number; panY: number; fontSize: string }>();
   // Faction links painted but not yet reflected in the metadata cache
   private pendingFactionLinks = new Map<string, Set<string>>();
   // Faction links erased but cache may still reflect them — excluded from overlay
@@ -234,10 +239,34 @@ export class HexMapView extends ItemView {
   }
 
   switchToMap(name: string): void {
+    // Save the departing map's viewport — including baked font size (see bakeZoom).
+    this.mapViewport.set(this.activeMapName, {
+      zoom: this.zoom,
+      panX: this.panX,
+      panY: this.panY,
+      fontSize: this.viewportEl?.style.fontSize ?? "",
+    });
+
     this.activeMapName = name;
     this.updateMapBtnLabel();
     this.refreshViewHeader();
-    this.renderGrid();
+
+    const stored = this.mapViewport.get(name);
+    if (stored) {
+      this.zoom = stored.zoom;
+      this.panX = stored.panX;
+      this.panY = stored.panY;
+      this.setViewportFontSize(stored.fontSize);
+      this.applyTransform();
+      this.renderGrid();
+    } else {
+      // First visit — reset any baked font size and fit the full grid into view.
+      this.zoom = 1; this.panX = 0; this.panY = 0;
+      this.setViewportFontSize("");
+      this.applyTransform();
+      this.renderGrid();
+      requestAnimationFrame(() => this.fitGridToView());
+    }
   }
 
   navigateToMap(name: string): void {
@@ -665,6 +694,7 @@ export class HexMapView extends ItemView {
     );
 
     this.renderGrid();
+    requestAnimationFrame(() => this.fitGridToView());
     return Promise.resolve();
   }
 
@@ -1608,12 +1638,35 @@ export class HexMapView extends ItemView {
     }
   }
 
+  private fitGridToView(): void {
+    const clipEl  = this.viewportEl?.parentElement;
+    const gridEl  = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid");
+    if (!clipEl || !gridEl) return;
+    // Measure at base font size (no baked zoom) so the scale calculation is clean.
+    this.setViewportFontSize("");
+    const clipW = clipEl.clientWidth;
+    const clipH = clipEl.clientHeight;
+    const gridW = gridEl.offsetWidth;
+    const gridH = gridEl.offsetHeight;
+    if (clipW === 0 || clipH === 0 || gridW === 0 || gridH === 0) return;
+    const raw = Math.min(clipW / gridW, clipH / gridH) * 0.92;
+    this.zoom  = Math.min(5, Math.max(0.2, raw));
+    this.panX  = (clipW - gridW * this.zoom) / 2;
+    this.panY  = (clipH - gridH * this.zoom) / 2;
+    this.applyTransform();
+  }
+
   private scheduleZoomBake(): void {
     if (this.zoomSettleTimer !== null) window.clearTimeout(this.zoomSettleTimer);
     this.zoomSettleTimer = window.setTimeout(() => {
       this.zoomSettleTimer = null;
       this.bakeZoom();
     }, 250);
+  }
+
+  private setViewportFontSize(fs: string): void {
+    if (!this.viewportEl) return;
+    this.viewportEl.style.fontSize = fs;
   }
 
   // Bake the current CSS scale() into the viewport's font-size so the DOM
@@ -1858,6 +1911,7 @@ export class HexMapView extends ItemView {
     const hexExists = this.app.vault.getAbstractFileByPath(hexPath) instanceof TFile;
     const terrain = hexExists ? getTerrainFromFile(this.app, hexPath) : null;
     const iconOverride = hexExists ? getIconOverrideFromFile(this.app, hexPath) : null;
+    const submap = hexExists ? getSubmapFromFile(this.app, hexPath) : undefined;
 
     const menu = new Menu();
 
@@ -1883,6 +1937,15 @@ export class HexMapView extends ItemView {
           if (file) await this.app.workspace.getLeaf().openFile(file);
         }),
     );
+
+    if (submap) {
+      menu.addItem((item) =>
+        item
+          .setTitle(`Open submap: ${submap}`)
+          .setIcon("map")
+          .onClick(() => this.navigateToMap(submap)),
+      );
+    }
 
     menu.addItem((item) =>
       item
