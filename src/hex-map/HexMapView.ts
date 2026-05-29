@@ -1839,8 +1839,8 @@ export class HexMapView extends ItemView {
       if (exists && !terrainEntry)
         hexEl.createSpan({ cls: "duckmage-hex-dot" });
 
-      hexEl.addEventListener("click", () => {
-        void this.onHexClick(x, y);
+      hexEl.addEventListener("click", (e) => {
+        void this.onHexClick(x, y, e);
       });
       hexEl.addEventListener("dblclick", () => {
         void this.onHexDblClick(x, y);
@@ -2068,7 +2068,7 @@ export class HexMapView extends ItemView {
     menu.showAtMouseEvent(evt);
   }
 
-  private async onHexClick(x: number, y: number): Promise<void> {
+  private async onHexClick(x: number, y: number, e?: MouseEvent): Promise<void> {
     if (this.drawingMode === "path") {
       if (this.isErasingMode) { await this.onHexPathDeleteClick(x, y); return; }
       await this.onHexPathDrawClick(x, y);
@@ -2097,6 +2097,21 @@ export class HexMapView extends ItemView {
     if (this.drawingMode === "placeToken") {
       await this.onHexTokenPlaceClick(x, y);
       return;
+    }
+
+    // Ctrl/Cmd+click with no active tool: open submap in a new tab if one is linked
+    if (e?.ctrlKey || e?.metaKey) {
+      const hexPath = this.plugin.hexPath(x, y, this.activeMapName);
+      const submap = getSubmapFromFile(this.app, hexPath);
+      if (submap) {
+        const leaf = this.app.workspace.getLeaf("tab");
+        void leaf.setViewState({ type: VIEW_TYPE_HEX_MAP }).then(() => {
+          if (leaf.view && "switchToMap" in leaf.view) {
+            (leaf.view as HexMapView).switchToMap(submap);
+          }
+        });
+        return;
+      }
     }
 
     this.openHexEditorModal(x, y);
