@@ -181,6 +181,7 @@ export class HexMapView extends ItemView {
   // into viewportEl.style.fontSize and resets this.zoom to 1. Restoring without the fontSize
   // would apply the wrong scale on the incoming map.
   private mapViewport = new Map<string, { zoom: number; panX: number; panY: number; fontSize: string }>();
+  private factionTooltipEl: HTMLElement | null = null;
   // Faction links painted but not yet reflected in the metadata cache
   private pendingFactionLinks = new Map<string, Set<string>>();
   // Faction links erased but cache may still reflect them — excluded from overlay
@@ -286,6 +287,15 @@ export class HexMapView extends ItemView {
     else this.backBtn?.hide();
   }
 
+  public switchMapFromModal(name: string): void {
+    this.exitTerrainMode();
+    this.exitPathMode();
+    this.undoStack = [];
+    this.redoStack = [];
+    this.updateUndoButton();
+    this.switchToMap(name);
+  }
+
   onOpen(): Promise<void> {
     // Initialise to the configured default map (falls back to first map or "default")
     this.activeMapName =
@@ -308,6 +318,9 @@ export class HexMapView extends ItemView {
 
     this.viewportEl = clipEl.createDiv({ cls: "duckmage-hex-map-viewport" });
     this.applyTransform();
+
+    this.factionTooltipEl = contentEl.createDiv({ cls: "duckmage-faction-tooltip" });
+    this.factionTooltipEl.hide();
 
     this.registerDomEvent(clipEl, "mouseleave", () => {
       this.updateBrushHighlight(null, null);
@@ -1735,6 +1748,7 @@ export class HexMapView extends ItemView {
     iconOverrides?: Map<string, string | null>,
   ): void {
     if (!this.viewportEl) return;
+    this.factionTooltipEl?.hide();
     this.viewportEl.empty();
 
     const gap = this.plugin.settings.hexGap?.trim() || "0.15";
@@ -1834,6 +1848,28 @@ export class HexMapView extends ItemView {
       hexEl.addEventListener("contextmenu", (evt) =>
         this.onHexContextMenu(evt, x, y),
       );
+      if (region.showFactionOverlay && this.factionTooltipEl) {
+        const tooltip = this.factionTooltipEl;
+        hexEl.addEventListener("mouseenter", (e: MouseEvent) => {
+          const factions = this.getFactionLinksFromCache(path);
+          if (factions.length === 0) { tooltip.hide(); return; }
+          tooltip.empty();
+          const factionsFolder = normalizeFolder(this.plugin.settings.factionsFolder);
+          for (const name of factions) {
+            const row = tooltip.createDiv({ cls: "duckmage-faction-tooltip-row" });
+            const fPath = factionsFolder ? `${factionsFolder}/${name}.md` : `${name}.md`;
+            const color = getFactionColorFromFile(this.app, fPath);
+            const swatch = row.createSpan({ cls: "duckmage-faction-tooltip-swatch" });
+            if (color) swatch.style.backgroundColor = color;
+            row.createSpan({ text: name, cls: "duckmage-faction-tooltip-name" });
+          }
+          const containerRect = this.contentEl.getBoundingClientRect();
+          tooltip.style.left = `${e.clientX - containerRect.left + 14}px`;
+          tooltip.style.top = `${e.clientY - containerRect.top + 8}px`;
+          tooltip.show();
+        });
+        hexEl.addEventListener("mouseleave", () => tooltip.hide());
+      }
     };
 
     if (isFlat) {

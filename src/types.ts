@@ -87,6 +87,10 @@ export interface HexmakerPluginSettings {
 	rollTableExcludedFolders: string[];
 	encounterTableExcludedFolders: string[];
 	defaultMap: string;
+	defaultNewMapCols: number;
+	defaultNewMapRows: number;
+	defaultSubmapCols: number;
+	defaultSubmapRows: number;
 	workflowsFolder: string;
 	hiddenIcons: string[];
 	iconOrder: string[];

@@ -1021,6 +1021,8 @@ export default class HexmakerPlugin extends Plugin {
     cols: number,
     rows: number,
     paletteName: string,
+    initialX = 0,
+    initialY = 0,
     onProgress?: (done: number, total: number) => void,
   ): Promise<{ name: string } | { error: string }> {
     const name = slugify(rawName);
@@ -1040,13 +1042,13 @@ export default class HexmakerPlugin extends Plugin {
       name,
       paletteName,
       gridSize: { cols, rows },
-      gridOffset: { x: 0, y: 0 },
+      gridOffset: { x: initialX, y: initialY },
       pathChains: [],
     });
     await this.saveSettings();
 
-    const xs = Array.from({ length: cols }, (_, i) => i);
-    const ys = Array.from({ length: rows }, (_, i) => i);
+    const xs = Array.from({ length: cols }, (_, i) => i + initialX);
+    const ys = Array.from({ length: rows }, (_, i) => i + initialY);
     const total = cols * rows;
     const created = await this.generateHexNotes(name, xs, ys, (done) =>
       onProgress?.(done, total),

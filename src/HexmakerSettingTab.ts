@@ -163,6 +163,50 @@ export class HexmakerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Default new map size")
+      .setDesc("Default columns and rows when creating a new top-level map.")
+      .addText((text) =>
+        text
+          .setPlaceholder("Cols")
+          .setValue(String(this.plugin.settings.defaultNewMapCols ?? 20))
+          .onChange(async (value) => {
+            const n = parseInt(value, 10);
+            if (n > 0) { this.plugin.settings.defaultNewMapCols = n; await this.plugin.saveSettings(); }
+          }),
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("Rows")
+          .setValue(String(this.plugin.settings.defaultNewMapRows ?? 16))
+          .onChange(async (value) => {
+            const n = parseInt(value, 10);
+            if (n > 0) { this.plugin.settings.defaultNewMapRows = n; await this.plugin.saveSettings(); }
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Default submap size")
+      .setDesc("Default columns and rows when creating a new submap.")
+      .addText((text) =>
+        text
+          .setPlaceholder("Cols")
+          .setValue(String(this.plugin.settings.defaultSubmapCols ?? 10))
+          .onChange(async (value) => {
+            const n = parseInt(value, 10);
+            if (n > 0) { this.plugin.settings.defaultSubmapCols = n; await this.plugin.saveSettings(); }
+          }),
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("Rows")
+          .setValue(String(this.plugin.settings.defaultSubmapRows ?? 10))
+          .onChange(async (value) => {
+            const n = parseInt(value, 10);
+            if (n > 0) { this.plugin.settings.defaultSubmapRows = n; await this.plugin.saveSettings(); }
+          }),
+      );
+
+    new Setting(containerEl)
       .setName("Custom icons folder")
       .setDesc(
         "Vault-relative folder containing additional icon images (PNG, JPG, SVG, etc.) for the terrain palette and hex icon override. These are merged with the built-in icons.",

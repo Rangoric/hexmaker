@@ -116,10 +116,10 @@ export class SubmapPickerModal extends HexmakerModal {
     // Size (cols × rows on one row)
     const sizeRow = createBody.createDiv({ cls: "duckmage-submap-create-row" });
     sizeRow.createSpan({ text: "Size", cls: "duckmage-submap-create-label" });
-    const colsInput = sizeRow.createEl("input", { type: "number", value: "20" });
+    const colsInput = sizeRow.createEl("input", { type: "number", value: String(this.plugin.settings.defaultSubmapCols ?? 10) });
     colsInput.setCssProps({ width: "55px" });
     sizeRow.createSpan({ text: "×", cls: "duckmage-submap-create-sep" });
-    const rowsInput = sizeRow.createEl("input", { type: "number", value: "16" });
+    const rowsInput = sizeRow.createEl("input", { type: "number", value: String(this.plugin.settings.defaultSubmapRows ?? 10) });
     rowsInput.setCssProps({ width: "55px" });
 
     // Palette
@@ -129,6 +129,15 @@ export class SubmapPickerModal extends HexmakerModal {
     for (const pal of this.plugin.settings.terrainPalettes) {
       paletteSelect.createEl("option", { value: pal.name, text: pal.name });
     }
+
+    // Starting coordinates
+    const originRow = createBody.createDiv({ cls: "duckmage-submap-create-row" });
+    originRow.createSpan({ text: "Start at", cls: "duckmage-submap-create-label" });
+    const originXInput = originRow.createEl("input", { type: "number", value: "0" });
+    originXInput.setCssProps({ width: "55px" });
+    originRow.createSpan({ text: ",", cls: "duckmage-submap-create-sep" });
+    const originYInput = originRow.createEl("input", { type: "number", value: "0" });
+    originYInput.setCssProps({ width: "55px" });
 
     // Terrain type (updates when palette changes)
     createBody.createEl("h5", { text: "Map terrain theme", cls: "duckmage-submap-terrain-heading" });
@@ -186,15 +195,17 @@ export class SubmapPickerModal extends HexmakerModal {
       cls: "mod-cta duckmage-submap-create-btn",
     });
     const allInputs: (HTMLInputElement | HTMLSelectElement)[] = [
-      nameInput, colsInput, rowsInput, paletteSelect,
+      nameInput, colsInput, rowsInput, paletteSelect, originXInput, originYInput,
     ];
     createBtn.addEventListener("click", () =>
       void this.handleCreateAndLink(
         nameInput.value.trim(),
-        Number(colsInput.value) || 20,
-        Number(rowsInput.value) || 16,
+        Number(colsInput.value) || 10,
+        Number(rowsInput.value) || 10,
         paletteSelect.value,
         selectedTerrainType,
+        Number(originXInput.value) || 0,
+        Number(originYInput.value) || 0,
         createBtn,
         allInputs,
       ),
@@ -223,6 +234,8 @@ export class SubmapPickerModal extends HexmakerModal {
     rows: number,
     paletteName: string,
     terrainType: string | undefined,
+    initialX: number,
+    initialY: number,
     btn: HTMLButtonElement,
     inputs: (HTMLInputElement | HTMLSelectElement)[],
   ): Promise<void> {
@@ -231,7 +244,7 @@ export class SubmapPickerModal extends HexmakerModal {
     for (const input of inputs) input.disabled = true;
 
     const result = await this.plugin.createNewMap(
-      raw, cols, rows, paletteName,
+      raw, cols, rows, paletteName, initialX, initialY,
       (done, total) => btn.setText(`Creating ${done} / ${total}…`),
     );
 
