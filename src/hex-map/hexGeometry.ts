@@ -11,10 +11,15 @@ export function hexNeighbors(
   x: number,
   y: number,
   orientation: "flat" | "pointy",
+  staggerOffset: "odd" | "even" = "odd",
 ): [number, number][] {
+  // isShifted = true when the hex sits on the staggered (shifted) row/col.
+  // Default "odd" stagger means odd cols (flat-top) or odd rows (pointy-top) are shifted.
+  const isShifted = (n: number) =>
+    staggerOffset === "odd" ? n % 2 !== 0 : n % 2 === 0;
+
   if (orientation === "flat") {
-    // Flat-top, odd-q offset (odd columns shifted down)
-    return x % 2 === 0
+    return !isShifted(x)
       ? [
           [x, y - 1],
           [x, y + 1],
@@ -32,8 +37,7 @@ export function hexNeighbors(
           [x - 1, y + 1],
         ];
   }
-  // Pointy-top, odd-r offset (odd rows shifted right)
-  return y % 2 === 0
+  return !isShifted(y)
     ? [
         [x + 1, y],
         [x - 1, y],

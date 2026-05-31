@@ -4562,3 +4562,28 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
     background: var(--background-modifier-hover);
     color: var(--text-accent);
 }
+
+/* ── Stagger offset toggle button ────────────────────────────────────────── */
+
+.duckmage-stagger-toggle {
+    font-size: 0.8em;
+    padding: 2px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--background-modifier-border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    min-width: 54px;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.duckmage-stagger-toggle:hover {
+    border-color: var(--interactive-accent);
+    color: var(--interactive-accent);
+}
+
+.duckmage-stagger-toggle.is-even {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}

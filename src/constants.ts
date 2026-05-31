@@ -315,6 +315,7 @@ export const DEFAULT_SETTINGS: HexmakerPluginSettings = {
   zoomLevel: 1,
   pathTypes: DEFAULT_PATH_TYPES,
   hexOrientation: "flat",
+  staggerOffset: "odd",
   tablesFolder: "world/tables",
   factionsFolder: "",
   regionsFolder: "",

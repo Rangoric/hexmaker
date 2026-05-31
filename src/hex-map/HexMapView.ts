@@ -1872,23 +1872,27 @@ export class HexMapView extends ItemView {
       }
     };
 
+    const stagger = this.getActiveStagger();
+    const isStaggered = (n: number) =>
+      stagger === "odd" ? n % 2 !== 0 : n % 2 === 0;
+
     if (isFlat) {
-      // Flat-top: iterate columns; odd columns shift down by half hex height
+      // Flat-top: iterate columns; staggered columns shift down by half hex height
       for (let i = 0; i < cols; i++) {
         const x = ox + i;
         const colEl = gridContainer.createDiv({
-          cls: `duckmage-hex-col${x % 2 !== 0 ? " duckmage-hex-col-offset" : ""}`,
+          cls: `duckmage-hex-col${isStaggered(x) ? " duckmage-hex-col-offset" : ""}`,
         });
         for (let j = 0; j < rows; j++) {
           addHex(colEl, x, oy + j);
         }
       }
     } else {
-      // Pointy-top: iterate rows; odd rows shift right by half hex width
+      // Pointy-top: iterate rows; staggered rows shift right by half hex width
       for (let j = 0; j < rows; j++) {
         const y = oy + j;
         const rowEl = gridContainer.createDiv({
-          cls: `duckmage-hex-row${y % 2 !== 0 ? " duckmage-hex-row-offset" : ""}`,
+          cls: `duckmage-hex-row${isStaggered(y) ? " duckmage-hex-row-offset" : ""}`,
         });
         for (let i = 0; i < cols; i++) {
           addHex(rowEl, ox + i, y);
@@ -2117,10 +2121,16 @@ export class HexMapView extends ItemView {
     this.openHexEditorModal(x, y);
   }
 
+  private getActiveStagger(): "odd" | "even" {
+    return this.getActiveMap().staggerOffset
+      ?? this.plugin.settings.staggerOffset
+      ?? "odd";
+  }
+
   private getBrushHexes(x: number, y: number): [number, number][] {
     const center: [number, number] = [x, y];
     if (this.paintBrushSize === 1) return [center];
-    const nb = hexNeighbors(x, y, this.plugin.settings.hexOrientation);
+    const nb = hexNeighbors(x, y, this.plugin.settings.hexOrientation, this.getActiveStagger());
     // nb[2] and nb[3] are always adjacent to each other AND to center in both
     // orientations (verified from offset tables), forming a compact triangle.
     if (this.paintBrushSize === 3) return [center, nb[2], nb[3]];
@@ -2954,6 +2964,7 @@ export class HexMapView extends ItemView {
         ax,
         ay,
         this.plugin.settings.hexOrientation,
+        this.getActiveStagger(),
       ).some(([nx, ny]) => nx === x && ny === y);
       if (isAdjacent) {
         let target: PathChain | undefined;

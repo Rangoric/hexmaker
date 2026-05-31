@@ -155,6 +155,22 @@ export class MapModal extends HexmakerModal {
         void this.renameMap(renameInput.value.trim(), renameBtn, renameInput);
     });
 
+    // Stagger offset
+    el.createEl("h4", { text: "Stagger offset" });
+    const staggerRow = el.createDiv({ cls: "duckmage-region-row" });
+    let propStaggerVal: "odd" | "even" = currentMap?.staggerOffset ?? this.plugin.settings.staggerOffset ?? "odd";
+    const propStaggerBtn = staggerRow.createEl("button", { cls: "duckmage-stagger-toggle" });
+    propStaggerBtn.setText(propStaggerVal === "odd" ? "Odd" : "Even");
+    propStaggerBtn.toggleClass("is-even", propStaggerVal === "even");
+    propStaggerBtn.addEventListener("click", () => {
+      if (!currentMap) return;
+      propStaggerVal = propStaggerVal === "odd" ? "even" : "odd";
+      propStaggerBtn.setText(propStaggerVal === "odd" ? "Odd" : "Even");
+      propStaggerBtn.toggleClass("is-even", propStaggerVal === "even");
+      currentMap.staggerOffset = propStaggerVal;
+      void this.plugin.saveSettings().then(() => this.onChanged());
+    });
+
     // Terrain theme
     el.createEl("h4", { text: "Terrain theme" });
     const terrainPalette = this.plugin.getMapPalette(this.view.activeMapName);
@@ -253,6 +269,19 @@ export class MapModal extends HexmakerModal {
       paletteSelect.createEl("option", { value: pal.name, text: pal.name });
     }
 
+    // Stagger offset
+    el.createEl("label", { text: "Stagger offset", cls: "duckmage-map-field-label" });
+    const staggerRow = el.createDiv({ cls: "duckmage-region-row" });
+    let staggerVal: "odd" | "even" = this.plugin.settings.staggerOffset ?? "odd";
+    const staggerBtn = staggerRow.createEl("button", { cls: "duckmage-stagger-toggle" });
+    staggerBtn.setText(staggerVal === "odd" ? "Odd" : "Even");
+    staggerBtn.toggleClass("is-even", staggerVal === "even");
+    staggerBtn.addEventListener("click", () => {
+      staggerVal = staggerVal === "odd" ? "even" : "odd";
+      staggerBtn.setText(staggerVal === "odd" ? "Odd" : "Even");
+      staggerBtn.toggleClass("is-even", staggerVal === "even");
+    });
+
     // Starting coordinates
     el.createEl("label", { text: "Starting coordinates", cls: "duckmage-map-field-label" });
     el.createEl("p", {
@@ -281,6 +310,7 @@ export class MapModal extends HexmakerModal {
         paletteSelect.value,
         Number(originXInput.value) || 0,
         Number(originYInput.value) || 0,
+        staggerVal,
         createBtn,
         allInputs,
       );
@@ -384,6 +414,7 @@ export class MapModal extends HexmakerModal {
     paletteName: string,
     initialX: number,
     initialY: number,
+    staggerOffset: "odd" | "even",
     btn: HTMLButtonElement,
     inputs: (HTMLInputElement | HTMLSelectElement)[],
   ): Promise<void> {
@@ -392,7 +423,7 @@ export class MapModal extends HexmakerModal {
     for (const input of inputs) input.disabled = true;
 
     const result = await this.plugin.createNewMap(
-      raw, cols, rows, paletteName, initialX, initialY,
+      raw, cols, rows, paletteName, initialX, initialY, staggerOffset,
       (done, total) => btn.setText(`Generating ${done} / ${total}…`),
     );
 

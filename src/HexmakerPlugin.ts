@@ -1023,6 +1023,7 @@ export default class HexmakerPlugin extends Plugin {
     paletteName: string,
     initialX = 0,
     initialY = 0,
+    staggerOffset?: "odd" | "even",
     onProgress?: (done: number, total: number) => void,
   ): Promise<{ name: string } | { error: string }> {
     const name = slugify(rawName);
@@ -1044,6 +1045,7 @@ export default class HexmakerPlugin extends Plugin {
       gridSize: { cols, rows },
       gridOffset: { x: initialX, y: initialY },
       pathChains: [],
+      staggerOffset,
     });
     await this.saveSettings();
 

@@ -46,6 +46,7 @@ export interface MapData {
 	showRegionOverlay?: boolean;  // undefined = false (opt-in)
 	showGmLayer?: boolean;        // undefined = true (on by default)
 	showTokens?: boolean;         // undefined = true (on by default)
+	staggerOffset?: "odd" | "even"; // undefined = inherit global setting
 }
 
 export interface TerrainPalette {
@@ -77,6 +78,7 @@ export interface HexmakerPluginSettings {
 	zoomLevel: number;
 	pathTypes: PathType[];
 	hexOrientation: "pointy" | "flat";
+	staggerOffset: "odd" | "even";
 	tablesFolder: string;
 	factionsFolder: string;
 	regionsFolder: string;

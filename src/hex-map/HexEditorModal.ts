@@ -280,6 +280,13 @@ export class HexEditorModal extends HexmakerModal {
     y: number,
   ): void {
     const isFlat = this.plugin.settings.hexOrientation === "flat";
+    const stagger =
+      this.plugin.getMap(this.mapName)?.staggerOffset
+      ?? this.plugin.settings.staggerOffset
+      ?? "odd";
+    // notShifted = the hex sits on the non-staggered (un-shifted) row/col.
+    const notShifted = (n: number) =>
+      stagger === "odd" ? n % 2 === 0 : n % 2 !== 0;
     const paletteMap = new Map(
       this.plugin.getMapPalette(this.mapName).map((p) => [p.name, p]),
     );
@@ -289,19 +296,19 @@ export class HexEditorModal extends HexmakerModal {
     const defs: NeighborDef[] = isFlat
       ? [
           { l: 22, t: 2, nx: x, ny: y - 1 }, // N
-          { l: 42, t: 13, nx: x + 1, ny: x % 2 === 0 ? y - 1 : y }, // NE
-          { l: 42, t: 32, nx: x + 1, ny: x % 2 === 0 ? y : y + 1 }, // SE
+          { l: 42, t: 13, nx: x + 1, ny: notShifted(x) ? y - 1 : y }, // NE
+          { l: 42, t: 32, nx: x + 1, ny: notShifted(x) ? y : y + 1 }, // SE
           { l: 22, t: 40, nx: x, ny: y + 1 }, // S
-          { l: 2, t: 32, nx: x - 1, ny: x % 2 === 0 ? y : y + 1 }, // SW
-          { l: 2, t: 13, nx: x - 1, ny: x % 2 === 0 ? y - 1 : y }, // NW
+          { l: 2, t: 32, nx: x - 1, ny: notShifted(x) ? y : y + 1 }, // SW
+          { l: 2, t: 13, nx: x - 1, ny: notShifted(x) ? y - 1 : y }, // NW
         ]
       : [
-          { l: 10, t: 1, nx: y % 2 === 0 ? x - 1 : x, ny: y - 1 }, // NW
-          { l: 34, t: 1, nx: y % 2 === 0 ? x : x + 1, ny: y - 1 }, // NE
+          { l: 10, t: 1, nx: notShifted(y) ? x - 1 : x, ny: y - 1 }, // NW
+          { l: 34, t: 1, nx: notShifted(y) ? x : x + 1, ny: y - 1 }, // NE
           { l: 0, t: 18, nx: x - 1, ny: y }, // W
           { l: 44, t: 18, nx: x + 1, ny: y }, // E
-          { l: 10, t: 35, nx: y % 2 === 0 ? x - 1 : x, ny: y + 1 }, // SW
-          { l: 34, t: 35, nx: y % 2 === 0 ? x : x + 1, ny: y + 1 }, // SE
+          { l: 10, t: 35, nx: notShifted(y) ? x - 1 : x, ny: y + 1 }, // SW
+          { l: 34, t: 35, nx: notShifted(y) ? x : x + 1, ny: y + 1 }, // SE
         ];
 
     for (const { l, t, nx, ny } of defs) {

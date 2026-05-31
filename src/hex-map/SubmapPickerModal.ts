@@ -139,6 +139,19 @@ export class SubmapPickerModal extends HexmakerModal {
     const originYInput = originRow.createEl("input", { type: "number", value: "0" });
     originYInput.setCssProps({ width: "55px" });
 
+    // Stagger offset
+    const staggerRow = createBody.createDiv({ cls: "duckmage-submap-create-row" });
+    staggerRow.createSpan({ text: "Stagger", cls: "duckmage-submap-create-label" });
+    let staggerVal: "odd" | "even" = this.plugin.settings.staggerOffset ?? "odd";
+    const staggerBtn = staggerRow.createEl("button", { cls: "duckmage-stagger-toggle" });
+    staggerBtn.setText(staggerVal === "odd" ? "Odd" : "Even");
+    staggerBtn.toggleClass("is-even", staggerVal === "even");
+    staggerBtn.addEventListener("click", () => {
+      staggerVal = staggerVal === "odd" ? "even" : "odd";
+      staggerBtn.setText(staggerVal === "odd" ? "Odd" : "Even");
+      staggerBtn.toggleClass("is-even", staggerVal === "even");
+    });
+
     // Terrain type (updates when palette changes)
     createBody.createEl("h5", { text: "Map terrain theme", cls: "duckmage-submap-terrain-heading" });
     let selectedTerrainType: string | undefined;
@@ -206,6 +219,7 @@ export class SubmapPickerModal extends HexmakerModal {
         selectedTerrainType,
         Number(originXInput.value) || 0,
         Number(originYInput.value) || 0,
+        staggerVal,
         createBtn,
         allInputs,
       ),
@@ -236,6 +250,7 @@ export class SubmapPickerModal extends HexmakerModal {
     terrainType: string | undefined,
     initialX: number,
     initialY: number,
+    staggerOffset: "odd" | "even",
     btn: HTMLButtonElement,
     inputs: (HTMLInputElement | HTMLSelectElement)[],
   ): Promise<void> {
@@ -244,7 +259,7 @@ export class SubmapPickerModal extends HexmakerModal {
     for (const input of inputs) input.disabled = true;
 
     const result = await this.plugin.createNewMap(
-      raw, cols, rows, paletteName, initialX, initialY,
+      raw, cols, rows, paletteName, initialX, initialY, staggerOffset,
       (done, total) => btn.setText(`Creating ${done} / ${total}…`),
     );
 

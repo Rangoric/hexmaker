@@ -149,6 +149,25 @@ export class HexmakerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Stagger offset")
+      .setDesc(
+        "Which set of columns (flat-top) or rows (pointy-top) is offset by half a hex. Affects how new maps render unless overridden per-map.",
+      )
+      .then((setting) => {
+        let val: "odd" | "even" = this.plugin.settings.staggerOffset ?? "odd";
+        const btn = setting.controlEl.createEl("button", { cls: "duckmage-stagger-toggle" });
+        btn.setText(val === "odd" ? "Odd" : "Even");
+        btn.toggleClass("is-even", val === "even");
+        btn.addEventListener("click", () => {
+          val = val === "odd" ? "even" : "odd";
+          btn.setText(val === "odd" ? "Odd" : "Even");
+          btn.toggleClass("is-even", val === "even");
+          this.plugin.settings.staggerOffset = val;
+          void this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
       .setName("Hex cell spacing")
       .setDesc("Gap between hex cells (0 – 0.5 em).")
       .addSlider((slider) =>
