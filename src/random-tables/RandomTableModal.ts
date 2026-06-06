@@ -269,7 +269,7 @@ export class RandomTableModal extends HexmakerModal {
         e.stopPropagation();
         void navigator.clipboard.writeText(entry.result);
         copyBtn.setText("✓");
-        setTimeout(() => copyBtn.setText("⎘"), 1200);
+        window.setTimeout(() => copyBtn.setText("⎘"), 1200);
       });
     });
 

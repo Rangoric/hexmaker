@@ -317,10 +317,8 @@ async function writeBinaryToVault(
   path: string,
   data: Uint8Array,
 ): Promise<void> {
-  const buf = data.buffer.slice(
-    data.byteOffset,
-    data.byteOffset + data.byteLength,
-  ) as ArrayBuffer;
+  const buf = new ArrayBuffer(data.byteLength);
+  new Uint8Array(buf).set(data);
   const existing = app.vault.getAbstractFileByPath(path);
   if (existing instanceof TFile) {
     await app.vault.modifyBinary(existing, buf);

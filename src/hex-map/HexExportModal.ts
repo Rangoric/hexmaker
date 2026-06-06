@@ -66,12 +66,10 @@ export class HexExportModal extends HexmakerModal {
       cls: "duckmage-export-tab-checkbox",
     });
     gmCb.checked = false;
-    /* eslint-disable obsidianmd/ui/sentence-case -- GM is an acronym; Hidden/Secret are section names */
     gmRow.createEl("label", {
-      text: "Include GM-only sections (Hidden, Secret)",
+      text: "Include game master only sections (hidden, secret)",
       cls: "duckmage-export-tab-label",
     });
-    /* eslint-enable obsidianmd/ui/sentence-case */
     gmRow.addEventListener("click", (e) => {
       if (e.target instanceof HTMLInputElement) return;
       gmCb.checked = !gmCb.checked;

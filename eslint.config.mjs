@@ -14,6 +14,9 @@ export default defineConfig([
     languageOptions: {
       globals: {
         ...globals.browser,
+        // Obsidian-injected globals for popout-window-aware code
+        activeDocument: "readonly",
+        activeWindow: "readonly",
       },
       parser: tsparser,
       parserOptions: { project: "./tsconfig.json" },

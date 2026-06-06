@@ -1,6 +1,6 @@
 {
   "name": "hexmaker-plugin",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "A plugin to power hex crawl worldbuilding and running.",
   "main": "main.js",
   "scripts": {

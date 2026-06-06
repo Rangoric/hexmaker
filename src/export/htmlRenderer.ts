@@ -2,7 +2,7 @@
  * HTML rendering primitive — markdown to a {@link RenderedDoc} ready for printToPDF.
  *
  * Uses Obsidian's own `MarkdownRenderer.render()` so the export matches the
- * user's installed theme. CSS is captured by walking `document.styleSheets`.
+ * user's installed theme. CSS is captured by walking `activeDocument.styleSheets`.
  */
 
 import { App, Component, MarkdownRenderer } from "obsidian";
@@ -29,7 +29,7 @@ export async function renderMarkdownToHtml(
   const { app, title, sourcePath, markdown } = opts;
 
   // Off-screen container so MarkdownRenderer.render has a real DOM target.
-  const container = document.body.createDiv({
+  const container = activeDocument.body.createDiv({
     cls: "duckmage-export-render-host markdown-preview-view markdown-rendered",
   });
   const component = new Component();
@@ -49,13 +49,13 @@ export async function renderMarkdownToHtml(
 }
 
 /**
- * Walk `document.styleSheets` and concatenate all readable CSS rules.
+ * Walk `activeDocument.styleSheets` and concatenate all readable CSS rules.
  * Skips Svelte-injected sheets (transient, irrelevant) and silently skips
  * sheets that throw on cssRules access (CORS).
  */
 function captureStyles(): string {
   const parts: string[] = [];
-  for (const sheet of Array.from(document.styleSheets)) {
+  for (const sheet of Array.from(activeDocument.styleSheets)) {
     const node = sheet.ownerNode as Element | null;
     const id = node?.getAttribute("id") ?? "";
     if (id.startsWith("svelte-")) continue;

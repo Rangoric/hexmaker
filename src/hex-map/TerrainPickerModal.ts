@@ -123,7 +123,7 @@ export class TerrainPickerModal extends HexmakerModal {
     for (const entry of this.palette) {
       const btn = grid.createDiv({ cls: "duckmage-terrain-option" });
       const preview = btn.createDiv({ cls: "duckmage-terrain-preview" });
-      preview.setCssProps({ 'background-color': entry.color });
+      preview.setCssProps({ '--duckmage-bg': entry.color });
       if (entry.icon) {
         createIconEl(preview, getIconUrl(this.plugin, entry.icon), entry.name, entry.iconColor, "duckmage-terrain-preview-icon");
       }
@@ -175,7 +175,7 @@ export class TerrainPickerModal extends HexmakerModal {
 
         // Standard colored preview + icon (same as pick mode)
         const preview = tile.createDiv({ cls: "duckmage-terrain-preview" });
-        preview.setCssProps({ 'background-color': entry.color });
+        preview.setCssProps({ '--duckmage-bg': entry.color });
         if (entry.icon) {
           createIconEl(preview, getIconUrl(this.plugin, entry.icon), entry.name, entry.iconColor, "duckmage-terrain-preview-icon");
         }

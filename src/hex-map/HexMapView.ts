@@ -266,7 +266,7 @@ export class HexMapView extends ItemView {
       this.setViewportFontSize("");
       this.applyTransform();
       this.renderGrid();
-      requestAnimationFrame(() => this.fitGridToView());
+      window.requestAnimationFrame(() => this.fitGridToView());
     }
   }
 
@@ -425,9 +425,9 @@ export class HexMapView extends ItemView {
       this.viewportEl?.addClass("is-dragging");
     });
 
-    this.registerDomEvent(document, "mousemove", (e: MouseEvent) => {
+    this.registerDomEvent(activeDocument, "mousemove", (e: MouseEvent) => {
       if (isTerrainPainting) {
-        const el = document.elementFromPoint(
+        const el = activeDocument.elementFromPoint(
           e.clientX,
           e.clientY,
         ) as HTMLElement | null;
@@ -450,7 +450,7 @@ export class HexMapView extends ItemView {
         return;
       }
       if (this.drawingMode === "terrain" || this.drawingMode === "icon") {
-        const el = document.elementFromPoint(
+        const el = activeDocument.elementFromPoint(
           e.clientX,
           e.clientY,
         ) as HTMLElement | null;
@@ -478,7 +478,7 @@ export class HexMapView extends ItemView {
       }
     });
 
-    this.registerDomEvent(document, "mouseup", () => {
+    this.registerDomEvent(activeDocument, "mouseup", () => {
       if (isTerrainPainting) {
         if (this.drawingMode === "terrain") this.commitTerrainStroke();
         else if (this.drawingMode === "icon") this.commitIconStroke();
@@ -615,7 +615,7 @@ export class HexMapView extends ItemView {
 
     this.backBtn = mapNavGroup.createEl("button", {
       cls: "duckmage-map-back-btn",
-      text: "← Back", // eslint-disable-line obsidianmd/ui/sentence-case
+      text: "← back",
       title: "Back to previous map",
     });
     this.backBtn.hide();
@@ -707,7 +707,7 @@ export class HexMapView extends ItemView {
     );
 
     this.renderGrid();
-    requestAnimationFrame(() => this.fitGridToView());
+    window.requestAnimationFrame(() => this.fitGridToView());
     return Promise.resolve();
   }
 
@@ -1439,7 +1439,7 @@ export class HexMapView extends ItemView {
       flushKeys.some((k) => this.flushing.has(k)) &&
       Date.now() < deadline
     ) {
-      await new Promise<void>((r) => setTimeout(r, 30));
+      await new Promise<void>((r) => window.setTimeout(r, 30));
     }
 
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -1454,7 +1454,7 @@ export class HexMapView extends ItemView {
           this.renderGrid();
           return;
         }
-        await new Promise<void>((r) => setTimeout(r, 300));
+        await new Promise<void>((r) => window.setTimeout(r, 300));
       }
     }
 
@@ -1498,7 +1498,7 @@ export class HexMapView extends ItemView {
         : this.plugin.settings.pathTypes[0];
       if (activeType) {
         this.pathBtnSwatch.setCssProps({
-          "background-color": activeType.color,
+          "--duckmage-bg": activeType.color,
         });
         this.pathBtnSwatch.show();
       } else {
@@ -1549,19 +1549,16 @@ export class HexMapView extends ItemView {
     if (this.drawingMode === "terrain") {
       if (this.terrainPickMode) {
         // Eyedropper waiting for a click — show ⌖ as the preview
-        if (this.terrainToolbarBtn) {
-          this.terrainToolbarBtn.setCssProps({
-            "border-color": "var(--interactive-accent)",
-            color: "var(--interactive-accent)",
-          });
-        }
+        this.terrainToolbarBtn?.removeClass("is-terrain-preview");
+        this.terrainToolbarBtn?.addClass("is-eyedropper-active");
         if (this.terrainBtnPreview) {
-          this.terrainBtnPreview.setCssProps({ "background-color": "" });
+          this.terrainBtnPreview.setCssProps({ "--duckmage-bg": "" });
           this.terrainBtnPreview.show();
           this.terrainBtnPreview.textContent = "⌖";
         }
       } else {
         if (this.terrainBtnPreview) this.terrainBtnPreview.textContent = "";
+        this.terrainToolbarBtn?.removeClass("is-eyedropper-active");
         const entry = this.paintTerrainName
           ? this.plugin
               .getMapPalette(this.activeMapName)
@@ -1569,28 +1566,28 @@ export class HexMapView extends ItemView {
           : undefined;
         if (entry) {
           if (this.terrainToolbarBtn) {
-            this.terrainToolbarBtn.setCssProps({ "border-color": entry.color });
+            this.terrainToolbarBtn.addClass("is-terrain-preview");
+            this.terrainToolbarBtn.setCssProps({
+              "--duckmage-border-color": entry.color,
+            });
           }
           if (this.terrainBtnPreview) {
             this.terrainBtnPreview.setCssProps({
-              "background-color": entry.color,
+              "--duckmage-bg": entry.color,
             });
             this.terrainBtnPreview.show();
           }
         } else {
           // Clear mode — show active state without a color
-          if (this.terrainToolbarBtn) {
-            this.terrainToolbarBtn.setCssProps({ "border-color": "" });
-          }
+          this.terrainToolbarBtn?.removeClass("is-terrain-preview");
           if (this.terrainBtnPreview) {
             this.terrainBtnPreview.hide();
           }
         }
       }
     } else {
-      if (this.terrainToolbarBtn) {
-        this.terrainToolbarBtn.setCssProps({ "border-color": "", color: "" });
-      }
+      this.terrainToolbarBtn?.removeClass("is-terrain-preview");
+      this.terrainToolbarBtn?.removeClass("is-eyedropper-active");
       if (this.terrainBtnPreview) {
         this.terrainBtnPreview.hide();
       }
@@ -1918,7 +1915,7 @@ export class HexMapView extends ItemView {
         if (t !== undefined || i !== undefined) {
           this.renderGrid(t, i);
         } else {
-          setTimeout(() => this.renderGrid(), 300);
+          window.setTimeout(() => this.renderGrid(), 300);
         }
       },
       {
@@ -2731,7 +2728,7 @@ export class HexMapView extends ItemView {
         while (true) {
           if (attempt > 0)
             await new Promise<void>((r) =>
-              setTimeout(r, Math.min(200 * (1 << (attempt - 1)), 2000)),
+              window.setTimeout(r, Math.min(200 * (1 << (attempt - 1)), 2000)),
             );
           try {
             const onDisk = !!this.app.vault.getAbstractFileByPath(path);
@@ -2798,7 +2795,7 @@ export class HexMapView extends ItemView {
         while (true) {
           if (attempt > 0)
             await new Promise<void>((r) =>
-              setTimeout(r, Math.min(200 * (1 << (attempt - 1)), 2000)),
+              window.setTimeout(r, Math.min(200 * (1 << (attempt - 1)), 2000)),
             );
           try {
             const onDisk = !!this.app.vault.getAbstractFileByPath(path);
@@ -2861,7 +2858,7 @@ export class HexMapView extends ItemView {
         while (true) {
           if (attempt > 0)
             await new Promise<void>((r) =>
-              setTimeout(r, Math.min(200 * (1 << (attempt - 1)), 2000)),
+              window.setTimeout(r, Math.min(200 * (1 << (attempt - 1)), 2000)),
             );
           try {
             const onDisk = !!this.app.vault.getAbstractFileByPath(path);
@@ -3105,7 +3102,7 @@ export class HexMapView extends ItemView {
       });
 
     const svgNS = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(svgNS, "svg");
+    const svg = activeDocument.createElementNS(svgNS, "svg");
     svg.classList.add("duckmage-path-svg");
     const w = gridContainer.offsetLeft + gridContainer.offsetWidth + 20;
     const h = gridContainer.offsetTop + gridContainer.offsetHeight + 20;
@@ -3125,7 +3122,7 @@ export class HexMapView extends ItemView {
       dashArray = "",
       smooth = true,
     ) => {
-      const path = document.createElementNS(svgNS, "path");
+      const path = activeDocument.createElementNS(svgNS, "path");
       path.setAttribute("d", smooth ? smoothPath(pts) : sharpPath(pts));
       path.setAttribute("stroke", color);
       path.setAttribute("stroke-width", String(strokeWidth));
@@ -3174,7 +3171,7 @@ export class HexMapView extends ItemView {
       const color = activeType?.color ?? "#888888";
       const pos = centerMap.get(this.activePathEnd);
       if (pos) {
-        const circle = document.createElementNS(svgNS, "circle");
+        const circle = activeDocument.createElementNS(svgNS, "circle");
         circle.setAttribute("cx", String(pos.cx));
         circle.setAttribute("cy", String(pos.cy));
         circle.setAttribute("r", "5");
@@ -3199,7 +3196,7 @@ export class HexMapView extends ItemView {
           origImg.hide();
           origImg.setAttribute("data-svg-elevated", "1");
         }
-        const imgEl = document.createElementNS(svgNS, "image");
+        const imgEl = activeDocument.createElementNS(svgNS, "image");
         const iconW = hexEl.offsetWidth * 0.78;
         const iconH = hexEl.offsetHeight * 0.78;
         imgEl.setAttribute("x", String(pos.cx - iconW / 2));
@@ -3222,7 +3219,7 @@ export class HexMapView extends ItemView {
         const pos = centerMap.get(`${x}_${y}`);
         if (!pos) return;
         const hasTerrain = !!hexEl.style.backgroundColor;
-        const textEl = document.createElementNS(svgNS, "text");
+        const textEl = activeDocument.createElementNS(svgNS, "text");
         textEl.setAttribute("x", String(pos.cx));
         // Nudge label toward bottom of hex (same visual position as the HTML label)
         textEl.setAttribute("y", String(pos.cy + hexEl.offsetHeight * 0.28));
@@ -3257,7 +3254,7 @@ export class HexMapView extends ItemView {
           const pos = centerMap.get(key);
           if (!pos) return;
           const size = Math.round(hexEl.offsetWidth * 0.38);
-          const imgEl = document.createElementNS(svgNS, "image");
+          const imgEl = activeDocument.createElementNS(svgNS, "image");
           imgEl.setAttribute("x", String(pos.cx + hexEl.offsetWidth * 0.12));
           imgEl.setAttribute("y", String(pos.cy - hexEl.offsetHeight * 0.46));
           imgEl.setAttribute("width", String(size));
@@ -3360,7 +3357,7 @@ export class HexMapView extends ItemView {
 
     // ── SVG setup ─────────────────────────────────────────────────────────────
     const svgNS = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(svgNS, "svg");
+    const svg = activeDocument.createElementNS(svgNS, "svg");
     svg.classList.add("duckmage-faction-svg");
     const w = gridContainer.offsetLeft + gridContainer.offsetWidth + 20;
     const h = gridContainer.offsetTop + gridContainer.offsetHeight + 20;
@@ -3458,7 +3455,7 @@ export class HexMapView extends ItemView {
       if (rings.length === 0) continue;
 
       // ── Render filled blob(s) ─────────────────────────────────────────────
-      const g = document.createElementNS(svgNS, "g");
+      const g = activeDocument.createElementNS(svgNS, "g");
       g.setAttribute("opacity", "0.45");
       svg.appendChild(g);
 
@@ -3470,7 +3467,7 @@ export class HexMapView extends ItemView {
                 `${i === 0 ? "M" : "L"}${c[0].toFixed(1)},${c[1].toFixed(1)}`,
             )
             .join(" ") + " Z";
-        const path = document.createElementNS(svgNS, "path");
+        const path = activeDocument.createElementNS(svgNS, "path");
         path.setAttribute("d", d);
         path.setAttribute("fill", color);
         path.setAttribute("stroke", color);
@@ -3691,7 +3688,7 @@ export class HexMapView extends ItemView {
 
     // ── SVG setup ───────────────────────────────────────────────────────────
     const svgNS = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(svgNS, "svg");
+    const svg = activeDocument.createElementNS(svgNS, "svg");
     svg.classList.add("duckmage-region-svg");
     const svgW = gridContainer.offsetLeft + gridContainer.offsetWidth + 40;
     const svgH = gridContainer.offsetTop + gridContainer.offsetHeight + 40;
@@ -3806,7 +3803,7 @@ export class HexMapView extends ItemView {
       }
 
       // ── Render filled blob(s) ───────────────────────────────────────────
-      const g = document.createElementNS(svgNS, "g");
+      const g = activeDocument.createElementNS(svgNS, "g");
       g.setAttribute("opacity", "0.45");
       svg.appendChild(g);
 
@@ -3818,7 +3815,7 @@ export class HexMapView extends ItemView {
                 `${i === 0 ? "M" : "L"}${c[0].toFixed(1)},${c[1].toFixed(1)}`,
             )
             .join(" ") + " Z";
-        const path = document.createElementNS(svgNS, "path");
+        const path = activeDocument.createElementNS(svgNS, "path");
         path.setAttribute("d", d);
         path.setAttribute("fill", color);
         // Stroke bridges the inter-hex gap; round joins/caps smooth blob edges
@@ -3833,7 +3830,7 @@ export class HexMapView extends ItemView {
       // ── Region name label (full opacity, above fill) ────────────────────
       // Font size scales with sqrt(hexCount) so larger regions get bigger labels
       const fontSize = Math.round(Math.min(10 + 3 * Math.sqrt(n), 52));
-      const text = document.createElementNS(svgNS, "text");
+      const text = activeDocument.createElementNS(svgNS, "text");
       text.setAttribute("x", mx.toFixed(1));
       text.setAttribute("y", my.toFixed(1));
       text.setAttribute("text-anchor", "middle");
@@ -4031,8 +4028,8 @@ export class HexMapView extends ItemView {
     };
 
     const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
+      activeDocument.removeEventListener("mousemove", onMove);
+      activeDocument.removeEventListener("mouseup", onUp);
       tokenEl.removeClass("duckmage-token-dragging");
 
       if (closestHex) {
@@ -4066,8 +4063,8 @@ export class HexMapView extends ItemView {
       }
     };
 
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    activeDocument.addEventListener("mousemove", onMove);
+    activeDocument.addEventListener("mouseup", onUp);
   }
 
   private openTokenEditor(token: TokenEntry): void {

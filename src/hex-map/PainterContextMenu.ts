@@ -22,7 +22,7 @@ export class PainterContextMenu {
   open(x: number, y: number): void {
     this.close();
 
-    const menu = document.createElement("div");
+    const menu = activeDocument.createElement("div");
     menu.className = "duckmage-painter-ctx-menu";
     menu.style.left = `${x}px`;
     menu.style.top = `${y}px`;
@@ -33,7 +33,7 @@ export class PainterContextMenu {
     opts.push(...this.extra);
 
     for (const opt of opts) {
-      const item = document.createElement("div");
+      const item = activeDocument.createElement("div");
       item.className = "duckmage-painter-ctx-item";
       item.textContent = opt.label;
       item.addEventListener("mousedown", (e) => {
@@ -45,11 +45,11 @@ export class PainterContextMenu {
       menu.appendChild(item);
     }
 
-    document.body.appendChild(menu);
+    activeDocument.body.appendChild(menu);
     this.el = menu;
 
     // Clamp to viewport after layout so the menu doesn't overflow the screen edge.
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       if (!this.el) return;
       const rect = this.el.getBoundingClientRect();
       if (rect.right > window.innerWidth)
@@ -69,14 +69,14 @@ export class PainterContextMenu {
       };
       const onScroll = () => this.close();
 
-      document.addEventListener("pointerdown", onPointerDown, { capture: true });
-      document.addEventListener("keydown", onKeyDown, { capture: true });
-      document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+      activeDocument.addEventListener("pointerdown", onPointerDown, { capture: true });
+      activeDocument.addEventListener("keydown", onKeyDown, { capture: true });
+      activeDocument.addEventListener("scroll", onScroll, { capture: true, passive: true });
 
       this.cleanupFns.push(
-        () => document.removeEventListener("pointerdown", onPointerDown, { capture: true }),
-        () => document.removeEventListener("keydown", onKeyDown, { capture: true }),
-        () => document.removeEventListener("scroll", onScroll, { capture: true }),
+        () => activeDocument.removeEventListener("pointerdown", onPointerDown, { capture: true }),
+        () => activeDocument.removeEventListener("keydown", onKeyDown, { capture: true }),
+        () => activeDocument.removeEventListener("scroll", onScroll, { capture: true }),
       );
     }, 0);
 

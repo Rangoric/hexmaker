@@ -8,7 +8,7 @@ import { PathTypeEditorModal } from "./PathTypeEditorModal";
 
 export function buildPathPreviewSvg(pt: PathType): SVGElement {
   const svgNS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(svgNS, "svg");
+  const svg = activeDocument.createElementNS(svgNS, "svg");
   svg.setAttribute("width", "36");
   svg.setAttribute("height", "36");
   svg.setAttribute("viewBox", "0 0 36 36");
@@ -23,7 +23,7 @@ export function buildPathPreviewSvg(pt: PathType): SVGElement {
     const angle = (Math.PI / 180) * (60 * i);
     hexPts.push(`${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`);
   }
-  const hex = document.createElementNS(svgNS, "polygon");
+  const hex = activeDocument.createElementNS(svgNS, "polygon");
   hex.setAttribute("points", hexPts.join(" "));
   hex.setAttribute("fill", "var(--background-secondary)");
   hex.setAttribute("stroke", "var(--background-modifier-border)");
@@ -48,7 +48,7 @@ export function buildPathPreviewSvg(pt: PathType): SVGElement {
     pathD = "M 4 18 L 32 18";
   }
 
-  const pathEl = document.createElementNS(svgNS, "path");
+  const pathEl = activeDocument.createElementNS(svgNS, "path");
   pathEl.setAttribute("d", pathD);
   pathEl.setAttribute("stroke", pt.color);
   pathEl.setAttribute("stroke-width", strokeW);

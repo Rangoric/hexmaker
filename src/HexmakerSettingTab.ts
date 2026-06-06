@@ -11,6 +11,10 @@ export class HexmakerSettingTab extends PluginSettingTab {
   }
 
   display(): void {
+    this.renderSettings();
+  }
+
+  private renderSettings(): void {
     const { containerEl } = this;
     containerEl.empty();
 
@@ -460,7 +464,7 @@ export class HexmakerSettingTab extends PluginSettingTab {
                 );
             }
             new Notice("Folders generated.");
-            this.display();
+            this.renderSettings();
           }),
       );
 

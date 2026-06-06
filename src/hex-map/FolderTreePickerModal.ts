@@ -35,8 +35,7 @@ export class FolderTreePickerModal extends Modal {
       const topBar = contentEl.createDiv({ cls: "duckmage-table-picker-topbar" });
       topBar.createEl("button", {
         cls: "duckmage-rt-icon-btn duckmage-table-picker-view-btn",
-        // eslint-disable-next-line obsidianmd/ui/sentence-case
-        text: "🎲 Open tables view",
+        text: "🎲 open tables view",
         title: "Open random tables view",
       }).addEventListener("click", () => this.onOpenView!());
     }

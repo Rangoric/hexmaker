@@ -230,11 +230,11 @@ export class IconPickerModal extends HexmakerModal {
       }
       this.plugin.loadAvailableIcons();
       statusEl.setText(`Added ${added} icon${added === 1 ? "" : "s"}.`);
-      setTimeout(() => this.render(), 800);
+      window.setTimeout(() => this.render(), 800);
     };
 
     // Hidden file input
-    const fileInput = document.createElement("input");
+    const fileInput = activeDocument.createElement("input");
     fileInput.type = "file";
     fileInput.accept = ".png,.jpg,.jpeg,.gif,.svg,.webp";
     fileInput.multiple = true;

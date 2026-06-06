@@ -46,7 +46,7 @@ export interface PdfExportOptions {
 export interface RenderedDoc {
   /** HTML for the page <body> — does NOT include the <body> tag itself. */
   bodyHtml: string;
-  /** CSS rules captured from document.styleSheets, joined with newlines. */
+  /** CSS rules captured from activeDocument.styleSheets, joined with newlines. */
   css: string;
   /** Document title. */
   title: string;
@@ -60,11 +60,11 @@ export async function exportToPdfBytes(
   doc: RenderedDoc,
   opts: PdfExportOptions = {},
 ): Promise<Uint8Array> {
-  const webview = document.createElement("webview") as WebviewElement;
+  const webview = activeDocument.createElement("webview") as WebviewElement;
   webview.setAttribute("src", "app://obsidian.md/help.html");
   webview.setAttribute("nodeintegration", "true");
   webview.addClass("duckmage-export-webview");
-  document.body.appendChild(webview);
+  activeDocument.body.appendChild(webview);
 
   try {
     await waitForWebviewLoad(webview);
@@ -113,7 +113,7 @@ function waitForWebviewLoad(webview: HTMLElement): Promise<void> {
       resolve();
     };
     webview.addEventListener("did-finish-load", onLoad);
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (settled) return;
       settled = true;
       webview.removeEventListener("did-finish-load", onLoad);
@@ -139,20 +139,20 @@ function buildInjectScript(doc: RenderedDoc): string {
       // Replace head with a single <style> block from captured CSS plus a
       // minimal print reset. We don't try to preserve the original head — the
       // host page is just a render context.
-      const styleEl = document.createElement("style");
+      const styleEl = activeDocument.createElement("style");
       styleEl.textContent = css;
-      document.head.innerHTML = "";
-      document.head.appendChild(styleEl);
+      activeDocument.head.innerHTML = "";
+      activeDocument.head.appendChild(styleEl);
 
       // Force light theme — dark backgrounds print poorly. This matches the
       // better-export-pdf approach.
-      document.body.className = "theme-light";
-      document.body.removeAttribute("style");
-      document.body.innerHTML = body;
+      activeDocument.body.className = "theme-light";
+      activeDocument.body.removeAttribute("style");
+      activeDocument.body.innerHTML = body;
 
-      document.title = title;
+      activeDocument.title = title;
     })();
   `;
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));

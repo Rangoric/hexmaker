@@ -131,7 +131,7 @@ export class OverlayPanel extends HexSidePanel {
     for (const opt of OVERLAY_OPTIONS) {
       const row = panel.createDiv({ cls: "duckmage-overlay-row" });
 
-      const cb = document.createElement("input");
+      const cb = activeDocument.createElement("input");
       cb.type = "checkbox";
       cb.checked = true; // default — refreshed in syncToRegion()
       row.appendChild(cb);
@@ -155,7 +155,7 @@ export class OverlayPanel extends HexSidePanel {
 
     // Show tokens — default on
     const tokensRow = panel.createDiv({ cls: "duckmage-overlay-row" });
-    const tokensCb = document.createElement("input");
+    const tokensCb = activeDocument.createElement("input");
     tokensCb.type = "checkbox";
     tokensCb.checked = true;
     tokensRow.appendChild(tokensCb);
@@ -181,7 +181,7 @@ export class OverlayPanel extends HexSidePanel {
 
     // Faction overlay — triggers a re-render rather than a CSS class toggle
     const factionRow = panel.createDiv({ cls: "duckmage-overlay-row" });
-    const factionCb = document.createElement("input");
+    const factionCb = activeDocument.createElement("input");
     factionCb.type = "checkbox";
     factionCb.checked = false; // default — refreshed in syncToRegion()
     factionRow.appendChild(factionCb);
@@ -207,7 +207,7 @@ export class OverlayPanel extends HexSidePanel {
 
     // Region overlay — same pattern as faction
     const regionRow = panel.createDiv({ cls: "duckmage-overlay-row" });
-    const regionCb = document.createElement("input");
+    const regionCb = activeDocument.createElement("input");
     regionCb.type = "checkbox";
     regionCb.checked = false;
     regionRow.appendChild(regionCb);
@@ -233,7 +233,7 @@ export class OverlayPanel extends HexSidePanel {
 
     // GM layer — default on (unlike the opt-in overlays above)
     const gmRow = panel.createDiv({ cls: "duckmage-overlay-row" });
-    const gmCb = document.createElement("input");
+    const gmCb = activeDocument.createElement("input");
     gmCb.type = "checkbox";
     gmCb.checked = true;
     gmRow.appendChild(gmCb);

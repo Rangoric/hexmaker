@@ -34,11 +34,11 @@ export class HexmakerModal extends Modal {
 				modalEl.setCssProps({ left: `${ox + ev.clientX - sx}px`, top: `${oy + ev.clientY - sy}px` });
 			};
 			const onUp = () => {
-				document.removeEventListener("mousemove", onMove);
-				document.removeEventListener("mouseup", onUp);
+				activeDocument.removeEventListener("mousemove", onMove);
+				activeDocument.removeEventListener("mouseup", onUp);
 			};
-			document.addEventListener("mousemove", onMove);
-			document.addEventListener("mouseup", onUp);
+			activeDocument.addEventListener("mousemove", onMove);
+			activeDocument.addEventListener("mouseup", onUp);
 		});
 	}
 }

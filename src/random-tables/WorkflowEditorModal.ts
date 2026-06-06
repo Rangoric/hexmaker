@@ -148,8 +148,7 @@ export class WorkflowEditorModal extends HexmakerModal {
       updateValidation();
     });
 
-    const validationEl = templateSectionWrap.createDiv();
-    validationEl.setCssProps({ "margin-top": "4px", "font-size": "0.85em" });
+    const validationEl = templateSectionWrap.createDiv({ cls: "duckmage-wf-template-validation" });
 
     // ── Description ───────────────────────────────────────────────────
     const descRow = contentEl.createDiv({
@@ -171,9 +170,8 @@ export class WorkflowEditorModal extends HexmakerModal {
 
     // ── Results folder row ────────────────────────────────────────────
     const rfRow = contentEl.createDiv({
-      cls: "duckmage-table-editor-name-row",
+      cls: "duckmage-table-editor-name-row duckmage-wf-editor-results-row",
     });
-    rfRow.setCssProps({ "margin-top": "8px" });
     rfRow.createEl("label", {
       text: "Results folder",
       cls: "duckmage-table-editor-name-label",

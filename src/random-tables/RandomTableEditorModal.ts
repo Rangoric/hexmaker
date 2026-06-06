@@ -243,7 +243,7 @@ export class RandomTableEditorModal extends HexmakerModal {
         resultInput.placeholder = "Result…";
         resultInput.rows = 1;
         // Size to content immediately, then keep in sync as the user types
-        requestAnimationFrame(() => autoResize(resultInput));
+        window.requestAnimationFrame(() => autoResize(resultInput));
         resultInput.addEventListener("input", () => {
           const val = resultInput.value;
           const m = /^\[\[(.+?)(?:\|[^\]]+)?\]\]$/.exec(val.trim());

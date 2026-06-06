@@ -314,7 +314,6 @@ export class RandomTableView extends ItemView {
       attr: { placeholder: "Generate from folder or file (optional)…" },
     });
     fromFolderInput.setAttribute("list", fromFolderDatalistId);
-    fromFolderInput.setCssProps({ "margin-top": "6px" });
 
     const createTable = async () => {
       const name = newInput.value.trim();
@@ -598,7 +597,7 @@ export class RandomTableView extends ItemView {
   }
 
   private scheduleListRefresh(): void {
-    if (this.listRefreshTimer !== null) clearTimeout(this.listRefreshTimer);
+    if (this.listRefreshTimer !== null) window.clearTimeout(this.listRefreshTimer);
     this.listRefreshTimer = window.setTimeout(() => {
       this.listRefreshTimer = null;
       void this.loadList();
@@ -606,7 +605,7 @@ export class RandomTableView extends ItemView {
   }
 
   private scheduleDetailRefresh(): void {
-    if (this.detailRefreshTimer !== null) clearTimeout(this.detailRefreshTimer);
+    if (this.detailRefreshTimer !== null) window.clearTimeout(this.detailRefreshTimer);
     this.detailRefreshTimer = window.setTimeout(() => {
       this.detailRefreshTimer = null;
       if (this.viewMode === "workflows") {
@@ -940,26 +939,24 @@ export class RandomTableView extends ItemView {
 
     const runBtn = this.detailEl.createEl("button", {
       text: "Roll workflow",
-      cls: "duckmage-rt-roll-btn mod-cta",
+      cls: "duckmage-rt-roll-btn duckmage-rt-roll-btn-spaced mod-cta",
     });
     runBtn.addEventListener("click", () => {
       new WorkflowWizardModal(this.app, this.plugin, file).open();
     });
-    runBtn.setCssProps({ "margin-right": "8px" });
 
     const copyWfLinkBtn = this.detailEl.createEl("button", {
       text: "🔗 copy link",
-      cls: "duckmage-rt-copy-link-btn",
+      cls: "duckmage-rt-copy-link-btn duckmage-rt-copy-link-btn-spaced",
     });
     copyWfLinkBtn.title = "Copy a Markdown link to open this workflow";
-    copyWfLinkBtn.setCssProps({ "margin-bottom": "12px" });
     copyWfLinkBtn.addEventListener("click", () => {
       const vault = encodeURIComponent(this.app.vault.getName());
       const path = encodeURIComponent(file.path);
       const link = `[🔗 ${file.basename}](obsidian://duckmage-workflow?vault=${vault}&file=${path})`;
       void navigator.clipboard.writeText(link).then(() => {
         copyWfLinkBtn.setText("Copied!");
-        setTimeout(() => copyWfLinkBtn.setText("🔗 copy link"), 1500);
+        window.setTimeout(() => copyWfLinkBtn.setText("🔗 copy link"), 1500);
       });
     });
 
@@ -985,8 +982,7 @@ export class RandomTableView extends ItemView {
         text: "Steps",
         cls: "duckmage-rt-history-label",
       });
-      const list = stepsEl.createEl("ul");
-      list.setCssProps({ margin: "0", "padding-left": "18px" });
+      const list = stepsEl.createEl("ul", { cls: "duckmage-wf-steps-list" });
       for (const step of workflow.steps) {
         const li = list.createEl("li");
         let primaryName: string;
@@ -1600,7 +1596,7 @@ export class RandomTableView extends ItemView {
           e.stopPropagation();
           void navigator.clipboard.writeText(entry.result);
           copyBtn.setText("✓");
-          setTimeout(() => copyBtn.setText("⎘"), 1200);
+          window.setTimeout(() => copyBtn.setText("⎘"), 1200);
         });
       });
     }
@@ -1619,7 +1615,7 @@ export class RandomTableView extends ItemView {
       const link = `[🎲 ${file.basename}](obsidian://duckmage-roll?vault=${vault}&file=${path})`;
       void navigator.clipboard.writeText(link).then(() => {
         copyLinkBtn.setText("Copied!");
-        setTimeout(() => copyLinkBtn.setText("🎲 copy link"), 1500);
+        window.setTimeout(() => copyLinkBtn.setText("🎲 copy link"), 1500);
       });
     });
 
@@ -1643,7 +1639,7 @@ export class RandomTableView extends ItemView {
     copyBtn.addEventListener("click", () => {
       void navigator.clipboard.writeText(resultTextarea.value);
       copyBtn.setText("Copied!");
-      setTimeout(() => copyBtn.setText("Copy"), 1500);
+      window.setTimeout(() => copyBtn.setText("Copy"), 1500);
     });
     // "Open note" button — shown only when the table has a linked folder
     const openNoteBtn = resultBtns.createEl("button", {
@@ -1684,7 +1680,7 @@ export class RandomTableView extends ItemView {
         link.addEventListener("click", () => {
           this.setViewMode("workflows");
           // After mode switch, select the workflow
-          setTimeout(() => {
+          window.setTimeout(() => {
             if (wfFile instanceof TFile) void this.loadWorkflow(wfFile);
           }, 50);
         });
@@ -1692,9 +1688,8 @@ export class RandomTableView extends ItemView {
 
       const newWfLink = linksEl.createEl("a", {
         text: "+ new workflow with this table",
-        cls: "duckmage-rt-entry-link",
+        cls: "duckmage-rt-entry-link duckmage-rt-new-wf-link",
       });
-      newWfLink.setCssProps({ "font-style": "italic" });
       newWfLink.addEventListener("click", () => {
         void (async () => {
           this.setViewMode("workflows");

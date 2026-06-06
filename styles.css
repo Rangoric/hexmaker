@@ -392,7 +392,7 @@ div.duckmage-hex-icon {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background-color: var(--background-modifier-border);
+    background-color: var(--duckmage-bg, var(--background-modifier-border));
     cursor: pointer;
     border: 1px solid
         color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
@@ -3051,6 +3051,7 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
 .duckmage-rt-from-folder-input {
     width: 100%;
     font-size: 0.85em;
+    margin-top: 6px;
 }
 
 /* Confirm delete modal */
@@ -4665,3 +4666,42 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
     visibility: hidden;
     pointer-events: none;
 }
+
+/* ── JS-driven custom-property consumers ────────────────────────────────────
+   Dynamic colors (terrain swatches, path swatches, etc.) are set as CSS
+   custom properties via setCssProps; these rules consume them. Fallbacks
+   keep the default appearance when the variable is unset.
+   ─────────────────────────────────────────────────────────────────────────── */
+.duckmage-terrain-header-swatch { background-color: var(--duckmage-bg, transparent); }
+.duckmage-terrain-preview { background-color: var(--duckmage-bg, transparent); }
+.duckmage-terrain-btn-preview { background-color: var(--duckmage-bg, transparent); }
+.duckmage-path-btn-swatch { background-color: var(--duckmage-bg, transparent); }
+.duckmage-draw-btn-terrain.is-terrain-preview {
+    border-color: var(--duckmage-border-color, currentcolor);
+}
+.duckmage-draw-btn-terrain.is-eyedropper-active {
+    border-color: var(--interactive-accent);
+    color: var(--interactive-accent);
+}
+
+/* Tinted icon helper — utils.ts createIconEl applies this class and sets
+   --duckmage-mask-url + --duckmage-bg. */
+.duckmage-masked-icon {
+    -webkit-mask-image: var(--duckmage-mask-url);
+    -webkit-mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-image: var(--duckmage-mask-url);
+    mask-size: contain;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    background-color: var(--duckmage-bg);
+}
+
+/* Static-layout helpers replacing inline setCssProps calls in workflows view */
+.duckmage-rt-roll-btn-spaced { margin-right: 8px; }
+.duckmage-rt-copy-link-btn-spaced { margin-bottom: 12px; }
+.duckmage-wf-steps-list { margin: 0; padding-left: 18px; }
+.duckmage-rt-new-wf-link { font-style: italic; }
+.duckmage-wf-template-validation { margin-top: 4px; font-size: 0.85em; }
+.duckmage-wf-editor-results-row { margin-top: 8px; }

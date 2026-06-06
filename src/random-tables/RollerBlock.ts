@@ -79,7 +79,7 @@ export function registerRollerBlock(plugin: HexmakerPlugin): void {
       copyBtn.addEventListener("click", () => {
         void navigator.clipboard.writeText(resultTextarea.value);
         copyBtn.setText("Copied!");
-        setTimeout(() => copyBtn.setText("Copy"), 1200);
+        window.setTimeout(() => copyBtn.setText("Copy"), 1200);
       });
 
       // History: scrollable list, each item individually copyable
@@ -99,7 +99,7 @@ export function registerRollerBlock(plugin: HexmakerPlugin): void {
           hCopyBtn.addEventListener("click", () => {
             void navigator.clipboard.writeText(item);
             hCopyBtn.setText("✓");
-            setTimeout(() => hCopyBtn.setText("⎘"), 1000);
+            window.setTimeout(() => hCopyBtn.setText("⎘"), 1000);
           });
         }
       };

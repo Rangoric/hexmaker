@@ -101,7 +101,7 @@ export class MapLinkModal extends HexmakerModal {
     };
 
     mapInput.addEventListener("focus", () => openDropdown(""));
-    mapInput.addEventListener("blur", () => setTimeout(() => closeDropdown(), 150));
+    mapInput.addEventListener("blur", () => window.setTimeout(() => closeDropdown(), 150));
     mapInput.addEventListener("input", () => {
       if (!isOpen) openDropdown(mapInput.value);
       else populateDropdown(mapInput.value);

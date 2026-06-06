@@ -326,10 +326,10 @@ export class HexTableView extends ItemView {
         if (!HEX_PATTERN.test(file.path)) return;
 
         const existing = this.updateTimers.get(file.path);
-        if (existing) clearTimeout(existing);
+        if (existing) window.clearTimeout(existing);
         this.updateTimers.set(
           file.path,
-          setTimeout(() => {
+          window.setTimeout(() => {
             this.updateTimers.delete(file.path);
             void this.updateRow(file.path);
           }, 300),
@@ -352,7 +352,7 @@ export class HexTableView extends ItemView {
   }
 
   onClose(): Promise<void> {
-    for (const timer of this.updateTimers.values()) clearTimeout(timer);
+    for (const timer of this.updateTimers.values()) window.clearTimeout(timer);
     this.updateTimers.clear();
     this.contentEl.empty();
     return Promise.resolve();
@@ -440,7 +440,7 @@ export class HexTableView extends ItemView {
     if (this.filterYMaxInput) this.filterYMaxInput.placeholder = String(yMax);
 
     // ── Phase 1: skeleton render (sync — coords + terrain from metadata cache) ──
-    const table = document.createElement("table");
+    const table = activeDocument.createElement("table");
     table.className = "duckmage-hex-table";
 
     const thead = table.createEl("thead");
@@ -494,7 +494,7 @@ export class HexTableView extends ItemView {
       const ok = await fillBatch(i, REST_BATCH);
       if (!ok) break;
       // Yield to the browser between batches to keep the UI responsive
-      await new Promise<void>((r) => setTimeout(r, 0));
+      await new Promise<void>((r) => window.setTimeout(r, 0));
     }
   }
 
@@ -667,7 +667,7 @@ export class HexTableView extends ItemView {
           const leaf = this.app.workspace.getLeaf("tab");
           await leaf.setViewState({ type: VIEW_TYPE_HEX_MAP });
           // Wait one frame for the view to render before centering
-          setTimeout(
+          window.setTimeout(
             () => (leaf.view as unknown as WithCenterOnHex).centerOnHex(x, y),
             100,
           );
@@ -898,12 +898,12 @@ export class HexTableView extends ItemView {
 
     // <col> elements + explicit table width is the only reliable way to drive
     // table-layout:fixed column widths across browsers.
-    const colgroup = document.createElement("colgroup");
+    const colgroup = activeDocument.createElement("colgroup");
     const cols: HTMLTableColElement[] = [];
     let totalWidth = 0;
     for (let i = 0; i < ths.length; i++) {
       const w = defaultWidths[i] ?? 160;
-      const col = document.createElement("col");
+      const col = activeDocument.createElement("col");
       col.style.width = `${w}px`;
       colgroup.appendChild(col);
       cols.push(col);
@@ -922,7 +922,7 @@ export class HexTableView extends ItemView {
         const startX = e.clientX;
         const startW = parseInt(col.style.width, 10);
         const startTW = parseInt(table.style.width, 10);
-        document.body.setCssProps({ cursor: "col-resize" });
+        activeDocument.body.setCssProps({ cursor: "col-resize" });
 
         const onMove = (me: MouseEvent) => {
           const newW = Math.max(20, startW + me.clientX - startX);
@@ -930,12 +930,12 @@ export class HexTableView extends ItemView {
           table.style.width = `${startTW + (newW - startW)}px`;
         };
         const onUp = () => {
-          document.body.setCssProps({ cursor: "" });
-          document.removeEventListener("mousemove", onMove);
-          document.removeEventListener("mouseup", onUp);
+          activeDocument.body.setCssProps({ cursor: "" });
+          activeDocument.removeEventListener("mousemove", onMove);
+          activeDocument.removeEventListener("mouseup", onUp);
         };
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
+        activeDocument.addEventListener("mousemove", onMove);
+        activeDocument.addEventListener("mouseup", onUp);
       });
     }
   }

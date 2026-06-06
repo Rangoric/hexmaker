@@ -178,7 +178,7 @@ export class HexEditorModal extends HexmakerModal {
         cls: "duckmage-terrain-header-swatch",
       });
       if (paletteEntry)
-        swatch.setCssProps({ "background-color": paletteEntry.color });
+        swatch.setCssProps({ "--duckmage-bg": paletteEntry.color });
       if (iconToShow) {
         const img = swatch.createEl("img");
         img.src = getIconUrl(this.plugin, iconToShow);
@@ -335,7 +335,7 @@ export class HexEditorModal extends HexmakerModal {
         const nPath = this.plugin.hexPath(nx, ny, this.mapName);
         const terrain = getTerrainFromFile(this.app, nPath);
         const entry = terrain ? paletteMap.get(terrain) : undefined;
-        if (entry) tile.setCssProps({ "background-color": entry.color });
+        if (entry) tile.setCssProps({ "--duckmage-bg": entry.color });
         tile.addEventListener("click", () => {
           this.x = nx;
           this.y = ny;
@@ -445,7 +445,7 @@ export class HexEditorModal extends HexmakerModal {
       });
 
       const preview = btn.createDiv({ cls: "duckmage-terrain-preview" });
-      preview.setCssProps({ "background-color": entry.color });
+      preview.setCssProps({ "--duckmage-bg": entry.color });
 
       if (entry.icon) {
         createIconEl(
@@ -494,7 +494,7 @@ export class HexEditorModal extends HexmakerModal {
 
     // GM icon palette — only when GM layer is active
     if (this.options.gmLayerActive) {
-      section.createEl("p", { text: "GM icon", cls: "duckmage-icon-inline-label" }); // eslint-disable-line obsidianmd/ui/sentence-case
+      section.createEl("p", { text: "Game master icon", cls: "duckmage-icon-inline-label" });
       this.renderIconGrid(
         section,
         visibleIcons,
@@ -788,7 +788,7 @@ export class HexEditorModal extends HexmakerModal {
 
     input.addEventListener("focus", () => openDropdown());
     input.addEventListener("blur", () =>
-      setTimeout(() => closeDropdown(), 150),
+      window.setTimeout(() => closeDropdown(), 150),
     );
     input.addEventListener("input", () => {
       if (!isOpen) openDropdown();

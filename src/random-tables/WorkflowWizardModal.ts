@@ -118,7 +118,6 @@ export class WorkflowWizardModal extends HexmakerModal {
     this.resultTextarea = contentEl.createEl("textarea", {
       cls: "duckmage-wf-template-area",
     });
-    this.resultTextarea.setCssProps({ "min-height": "120px" });
     this.resultTextarea.readOnly = true;
     this.resultTextarea.value = this.assembleResult();
 
@@ -128,7 +127,7 @@ export class WorkflowWizardModal extends HexmakerModal {
         .writeText(this.resultTextarea?.value ?? "")
         .then(() => {
           copyResultBtn.setText("Copied!");
-          setTimeout(() => copyResultBtn.setText("Copy result"), 1500);
+          window.setTimeout(() => copyResultBtn.setText("Copy result"), 1500);
         });
     });
 

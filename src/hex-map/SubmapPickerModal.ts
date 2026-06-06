@@ -178,7 +178,7 @@ export class SubmapPickerModal extends HexmakerModal {
       for (const t of palette) {
         const tile = terrainGrid.createDiv({ cls: "duckmage-terrain-option" });
         const preview = tile.createDiv({ cls: "duckmage-terrain-preview" });
-        preview.setCssProps({ "background-color": t.color });
+        preview.setCssProps({ "--duckmage-bg": t.color });
         if (t.icon) {
           createIconEl(
             preview,

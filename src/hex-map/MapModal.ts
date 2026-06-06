@@ -354,7 +354,7 @@ export class MapModal extends HexmakerModal {
           (currentMap?.terrainType === t.name ? " is-selected" : ""),
       });
       const preview = tile.createDiv({ cls: "duckmage-terrain-preview" });
-      preview.setCssProps({ "background-color": t.color });
+      preview.setCssProps({ "--duckmage-bg": t.color });
       if (t.icon) {
         createIconEl(
           preview,

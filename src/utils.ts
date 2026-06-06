@@ -37,17 +37,10 @@ export function createIconEl(
 	cls: string,
 ): HTMLElement {
 	if (iconColor) {
-		const div = parent.createEl("div", { cls, title: alt });
+		const div = parent.createEl("div", { cls: `${cls} duckmage-masked-icon`, title: alt });
 		div.setCssProps({
-			'mask-image': `url("${src}")`,
-			'-webkit-mask-image': `url("${src}")`,
-			'mask-size': 'contain',
-			'-webkit-mask-size': 'contain',
-			'mask-repeat': 'no-repeat',
-			'-webkit-mask-repeat': 'no-repeat',
-			'mask-position': 'center',
-			'-webkit-mask-position': 'center',
-			'background-color': iconColor,
+			'--duckmage-mask-url': `url("${src}")`,
+			'--duckmage-bg': iconColor,
 		});
 		return div;
 	}
