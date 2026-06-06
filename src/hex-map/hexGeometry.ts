@@ -5,6 +5,108 @@
 
 type Pt = { cx: number; cy: number };
 
+const SQRT3 = Math.sqrt(3);
+
+// ── Hex sizing ────────────────────────────────────────────────────────────────
+
+/**
+ * Compute the (width, height) of a single hex of the given radius and orientation.
+ * Radius = distance from hex centre to any vertex.
+ *
+ * - Flat-top  hex:  width = 2R,         height = √3·R
+ * - Pointy-top hex: width = √3·R,       height = 2R
+ */
+export function hexSize(
+  hexRadius: number,
+  orientation: "flat" | "pointy",
+): { w: number; h: number } {
+  return orientation === "flat"
+    ? { w: 2 * hexRadius, h: SQRT3 * hexRadius }
+    : { w: SQRT3 * hexRadius, h: 2 * hexRadius };
+}
+
+/**
+ * Centre pixel of the hex at grid (col, row) when the grid's top-left corner is
+ * pinned to (0, 0). Caller should add any padding by translating the result.
+ *
+ * - Flat-top:  column spacing = 1.5R,    row spacing = √3·R.  Shifted columns
+ *              push the cell DOWN by half a hex height.
+ * - Pointy-top: row spacing = 1.5R,      column spacing = √3·R.  Shifted rows
+ *              push the cell RIGHT by half a hex width.
+ *
+ * `staggerOffset` controls which parity is the shifted one — "odd" (default)
+ * means odd columns/rows are shifted; "even" inverts.
+ */
+export function hexCenter(
+  col: number,
+  row: number,
+  orientation: "flat" | "pointy",
+  hexRadius: number,
+  staggerOffset: "odd" | "even" = "odd",
+): Pt {
+  const { w, h } = hexSize(hexRadius, orientation);
+  const isShifted = (n: number) =>
+    staggerOffset === "odd" ? n % 2 !== 0 : n % 2 === 0;
+
+  if (orientation === "flat") {
+    const cx = hexRadius + col * 1.5 * hexRadius;
+    const cy = h / 2 + row * h + (isShifted(col) ? h / 2 : 0);
+    return { cx, cy };
+  }
+  const cy = hexRadius + row * 1.5 * hexRadius;
+  const cx = w / 2 + col * w + (isShifted(row) ? w / 2 : 0);
+  return { cx, cy };
+}
+
+/**
+ * The six vertices of a hex centred at (cx, cy), in clockwise order starting
+ * from the rightmost vertex for flat-top (or upper-right for pointy-top).
+ */
+export function hexPolygonPoints(
+  cx: number,
+  cy: number,
+  orientation: "flat" | "pointy",
+  hexRadius: number,
+): { x: number; y: number }[] {
+  const vStart = orientation === "flat" ? 0 : Math.PI / 6;
+  return Array.from({ length: 6 }, (_, i) => {
+    const a = vStart + (i * Math.PI) / 3;
+    return {
+      x: cx + hexRadius * Math.cos(a),
+      y: cy + hexRadius * Math.sin(a),
+    };
+  });
+}
+
+/**
+ * Compute the pixel bounding box for an entire grid of hexes. Useful for
+ * sizing a canvas to fit all hexes plus optional padding.
+ */
+export function gridBoundingBox(
+  cols: number,
+  rows: number,
+  orientation: "flat" | "pointy",
+  hexRadius: number,
+  staggerOffset: "odd" | "even" = "odd",
+): { width: number; height: number } {
+  // Walk the four corners + one staggered cell to find the extent.
+  // Cheaper than checking every cell since the grid is regular.
+  let maxRight = 0;
+  let maxBottom = 0;
+  const check = (col: number, row: number) => {
+    const c = hexCenter(col, row, orientation, hexRadius, staggerOffset);
+    if (c.cx + hexRadius > maxRight) maxRight = c.cx + hexRadius;
+    if (c.cy + hexRadius > maxBottom) maxBottom = c.cy + hexRadius;
+  };
+  check(cols - 1, rows - 1);
+  // Also check the staggered-row/col extreme cell, which may protrude further.
+  if (cols > 0 && rows > 0) {
+    check(cols - 1, rows - 2 >= 0 ? rows - 2 : 0);
+    check(cols - 2 >= 0 ? cols - 2 : 0, rows - 1);
+  }
+  return { width: Math.ceil(maxRight), height: Math.ceil(maxBottom) };
+}
+
 // ── Neighbor calculation ──────────────────────────────────────────────────────
 
 export function hexNeighbors(

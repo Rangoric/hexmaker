@@ -1,0 +1,751 @@
+/**
+ * Hex-map PNG renderer (Phase 1, item 1.3).
+ *
+ * Independent of HexMapView's DOM rendering — re-implements the layout in
+ * canvas so the output is a clean raster at user-chosen resolution, ignoring
+ * pan/zoom and unaffected by CSS layout quirks. Geometry is shared with the
+ * overlay code via `hex-map/hexGeometry.ts`.
+ *
+ * Pipeline:
+ *   for each (col, row) → resolve hex note → terrain + optional icon →
+ *   draw hex polygon + fill + border + icon + optional coord label →
+ *   then draw all path chains via the same routing helpers HexMapView uses.
+ */
+
+import { Notice, TFile, type App } from "obsidian";
+import {
+  hexCenter,
+  hexPolygonPoints,
+  buildEdgePts,
+  buildMeanderPts,
+  smoothPath,
+  sharpPath,
+} from "../hex-map/hexGeometry";
+import { ensureExportFolder } from "./exportFolder";
+import {
+  getTerrainFromFile,
+  getIconOverrideFromFile,
+  getFactionColorFromFile,
+  getRegionColorFromFile,
+} from "../frontmatter";
+import { getIconUrl, normalizeFolder } from "../utils";
+import type HexmakerPlugin from "../HexmakerPlugin";
+import type { TerrainColor, MapData } from "../types";
+
+export interface MapPngRenderOptions {
+  /** Pixel radius of each hex. Larger = higher-resolution output. Default 50. */
+  hexRadius?: number;
+  /** Padding in pixels around the grid. Default 40. */
+  padding?: number;
+  /** Background colour. Default dark grey. */
+  background?: string;
+  /** Hex border colour. Default near-black. */
+  borderColor?: string;
+  /** Coordinate label colour. Default light grey. */
+  coordColor?: string;
+  /** Draw coordinate labels in each hex. Default true. */
+  showCoords?: boolean;
+  /** Draw terrain icons. Default true. */
+  showIcons?: boolean;
+  /** Include road/river/path chains. Default true. */
+  showPaths?: boolean;
+  /**
+   * Restrict rendering to a sub-rectangle of the grid. When set, only hexes
+   * inside the half-open range `[colStart, colEnd) × [rowStart, rowEnd)` are
+   * drawn, and the canvas is sized to fit just those. Used by the map PDF
+   * exporter to render section views.
+   */
+  subgrid?: {
+    colStart: number;
+    colEnd: number;
+    rowStart: number;
+    rowEnd: number;
+  };
+  /** Tint hexes by their linked factions. Default false. */
+  showFactionOverlay?: boolean;
+  /** Tint hexes by their region. Default false. */
+  showRegionOverlay?: boolean;
+  /**
+   * Opacity of overlay tints, 0–1. Default 0.4. Multiple factions on the
+   * same hex are layered, so the effective coverage compounds.
+   */
+  overlayOpacity?: number;
+}
+
+/**
+ * Render the named map to a PNG blob. Returns the blob; caller writes it.
+ * Throws if the map name isn't found in settings.
+ */
+export async function renderMapToPngBlob(
+  plugin: HexmakerPlugin,
+  mapName: string,
+  opts: MapPngRenderOptions = {},
+): Promise<Blob> {
+  const map = plugin.settings.maps.find((m) => m.name === mapName);
+  if (!map) throw new Error(`Map "${mapName}" not found`);
+
+  const R = opts.hexRadius ?? 50;
+  const padding = opts.padding ?? 40;
+  const showCoords = opts.showCoords ?? true;
+  const showIcons = opts.showIcons ?? true;
+  const showPaths = opts.showPaths ?? true;
+  const showFactionOverlay = opts.showFactionOverlay ?? false;
+  const showRegionOverlay = opts.showRegionOverlay ?? false;
+  const overlayOpacity = clamp(opts.overlayOpacity ?? 0.4, 0, 1);
+  const background = opts.background ?? "#1a1a1a";
+  const borderColor = opts.borderColor ?? "#222";
+  const coordColor = opts.coordColor ?? "#bbb";
+
+  const orientation = plugin.settings.hexOrientation;
+  const isFlat = orientation === "flat";
+  const stagger = map.staggerOffset ?? plugin.settings.staggerOffset;
+  const palette = plugin.settings.terrainPalettes.find(
+    (p) => p.name === map.paletteName,
+  );
+  // First-occurrence wins, matching HexMapView's `.find()` behaviour. Users
+  // can end up with duplicate-named entries in their palette (e.g. after
+  // copy-paste edits in settings); the first one is canonical.
+  const terrainByName = new Map<string, TerrainColor>();
+  for (const t of palette?.terrains ?? []) {
+    if (!terrainByName.has(t.name)) terrainByName.set(t.name, t);
+  }
+
+  const { cols, rows } = map.gridSize;
+  const { x: ox, y: oy } = map.gridOffset;
+
+  // Clamp the subgrid range to the actual grid bounds. When unset, the range
+  // covers everything → equivalent to the previous behaviour.
+  const colStart = Math.max(0, opts.subgrid?.colStart ?? 0);
+  const colEnd = Math.min(cols, opts.subgrid?.colEnd ?? cols);
+  const rowStart = Math.max(0, opts.subgrid?.rowStart ?? 0);
+  const rowEnd = Math.min(rows, opts.subgrid?.rowEnd ?? rows);
+
+  // Step 1: pre-compute centres for every cell IN RANGE. centerMap is keyed
+  // by the "x_y" hex coord (the same scheme path chains use).
+  const centerMap = new Map<string, { cx: number; cy: number }>();
+  for (let row = rowStart; row < rowEnd; row++) {
+    for (let col = colStart; col < colEnd; col++) {
+      const c = hexCenter(col, row, orientation, R, stagger);
+      centerMap.set(`${col + ox}_${row + oy}`, c);
+    }
+  }
+
+  // Step 2: pixel-shift all centres so the grid sits at (padding, padding).
+  const allCenters = Array.from(centerMap.values());
+  const minX = Math.min(...allCenters.map((c) => c.cx)) - R;
+  const minY = Math.min(...allCenters.map((c) => c.cy)) - R;
+  const maxX = Math.max(...allCenters.map((c) => c.cx)) + R;
+  const maxY = Math.max(...allCenters.map((c) => c.cy)) + R;
+  const shifted = new Map<string, { cx: number; cy: number }>();
+  for (const [k, c] of centerMap) {
+    shifted.set(k, { cx: c.cx - minX + padding, cy: c.cy - minY + padding });
+  }
+  const W = Math.ceil(maxX - minX + padding * 2);
+  const H = Math.ceil(maxY - minY + padding * 2);
+
+  // Step 3a: build colour maps for overlays (faction-basename → hex colour,
+  // region-name → hex colour). Empty if the respective overlay is off.
+  const factionColorMap = showFactionOverlay
+    ? buildFactionColorMap(plugin)
+    : new Map<string, string>();
+  const regionColorMap = showRegionOverlay
+    ? buildRegionColorMap(plugin)
+    : new Map<string, string>();
+
+  // Step 3b: collect every hex's terrain + icon override + overlay info before
+  // drawing so we can pre-load icon images once each. We also track which
+  // factions / regions are actually present on this map so the legend at the
+  // end can show just those (not the entire vault folder).
+  interface HexState {
+    key: string;
+    cx: number;
+    cy: number;
+    terrain?: TerrainColor;
+    iconName?: string;
+    factionColors: string[];
+    regionColor?: string;
+  }
+  const hexes: HexState[] = [];
+  const iconsNeeded = new Set<string>();
+  const factionsUsed = new Map<string, string>(); // name → color
+  const regionsUsed = new Map<string, string>(); // name → color
+  // Per-region hex centres, used to position the on-map region label at the
+  // cluster centroid (with PCA-derived rotation). Same approach as the
+  // on-screen `renderRegionOverlay` in HexMapView.
+  const regionHexCenters = new Map<string, { cx: number; cy: number }[]>();
+  for (let row = rowStart; row < rowEnd; row++) {
+    for (let col = colStart; col < colEnd; col++) {
+      const hx = col + ox;
+      const hy = row + oy;
+      const key = `${hx}_${hy}`;
+      const c = shifted.get(key);
+      if (!c) continue;
+      const notePath = plugin.hexPath(hx, hy, mapName);
+      const file = plugin.app.vault.getAbstractFileByPath(notePath);
+
+      let terrain: TerrainColor | undefined;
+      let iconOverride: string | undefined;
+      const factionColors: string[] = [];
+      let regionColor: string | undefined;
+      if (file instanceof TFile) {
+        const terrainName = getTerrainFromFile(plugin.app, file.path);
+        if (terrainName) terrain = terrainByName.get(terrainName);
+        iconOverride = getIconOverrideFromFile(plugin.app, file.path) ?? undefined;
+        if (showFactionOverlay) {
+          for (const fName of getHexFactionLinks(plugin.app, file)) {
+            const c = factionColorMap.get(fName);
+            if (c) {
+              factionColors.push(c);
+              factionsUsed.set(fName, c);
+            }
+          }
+        }
+        if (showRegionOverlay) {
+          const regionName = getHexRegionName(plugin.app, file);
+          if (regionName) {
+            const c = regionColorMap.get(regionName);
+            if (c) {
+              regionColor = c;
+              regionsUsed.set(regionName, c);
+              const center = shifted.get(`${hx}_${hy}`);
+              if (center) {
+                if (!regionHexCenters.has(regionName)) {
+                  regionHexCenters.set(regionName, []);
+                }
+                regionHexCenters.get(regionName)!.push(center);
+              }
+            }
+          }
+        }
+      }
+      const iconName = iconOverride ?? terrain?.icon;
+      if (iconName && showIcons) iconsNeeded.add(iconName);
+      hexes.push({
+        key,
+        cx: c.cx,
+        cy: c.cy,
+        terrain,
+        iconName,
+        factionColors,
+        regionColor,
+      });
+    }
+  }
+
+  const iconCache = await loadIcons(plugin, iconsNeeded);
+
+  // Step 4: render to canvas. OffscreenCanvas is reliable in Obsidian's
+  // Electron Chromium; convertToBlob() is Promise-based.
+  const canvas = new OffscreenCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not get 2D canvas context");
+
+  // Background
+  ctx.fillStyle = background;
+  ctx.fillRect(0, 0, W, H);
+
+  // Hexes — base fill + overlay tints + icons + coords
+  for (const hex of hexes) {
+    drawHex(
+      ctx,
+      hex.cx,
+      hex.cy,
+      R,
+      orientation,
+      hex.terrain?.color ?? "#2a2a2a",
+      borderColor,
+    );
+    // Region overlay first (under faction): regions are larger, factions
+    // are usually narrower local groups, so faction tint reads on top.
+    if (showRegionOverlay && hex.regionColor) {
+      fillHexPolygon(ctx, hex.cx, hex.cy, R, orientation, hex.regionColor, overlayOpacity);
+    }
+    if (showFactionOverlay) {
+      for (const color of hex.factionColors) {
+        fillHexPolygon(ctx, hex.cx, hex.cy, R, orientation, color, overlayOpacity);
+      }
+    }
+    if (showIcons && hex.iconName) {
+      const img = iconCache.get(hex.iconName);
+      if (img) {
+        const size = R * 0.9;
+        ctx.drawImage(img, hex.cx - size / 2, hex.cy - size / 2, size, size);
+      }
+    }
+    if (showCoords) {
+      const [hxStr, hyStr] = hex.key.split("_");
+      ctx.fillStyle = coordColor;
+      ctx.font = `${Math.round(R * 0.22)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "alphabetic";
+      ctx.fillText(`${hxStr},${hyStr}`, hex.cx, hex.cy + R * 0.75);
+    }
+  }
+
+  // Region labels — drawn over the map at each region's centroid, rotated
+  // along the cluster's principal axis. Same algorithm as the on-screen
+  // `renderRegionOverlay`.
+  if (showRegionOverlay && regionHexCenters.size > 0) {
+    for (const [regionName, centers] of regionHexCenters) {
+      drawRegionLabel(ctx, regionName, centers, R);
+    }
+  }
+
+  // Faction key — a labelled swatch panel at the bottom-left. Only lists
+  // factions actually used on this map.
+  if (showFactionOverlay && factionsUsed.size > 0) {
+    const fontSize = Math.max(11, Math.round(R * 0.28));
+    const legendPadding = 16;
+    const size = drawLegend(
+      ctx,
+      padding,
+      0,
+      "Factions",
+      sortedEntries(factionsUsed),
+      fontSize,
+      legendPadding,
+      true, // measure pass first to anchor from the bottom
+    );
+    drawLegend(
+      ctx,
+      padding,
+      H - padding - size.height,
+      "Factions",
+      sortedEntries(factionsUsed),
+      fontSize,
+      legendPadding,
+      false,
+    );
+  }
+
+  // Paths
+  if (showPaths) {
+    for (const pt of plugin.settings.pathTypes) {
+      const dash = dashFor(pt.lineStyle);
+      const chains = map.pathChains.filter((c) => c.typeName === pt.name);
+      for (const chain of chains) {
+        let pts;
+        let smooth: boolean;
+        if (pt.routing === "edge") {
+          pts = buildEdgePts(chain.hexes, shifted, isFlat, R);
+          smooth = false;
+        } else if (pt.routing === "meander") {
+          pts = buildMeanderPts(chain.hexes, shifted);
+          smooth = true;
+        } else {
+          pts = chain.hexes
+            .map((k) => shifted.get(k))
+            .filter((p): p is { cx: number; cy: number } => !!p);
+          smooth = true;
+        }
+        if (pts.length < 2) continue;
+        drawPath(ctx, pts, pt.color, pt.width, dash, smooth);
+      }
+    }
+  }
+
+  return canvas.convertToBlob({ type: "image/png" });
+}
+
+// ── Drawing primitives ──────────────────────────────────────────────────────
+
+function drawHex(
+  ctx: OffscreenCanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  orientation: "flat" | "pointy",
+  fillColor: string,
+  borderColor: string,
+): void {
+  const pts = hexPolygonPoints(cx, cy, orientation, radius);
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+  ctx.lineWidth = Math.max(1, radius * 0.04);
+  ctx.strokeStyle = borderColor;
+  ctx.stroke();
+}
+
+function drawPath(
+  ctx: OffscreenCanvasRenderingContext2D,
+  pts: { cx: number; cy: number }[],
+  color: string,
+  width: number,
+  dash: number[],
+  smooth: boolean,
+): void {
+  // Re-use the SVG-style path string from hexGeometry; Path2D parses the
+  // same `M / L / Q` commands so we don't need to duplicate path math.
+  const d = smooth ? smoothPath(pts) : sharpPath(pts);
+  const path = new Path2D(d);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  if (dash.length > 0) ctx.setLineDash(dash);
+  else ctx.setLineDash([]);
+  ctx.stroke(path);
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+/**
+ * Draw a region's name label centred over its hex cluster, rotated to match
+ * the cluster's principal axis. Ports the algorithm from
+ * `HexMapView.renderRegionOverlay`:
+ *
+ *  - Centroid = mean of hex centres
+ *  - Angle = `atan2(2*sxy, sxx - syy) / 2` (PCA on covariance matrix)
+ *  - Font size scales with √(hexCount), then again with hexRadius/40 so the
+ *    label keeps its visual prominence at any export resolution
+ *  - White text with a dark stroke for legibility on any base colour
+ */
+function drawRegionLabel(
+  ctx: OffscreenCanvasRenderingContext2D,
+  name: string,
+  centers: Array<{ cx: number; cy: number }>,
+  hexRadius: number,
+): void {
+  const n = centers.length;
+  if (n === 0) return;
+
+  const mx = centers.reduce((s, p) => s + p.cx, 0) / n;
+  const my = centers.reduce((s, p) => s + p.cy, 0) / n;
+
+  let angleDeg = 0;
+  if (n > 1) {
+    const sxx = centers.reduce((s, p) => s + (p.cx - mx) ** 2, 0);
+    const syy = centers.reduce((s, p) => s + (p.cy - my) ** 2, 0);
+    const sxy = centers.reduce((s, p) => s + (p.cx - mx) * (p.cy - my), 0);
+    let ang = (Math.atan2(2 * sxy, sxx - syy) * 180) / Math.PI / 2;
+    if (ang > 90) ang -= 180;
+    if (ang < -90) ang += 180;
+    angleDeg = ang;
+  }
+
+  const baseFont = Math.min(10 + 3 * Math.sqrt(n), 52);
+  // Scale font with hexRadius so labels keep their on-screen weight when
+  // exporting at high resolutions. R=40 matches the on-screen calibration.
+  const fontSize = Math.max(12, Math.round(baseFont * (hexRadius / 40)));
+
+  ctx.save();
+  ctx.translate(mx, my);
+  ctx.rotate((angleDeg * Math.PI) / 180);
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // Dark outline → white fill = readable across light and dark backgrounds.
+  ctx.lineJoin = "round";
+  ctx.lineWidth = Math.max(2, fontSize * 0.18);
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
+  ctx.strokeText(name, 0, 0);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(name, 0, 0);
+
+  ctx.restore();
+}
+
+function sortedEntries(m: Map<string, string>): Array<[string, string]> {
+  return Array.from(m.entries()).sort((a, b) =>
+    a[0].localeCompare(b[0], undefined, { sensitivity: "base" }),
+  );
+}
+
+/**
+ * Draw (or measure) a legend box. When `measureOnly` is true, no pixels are
+ * touched and only the bounding-box size is returned — useful for laying out
+ * multiple stacked legends bottom-up.
+ */
+function drawLegend(
+  ctx: OffscreenCanvasRenderingContext2D,
+  x: number,
+  y: number,
+  title: string,
+  entries: Array<[string, string]>,
+  fontSize: number,
+  pad: number,
+  measureOnly: boolean,
+): { width: number; height: number } {
+  if (entries.length === 0) return { width: 0, height: 0 };
+
+  const lineHeight = Math.round(fontSize * 1.45);
+  const swatch = Math.round(fontSize * 1.1);
+  const gap = Math.round(fontSize * 0.5);
+
+  // Measure widths. We need to set the font for accurate measurements.
+  ctx.save();
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  const titleWidth = ctx.measureText(title).width;
+  ctx.font = `${fontSize}px sans-serif`;
+  let widestEntry = 0;
+  for (const [name] of entries) {
+    const w = ctx.measureText(name).width;
+    if (w > widestEntry) widestEntry = w;
+  }
+  ctx.restore();
+
+  const contentWidth = Math.ceil(
+    Math.max(titleWidth, swatch + gap + widestEntry),
+  );
+  const width = contentWidth + pad * 2;
+  // Title + entries, each on its own line.
+  const height = pad * 2 + lineHeight + lineHeight * entries.length;
+
+  if (measureOnly) return { width, height };
+
+  // Background panel — readable on both dark terrain and bright overlays.
+  ctx.save();
+  ctx.fillStyle = "rgba(20, 20, 20, 0.86)";
+  ctx.fillRect(x, y, width, height);
+  ctx.strokeStyle = "#555";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1);
+
+  ctx.textBaseline = "top";
+  ctx.textAlign = "left";
+
+  // Title row.
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.fillStyle = "#fff";
+  ctx.fillText(title, x + pad, y + pad);
+
+  // Entry rows.
+  ctx.font = `${fontSize}px sans-serif`;
+  let entryY = y + pad + lineHeight;
+  for (const [name, color] of entries) {
+    // Swatch — vertically centred on the text baseline.
+    const swatchY = entryY + Math.round((lineHeight - swatch) / 2);
+    ctx.fillStyle = color;
+    ctx.fillRect(x + pad, swatchY, swatch, swatch);
+    ctx.strokeStyle = "#888";
+    ctx.strokeRect(x + pad + 0.5, swatchY + 0.5, swatch - 1, swatch - 1);
+
+    ctx.fillStyle = "#fff";
+    ctx.fillText(name, x + pad + swatch + gap, entryY);
+    entryY += lineHeight;
+  }
+  ctx.restore();
+
+  return { width, height };
+}
+
+/**
+ * Fill a hex polygon with a colour at the given opacity. Used for overlay
+ * tints; doesn't stroke a border (the base hex's border is already drawn).
+ */
+function fillHexPolygon(
+  ctx: OffscreenCanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  orientation: "flat" | "pointy",
+  color: string,
+  opacity: number,
+): void {
+  const pts = hexPolygonPoints(cx, cy, orientation, radius);
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  const prev = ctx.globalAlpha;
+  ctx.globalAlpha = opacity;
+  ctx.fill();
+  ctx.globalAlpha = prev;
+}
+
+// ── Overlay helpers ────────────────────────────────────────────────────────
+
+/**
+ * Walk every markdown file in the factions folder, read its `faction-color`
+ * frontmatter, return a map of basename → colour.
+ */
+function buildFactionColorMap(plugin: HexmakerPlugin): Map<string, string> {
+  const out = new Map<string, string>();
+  const folder = normalizeFolder(plugin.settings.factionsFolder ?? "");
+  for (const f of plugin.app.vault.getMarkdownFiles()) {
+    if (folder && !f.path.startsWith(folder + "/")) continue;
+    if (f.basename.startsWith("_")) continue;
+    const color = getFactionColorFromFile(plugin.app, f.path);
+    if (color) out.set(f.basename, color);
+  }
+  return out;
+}
+
+/**
+ * Walk every markdown file in the regions folder, read its `region-color`
+ * frontmatter, return a map of basename → colour.
+ */
+function buildRegionColorMap(plugin: HexmakerPlugin): Map<string, string> {
+  const out = new Map<string, string>();
+  const folder = normalizeFolder(plugin.settings.regionsFolder ?? "");
+  for (const f of plugin.app.vault.getMarkdownFiles()) {
+    if (folder && !f.path.startsWith(folder + "/")) continue;
+    if (f.basename.startsWith("_")) continue;
+    const color = getRegionColorFromFile(plugin.app, f.path);
+    if (color) out.set(f.basename, color);
+  }
+  return out;
+}
+
+/**
+ * Read the wiki-link basenames listed under `### Factions` in a hex note,
+ * using the metadata cache directly (no DOM dependency).
+ */
+function getHexFactionLinks(app: App, file: TFile): string[] {
+  const cache = app.metadataCache.getFileCache(file);
+  if (!cache) return [];
+  const headings = cache.headings ?? [];
+  const factionHeading = headings.find(
+    (h) => h.heading === "Factions" && h.level === 3,
+  );
+  if (!factionHeading) return [];
+  const factionStart = factionHeading.position.start.offset;
+  const nextHeading = headings.find(
+    (h) => h.position.start.offset > factionStart && h.level <= 3,
+  );
+  const factionEnd = nextHeading?.position.start.offset ?? Infinity;
+  return (cache.links ?? [])
+    .filter(
+      (lk) =>
+        lk.position.start.offset > factionStart &&
+        lk.position.start.offset < factionEnd,
+    )
+    .map((lk) => {
+      const target = lk.link.split("|")[0].split("#")[0].trim();
+      const slash = target.lastIndexOf("/");
+      const stem = slash >= 0 ? target.slice(slash + 1) : target;
+      return stem.replace(/\.md$/i, "");
+    });
+}
+
+/** Read the `region:` frontmatter of a hex note via metadata cache. */
+function getHexRegionName(app: App, file: TFile): string | null {
+  const cache = app.metadataCache.getFileCache(file);
+  const region: unknown = cache?.frontmatter?.["region"];
+  return typeof region === "string" ? region : null;
+}
+
+function dashFor(style: "solid" | "dashed" | "dotted"): number[] {
+  switch (style) {
+    case "dashed":
+      return [12, 8];
+    case "dotted":
+      return [2, 6];
+    default:
+      return [];
+  }
+}
+
+// ── Icon loading ───────────────────────────────────────────────────────────
+
+async function loadIcons(
+  plugin: HexmakerPlugin,
+  names: Set<string>,
+): Promise<Map<string, HTMLImageElement>> {
+  const cache = new Map<string, HTMLImageElement>();
+  const tasks: Promise<void>[] = [];
+  for (const name of names) {
+    const url = getIconUrl(plugin, name);
+    tasks.push(
+      loadImage(url)
+        .then((img) => {
+          cache.set(name, img);
+        })
+        .catch(() => {
+          console.warn(`Map export: failed to load icon ${name}`);
+        }),
+    );
+  }
+  await Promise.all(tasks);
+  return cache;
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+// ── Public exporter (used by the MapModal Export tab) ──────────────────────
+
+/**
+ * Options for the `exportMapAsPng` wrapper. Extends pure rendering options
+ * with file-naming concerns the wrapper layer cares about.
+ */
+export interface MapPngExportOptions extends MapPngRenderOptions {
+  /**
+   * Filename stem to write to the export folder (no extension). Defaults to
+   * `mapName`. Sanitised to strip vault-illegal characters.
+   */
+  outputName?: string;
+}
+
+export async function exportMapAsPng(
+  plugin: HexmakerPlugin,
+  mapName: string,
+  opts: MapPngExportOptions = {},
+): Promise<void> {
+  const folder = await ensureExportFolder(plugin);
+  const stem = (opts.outputName ?? mapName).trim() || mapName;
+  const outPath = `${folder}/${sanitiseFilename(stem)}.png`;
+
+  const notice = new Notice(`Exporting ${mapName}.png…`, 0);
+  try {
+    const blob = await renderMapToPngBlob(plugin, mapName, opts);
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    await writeBinaryToVault(plugin, outPath, buf);
+    new Notice(`Exported to ${outPath}`);
+    void openInVault(plugin, outPath);
+  } catch (err) {
+    console.error(err);
+    new Notice(`Map export failed: ${(err as Error).message ?? err}`);
+  } finally {
+    notice.hide();
+  }
+}
+
+function sanitiseFilename(name: string): string {
+  // Strip vault-illegal characters from the map name when used as a filename.
+  return name.replace(/[\\/:*?"<>|]/g, "_");
+}
+
+async function writeBinaryToVault(
+  plugin: HexmakerPlugin,
+  path: string,
+  data: Uint8Array,
+): Promise<void> {
+  const buf = data.buffer.slice(
+    data.byteOffset,
+    data.byteOffset + data.byteLength,
+  ) as ArrayBuffer;
+  const existing = plugin.app.vault.getAbstractFileByPath(path);
+  if (existing instanceof TFile) {
+    await plugin.app.vault.modifyBinary(existing, buf);
+  } else {
+    await plugin.app.vault.createBinary(path, buf);
+  }
+}
+
+async function openInVault(
+  plugin: HexmakerPlugin,
+  path: string,
+): Promise<void> {
+  const file = plugin.app.vault.getAbstractFileByPath(path);
+  if (file instanceof TFile) {
+    await plugin.app.workspace.getLeaf(false).openFile(file);
+  }
+}
+
+// Re-export so the renderer's surface is self-contained.
+export type { MapData };

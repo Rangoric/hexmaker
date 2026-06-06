@@ -2,6 +2,7 @@ import { App, TFile, Notice } from "obsidian";
 import { HexmakerModal } from "../HexmakerModal";
 import type HexmakerPlugin from "../HexmakerPlugin";
 import { normalizeFolder } from "../utils";
+import { WorkflowExportModal } from "./WorkflowExportModal";
 import {
   parseWorkflow,
   buildWorkflowContent,
@@ -673,6 +674,12 @@ export class WorkflowEditorModal extends HexmakerModal {
         new Notice(`Could not save workflow: ${String(err)}`);
       }
     };
+
+    footer
+      .createEl("button", { text: "Export…", cls: "mod-cta" })
+      .addEventListener("click", () => {
+        new WorkflowExportModal(this.app, this.plugin, this.file).open();
+      });
 
     footer
       .createEl("button", { text: "Close", cls: "mod-cta" })

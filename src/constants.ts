@@ -331,6 +331,7 @@ export const DEFAULT_SETTINGS: HexmakerPluginSettings = {
   defaultSubmapCols: 10,
   defaultSubmapRows: 10,
   workflowsFolder: "",
+  exportFolder: "",
   hiddenIcons: [],
   iconOrder: [],
   setupComplete: false,

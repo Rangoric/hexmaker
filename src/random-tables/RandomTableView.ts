@@ -27,6 +27,10 @@ import { parseWorkflow, generateDefaultTemplate } from "./workflow";
 import { Frontmatter } from "../frontmatter";
 import { buildTree, renderFolderTree, type TreeNode } from "./FolderTree";
 import { ConfirmDeleteModal } from "./ConfirmDeleteModal";
+import {
+  exportRandomTableAsPdf,
+  exportRandomTableAsMarkdown,
+} from "../export/exporters/randomTable";
 
 export const DIE_OPTIONS = [
   { label: "— no die —", value: 0 },
@@ -1412,6 +1416,26 @@ export class RandomTableView extends ItemView {
     });
     openNoteLink.addEventListener("click", () => {
       void this.app.workspace.getLeaf().openFile(file);
+    });
+
+     
+    const exportPdfLink = header.createEl("a", {
+      text: "Export PDF",
+      cls: "duckmage-rt-edit-link",
+    });
+    exportPdfLink.title = "Export this table as a printable PDF";
+     
+    exportPdfLink.addEventListener("click", () => {
+      void exportRandomTableAsPdf(this.plugin, file);
+    });
+
+    const exportMdLink = header.createEl("a", {
+      text: "Export Markdown",
+      cls: "duckmage-rt-edit-link",
+    });
+    exportMdLink.title = "Export this table as clean Markdown";
+    exportMdLink.addEventListener("click", () => {
+      void exportRandomTableAsMarkdown(this.plugin, file);
     });
 
     if (table.linkedFolder) {

@@ -606,7 +606,12 @@ export class HexTableView extends ItemView {
     tr.empty();
 
     const palette = this.plugin.getMapPalette(region);
-    const paletteMap = new Map(palette.map((p) => [p.name, p]));
+    // First-wins on duplicate-named palette entries — matches HexMapView's
+    // .find() behaviour.
+    const paletteMap = new Map<string, typeof palette[number]>();
+    for (const p of palette) {
+      if (!paletteMap.has(p.name)) paletteMap.set(p.name, p);
+    }
     const terrainName = getTerrainFromFile(this.app, path);
 
     const hasTown = (links.get("towns") ?? []).length > 0;

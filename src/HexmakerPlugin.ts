@@ -1,4 +1,10 @@
-import { Editor, EventRef, Menu, Notice, Plugin, TAbstractFile, TFile, TFolder } from "obsidian";
+import { Editor, EventRef, MarkdownView, Menu, Notice, Plugin, TAbstractFile, TFile, TFolder } from "obsidian";
+import {
+  exportSingleNoteAsPdf,
+  exportSingleNoteAsMarkdown,
+} from "./export/exporters/singleNote";
+import { HexExportModal } from "./hex-map/HexExportModal";
+import { WorkflowExportModal } from "./random-tables/WorkflowExportModal";
 import { HexMapView } from "./hex-map/HexMapView";
 import { HexTableView } from "./hex-table/HexTableView";
 import { RandomTableView } from "./random-tables/RandomTableView";
@@ -85,6 +91,66 @@ export default class HexmakerPlugin extends Plugin {
           .getLeaf()
           .setViewState({ type: VIEW_TYPE_RANDOM_TABLES }),
     });
+    this.addCommand({
+      id: "export-current-note-pdf",
+      name: "Export current note to PDF",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+        if (!file) return false;
+        if (!checking) void exportSingleNoteAsPdf(this, file);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "export-current-note-markdown",
+      name: "Export current note to Markdown",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+        if (!file) return false;
+        if (!checking) void exportSingleNoteAsMarkdown(this, file);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "export-current-hex",
+      name: "Export current hex (structured PDF / Markdown)",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+        if (!file || !this.isHexFile(file)) return false;
+        if (!checking) new HexExportModal(this.app, this, file).open();
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "export-current-workflow",
+      name: "Export current workflow with rolled samples",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+        if (!file || !this.isWorkflowFile(file)) return false;
+        if (!checking) new WorkflowExportModal(this.app, this, file).open();
+        return true;
+      },
+    });
+    // File-menu items: right-click any markdown file → Export to PDF / Markdown
+    this.registerEvent(
+      this.app.workspace.on("file-menu", (menu, file) => {
+        if (!(file instanceof TFile) || file.extension !== "md") return;
+        menu.addItem((item) =>
+          item
+            .setTitle("Export to PDF")
+            .setIcon("file-down")
+            .setSection("action")
+            .onClick(() => void exportSingleNoteAsPdf(this, file)),
+        );
+        menu.addItem((item) =>
+          item
+            .setTitle("Export to Markdown")
+            .setIcon("file-text")
+            .setSection("action")
+            .onClick(() => void exportSingleNoteAsMarkdown(this, file)),
+        );
+      }),
+    );
     this.addSettingTab(new HexmakerSettingTab(this.app, this));
 
     // Register the embedded roller code block processor
@@ -475,6 +541,27 @@ export default class HexmakerPlugin extends Plugin {
     new Notice(
       `Hexmaker: auto-registered ${added.length} map${added.length > 1 ? "s" : ""} from vault: ${added.join(", ")}`,
     );
+  }
+
+  /**
+   * Check whether a TFile is a workflow note (lives under the configured
+   * workflows folder). Used to gate the workflow export command.
+   */
+  isWorkflowFile(file: TFile): boolean {
+    const folder = normalizeFolder(this.settings.workflowsFolder ?? "");
+    if (!folder) return false;
+    return file.path.startsWith(folder + "/") && !file.basename.startsWith("_");
+  }
+
+  /**
+   * Check whether a TFile is a hex note (lives under the configured hex
+   * folder, basename matches the `x_y` coord pattern). Used to gate the
+   * structured hex export command.
+   */
+  isHexFile(file: TFile): boolean {
+    const hexFolder = normalizeFolder(this.settings.hexFolder);
+    if (hexFolder && !file.path.startsWith(hexFolder + "/")) return false;
+    return /^-?\d+_-?\d+$/.test(file.basename);
   }
 
   hexPath(x: number, y: number, mapName: string): string {

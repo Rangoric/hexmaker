@@ -24,8 +24,9 @@ import {
 } from "../sections";
 import { FileLinkSuggestModal } from "./FileLinkSuggestModal";
 import { TEXT_SECTIONS } from "../types";
-import type { LinkSection, HexEditorOptions } from "../types";
+import type { LinkSection, HexEditorOptions, TerrainColor } from "../types";
 import { RandomTableModal } from "../random-tables/RandomTableModal";
+import { HexExportModal } from "./HexExportModal";
 import { VIEW_TYPE_HEX_MAP, VIEW_TYPE_RANDOM_TABLES } from "../constants";
 
 export class HexEditorModal extends HexmakerModal {
@@ -124,6 +125,14 @@ export class HexEditorModal extends HexmakerModal {
       openLink.addEventListener("click", () => {
         void this.app.workspace.getLeaf("tab").openFile(fileNow);
         this.close();
+      });
+      const exportLink = titleLeft.createEl("a", {
+        text: "Export",
+        cls: "duckmage-editor-open-link",
+      });
+      exportLink.title = "Export this hex as PDF or Markdown";
+      exportLink.addEventListener("click", () => {
+        new HexExportModal(this.app, this.plugin, fileNow).open();
       });
     }
     this.renderNeighborWidget(titleRow, this.x, this.y);
@@ -287,9 +296,12 @@ export class HexEditorModal extends HexmakerModal {
     // notShifted = the hex sits on the non-staggered (un-shifted) row/col.
     const notShifted = (n: number) =>
       stagger === "odd" ? n % 2 === 0 : n % 2 !== 0;
-    const paletteMap = new Map(
-      this.plugin.getMapPalette(this.mapName).map((p) => [p.name, p]),
-    );
+    // First-wins on duplicate-named palette entries — matches HexMapView's
+    // .find() behaviour so the neighbor preview agrees with the main grid.
+    const paletteMap = new Map<string, TerrainColor>();
+    for (const p of this.plugin.getMapPalette(this.mapName)) {
+      if (!paletteMap.has(p.name)) paletteMap.set(p.name, p);
+    }
     const widget = container.createDiv({ cls: "duckmage-neighbor-widget" });
 
     type NeighborDef = { l: number; t: number; nx: number; ny: number };

@@ -1231,6 +1231,63 @@ input.duckmage-input-error {
     left: 44px;
 }
 
+/* ── Export tab in the Maps modal ─────────────────────────────────────────── */
+.duckmage-export-tab {
+    padding: 0.5em 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.8em;
+}
+.duckmage-export-tab-hint {
+    color: var(--text-muted);
+    font-size: 0.9em;
+    margin: 0;
+}
+.duckmage-export-tab-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4em;
+}
+.duckmage-export-tab-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    padding: 0.2em 0;
+    cursor: pointer;
+}
+.duckmage-export-tab-label {
+    cursor: pointer;
+}
+.duckmage-export-tab-number {
+    width: 80px;
+    margin-left: auto;
+}
+.duckmage-export-tab-text {
+    flex: 1;
+    margin-left: 0.5em;
+    min-width: 0;
+}
+.duckmage-export-tab-select {
+    flex: 1;
+    margin-left: 0.5em;
+    min-width: 0;
+}
+.duckmage-export-tab-preview {
+    font-family: var(--font-monospace);
+    font-size: 0.85em;
+    color: var(--text-muted);
+    padding: 0.3em 0;
+    word-break: break-all;
+}
+.duckmage-export-tab-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5em;
+    padding-top: 0.5em;
+    border-top: 1px solid var(--background-modifier-border);
+    flex-wrap: wrap;
+}
+
 .duckmage-undo-btn-map {
     left: 8px;
     top: 42px;
@@ -4586,4 +4643,25 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
     background: var(--interactive-accent);
     color: var(--text-on-accent);
     border-color: var(--interactive-accent);
+}
+
+/* Export — hidden render host for printToPDF */
+.duckmage-export-webview {
+    position: fixed;
+    left: -10000px;
+    top: -10000px;
+    width: 850px;
+    height: 1100px;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+/* Export — off-screen render host for MarkdownRenderer */
+.duckmage-export-render-host {
+    position: fixed;
+    left: -10000px;
+    top: -10000px;
+    width: 850px;
+    visibility: hidden;
+    pointer-events: none;
 }
