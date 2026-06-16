@@ -95,6 +95,7 @@ export interface HexmakerPluginSettings {
 	defaultSubmapRows: number;
 	workflowsFolder: string;
 	exportFolder: string;
+	coordPlacement: "top" | "middle" | "bottom";
 	hiddenIcons: string[];
 	iconOrder: string[];
 	setupComplete: boolean;

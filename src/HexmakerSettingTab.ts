@@ -172,6 +172,27 @@ export class HexmakerSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName("Coordinate placement")
+      .setDesc(
+        "Where the coordinate label sits inside each hex. Move to top or bottom to keep it from clashing with a centered terrain icon.",
+      )
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("top", "Top")
+          .addOption("middle", "Middle")
+          .addOption("bottom", "Bottom")
+          .setValue(this.plugin.settings.coordPlacement ?? "bottom")
+          .onChange(async (value) => {
+            this.plugin.settings.coordPlacement = value as
+              | "top"
+              | "middle"
+              | "bottom";
+            await this.plugin.saveSettings();
+            this.plugin.refreshHexMap();
+          }),
+      );
+
+    new Setting(containerEl)
       .setName("Hex cell spacing")
       .setDesc("Gap between hex cells (0 – 0.5 em).")
       .addSlider((slider) =>

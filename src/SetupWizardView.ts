@@ -373,10 +373,23 @@ function makeMapStep(plugin: HexmakerPlugin): WizardStep {
 			const total = ctx.mapCols * ctx.mapRows;
 			const xs = Array.from({ length: ctx.mapCols }, (_, i) => i);
 			const ys = Array.from({ length: ctx.mapRows }, (_, i) => i);
-			onProgress(`Generating 0 / ${total}…`);
+			onProgress(`Generating hex notes 0 / ${total}…`);
 			await plugin.generateHexNotes(name, xs, ys, (done) => {
-				onProgress(`Generating ${done} / ${total}…`);
+				onProgress(`Generating hex notes ${done} / ${total}…`);
 			});
+
+			// Generate terrain description/encounters tables (and the generic
+			// landmark/hidden/secret ones) + the [Roll] preamble. Without this
+			// step the user has a map but no tables — they'd have to hunt the
+			// settings tab for "Generate terrain tables & hex links".
+			//
+			// We skip backfillTerrainLinks here because freshly-generated hexes
+			// have no terrain painted yet, so it's a no-op; syncHexEncounterTableLink
+			// wires up the link automatically when the user paints terrain later.
+			onProgress("Generating terrain tables…");
+			await plugin.ensureTerrainTables();
+			onProgress("Adding roller links…");
+			await plugin.ensureAllRollerLinks();
 			onProgress("");
 		},
 	};
@@ -401,6 +414,7 @@ function makeDoneStep(): WizardStep {
 			summary.createEl("li", { text: `Map: "${name}" — ${ctx.mapCols} × ${ctx.mapRows} (${(ctx.mapCols * ctx.mapRows).toLocaleString()} hex notes)` });
 			summary.createEl("li", { text: `Hex orientation: ${ctx.hexOrientation === "flat" ? "Flat-top" : "Pointy-top"}` });
 			summary.createEl("li", { text: `Terrain palette: ${ctx.paletteName}` });
+			summary.createEl("li", { text: "Description and encounter tables for every terrain (auto-linked when you paint terrain)" });
 
 			container.createEl("p", {
 				text: "A few things to try first:",

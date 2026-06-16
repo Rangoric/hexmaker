@@ -3221,8 +3221,17 @@ export class HexMapView extends ItemView {
         const hasTerrain = !!hexEl.style.backgroundColor;
         const textEl = activeDocument.createElementNS(svgNS, "text");
         textEl.setAttribute("x", String(pos.cx));
-        // Nudge label toward bottom of hex (same visual position as the HTML label)
-        textEl.setAttribute("y", String(pos.cy + hexEl.offsetHeight * 0.28));
+        // Vertical placement is user-configurable so coord labels can be moved
+        // out from under terrain icons. ±0.28 of hex height is the visual margin
+        // that keeps the label inside the hex without overlapping its border.
+        const placement = this.plugin.settings.coordPlacement;
+        const dy =
+          placement === "top"
+            ? -hexEl.offsetHeight * 0.28
+            : placement === "middle"
+              ? 0
+              : hexEl.offsetHeight * 0.28;
+        textEl.setAttribute("y", String(pos.cy + dy));
         textEl.setAttribute("text-anchor", "middle");
         textEl.setAttribute("dominant-baseline", "middle");
         textEl.setAttribute("font-size", String(hexEl.offsetHeight * 0.12));
