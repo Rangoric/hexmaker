@@ -2,10 +2,13 @@ import { App, Notice, TFolder } from "obsidian";
 import { HexmakerModal } from "../HexmakerModal";
 import type HexmakerPlugin from "../HexmakerPlugin";
 import type { HexMapView } from "./HexMapView";
-import { normalizeFolder, slugify, getIconUrl, createIconEl } from "../utils";
+import { normalizeFolder, slugify, getIconUrl, createIconEl, importBinaryFileToVault } from "../utils";
 import { getSubmapFromFile, setSubmapInFile } from "../frontmatter";
 import { exportMapAsPng } from "../export/mapPngRenderer";
 import { exportMapAsPdf } from "../export/exporters/mapWithTable";
+import { FileLinkSuggestModal } from "./FileLinkSuggestModal";
+
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif", "svg", "bmp"];
 
 type ModalTab = "Maps" | "Properties" | "New map" | "Export";
 
@@ -373,6 +376,128 @@ export class MapModal extends HexmakerModal {
         }
       });
     }
+
+    // ── Background image ───────────────────────────────────────────────────
+    el.createEl("h4", { text: "Background image" });
+    const bgRow = el.createDiv({ cls: "duckmage-region-row duckmage-bg-image-row" });
+    bgRow.createEl("span", {
+      text: currentMap?.backgroundImage?.path ?? "(none) — drop an image here",
+      cls: "duckmage-bg-image-path",
+    });
+    const pickBtn = bgRow.createEl("button", { text: "Pick image…" });
+    pickBtn.addEventListener("click", () => {
+      new FileLinkSuggestModal(
+        this.app,
+        this.plugin,
+        (file) => this.setActiveMapBackground(file.path),
+        "", // whole vault
+        IMAGE_EXTENSIONS,
+      ).open();
+    });
+    const clearBtn = bgRow.createEl("button", { text: "Clear" });
+    clearBtn.disabled = !currentMap?.backgroundImage;
+    clearBtn.addEventListener("click", () => {
+      const map = this.plugin.getMap(this.view.activeMapName);
+      if (!map) return;
+      map.backgroundImage = undefined;
+      void this.plugin.saveSettings().then(() => {
+        this.onChanged();
+        this.render();
+      });
+    });
+    this.attachImageDropZone(bgRow, async (file) => {
+      const mapName = this.view.activeMapName;
+      const dest = this.bgImportFolder(mapName);
+      const path = await importBinaryFileToVault(this.plugin, file, dest);
+      this.setActiveMapBackground(path);
+    });
+
+    if (currentMap?.backgroundImage) {
+      const bg = currentMap.backgroundImage;
+      const opacityRow = el.createDiv({ cls: "duckmage-region-row" });
+      opacityRow.createSpan({ text: "Opacity", cls: "duckmage-map-field-label" });
+      const opacitySlider = opacityRow.createEl("input", { type: "range" });
+      opacitySlider.min = "0.1";
+      opacitySlider.max = "1";
+      opacitySlider.step = "0.05";
+      opacitySlider.value = String(bg.opacity ?? 1);
+      opacitySlider.addEventListener("input", () => {
+        const map = this.plugin.getMap(this.view.activeMapName);
+        if (!map?.backgroundImage) return;
+        map.backgroundImage.opacity = parseFloat(opacitySlider.value);
+        void this.plugin.saveSettings().then(() => this.onChanged());
+      });
+
+      const calibrateBtn = el.createEl("button", {
+        text: "Calibrate position & scale",
+        cls: "mod-cta",
+      });
+      calibrateBtn.addEventListener("click", () => {
+        this.close();
+        this.view.enterBgCalibration();
+      });
+    }
+  }
+
+  /** Compute the folder where dropped bg images should land for a given map. */
+  private bgImportFolder(mapName: string): string {
+    const hexFolder = normalizeFolder(this.plugin.settings.hexFolder);
+    const base = hexFolder ? `${hexFolder}/${mapName}` : mapName;
+    return `${base}/_bg`;
+  }
+
+  /**
+   * Set the active map's bg image and drop the user straight into calibration
+   * mode. A freshly-added background almost always needs calibration anyway —
+   * no point making the user click through another button. Caller still gets
+   * the option to cancel calibration (Esc / ✓ button).
+   */
+  private setActiveMapBackground(path: string): void {
+    const map = this.plugin.getMap(this.view.activeMapName);
+    if (!map) return;
+    map.backgroundImage = {
+      path,
+      offsetX: 0,
+      offsetY: 0,
+      scale: 1,
+      rotation: 0,
+      opacity: 1,
+    };
+    void this.plugin.saveSettings().then(() => {
+      this.onChanged();
+      this.close();
+      this.view.enterBgCalibration();
+    });
+  }
+
+  /**
+   * Make `el` a drop target for an image file. Calls `onFile` with the first
+   * image dropped. Adds/removes the `is-drop-target` class for visual feedback.
+   */
+  private attachImageDropZone(
+    el: HTMLElement,
+    onFile: (file: File) => Promise<void>,
+  ): void {
+    el.addEventListener("dragover", (e: DragEvent) => {
+      e.preventDefault();
+      el.addClass("is-drop-target");
+    });
+    el.addEventListener("dragleave", () => {
+      el.removeClass("is-drop-target");
+    });
+    el.addEventListener("drop", (e: DragEvent) => {
+      e.preventDefault();
+      el.removeClass("is-drop-target");
+      const file = e.dataTransfer?.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        new Notice("Dropped file isn't an image.");
+        return;
+      }
+      void onFile(file).catch((err) => {
+        new Notice(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    });
   }
 
   // ── New map tab ───────────────────────────────────────────────────────────
@@ -454,6 +579,47 @@ export class MapModal extends HexmakerModal {
     const originYInput = originRow.createEl("input", { type: "number", value: "0" });
     originYInput.setCssProps({ width: "70px" });
 
+    // Background image (optional). User can either pick an existing vault file
+    // (path captured locally) or drop a file from the OS (captured as a File;
+    // imported into the new map's _bg folder after create).
+    el.createEl("label", { text: "Background image (optional)", cls: "duckmage-map-field-label" });
+    let pendingBgPath: string | null = null;
+    let pendingBgFile: File | null = null;
+    const bgRow = el.createDiv({ cls: "duckmage-region-row duckmage-bg-image-row" });
+    const bgPathLabel = bgRow.createEl("span", {
+      text: "(none) — drop an image here",
+      cls: "duckmage-bg-image-path",
+    });
+    const bgPickBtn = bgRow.createEl("button", { text: "Pick image…" });
+    bgPickBtn.addEventListener("click", () => {
+      new FileLinkSuggestModal(
+        this.app,
+        this.plugin,
+        (file) => {
+          pendingBgPath = file.path;
+          pendingBgFile = null;
+          bgPathLabel.setText(file.path);
+          bgClearBtn.disabled = false;
+        },
+        "",
+        IMAGE_EXTENSIONS,
+      ).open();
+    });
+    const bgClearBtn = bgRow.createEl("button", { text: "Clear" });
+    bgClearBtn.disabled = true;
+    bgClearBtn.addEventListener("click", () => {
+      pendingBgPath = null;
+      pendingBgFile = null;
+      bgPathLabel.setText("(none) — drop an image here");
+      bgClearBtn.disabled = true;
+    });
+    this.attachImageDropZone(bgRow, async (file) => {
+      pendingBgFile = file;
+      pendingBgPath = null;
+      bgPathLabel.setText(`${file.name} (will be imported on create)`);
+      bgClearBtn.disabled = false;
+    });
+
     // Create button
     const createRow = el.createDiv({ cls: "duckmage-region-row duckmage-map-create-row" });
     const createBtn = createRow.createEl("button", { text: "Create", cls: "mod-cta" });
@@ -471,6 +637,8 @@ export class MapModal extends HexmakerModal {
         staggerVal,
         createBtn,
         allInputs,
+        pendingBgPath,
+        pendingBgFile,
       );
     createBtn.addEventListener("click", doCreate);
     nameInput.addEventListener("keydown", (e: KeyboardEvent) => {
@@ -575,6 +743,8 @@ export class MapModal extends HexmakerModal {
     staggerOffset: "odd" | "even",
     btn: HTMLButtonElement,
     inputs: (HTMLInputElement | HTMLSelectElement)[],
+    bgImagePath: string | null,
+    bgImageFile: File | null,
   ): Promise<void> {
     btn.setText("Generating…");
     btn.disabled = true;
@@ -593,8 +763,43 @@ export class MapModal extends HexmakerModal {
       return;
     }
 
+    // Resolve the bg image path: a dropped File needs importing into the new
+    // map's _bg folder first; a picked vault path is used directly.
+    let resolvedBgPath: string | null = bgImagePath;
+    if (bgImageFile) {
+      try {
+        btn.setText("Importing background…");
+        resolvedBgPath = await importBinaryFileToVault(
+          this.plugin,
+          bgImageFile,
+          this.bgImportFolder(result.name),
+        );
+      } catch (e) {
+        new Notice(`Background import failed: ${e instanceof Error ? e.message : String(e)}`);
+        resolvedBgPath = null;
+      }
+    }
+
+    if (resolvedBgPath) {
+      const newMap = this.plugin.getMap(result.name);
+      if (newMap) {
+        newMap.backgroundImage = {
+          path: resolvedBgPath,
+          offsetX: 0,
+          offsetY: 0,
+          scale: 1,
+          rotation: 0,
+          opacity: 1,
+        };
+        await this.plugin.saveSettings();
+      }
+    }
+
     this.view.switchMapFromModal(result.name);
     this.close();
+    // If the new map was created with a background image, drop straight into
+    // calibration mode — same UX as adding a bg to an existing map.
+    if (resolvedBgPath) this.view.enterBgCalibration();
   }
 
   onClose(): void {

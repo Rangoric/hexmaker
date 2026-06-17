@@ -32,6 +32,22 @@ export interface PathChain {
 	hexes: string[];          // "x_y" keys
 }
 
+/**
+ * Per-map background image. Drawn under the hex grid, sharing the viewport's
+ * pan/zoom transform. `offsetX`/`offsetY` translate the image relative to the
+ * hex-grid container's natural origin, in CSS pixels at the image's native
+ * resolution. `scale` is a uniform multiplier (1 = native pixel size).
+ * Rotation in degrees, default 0. Opacity 0..1, default 1.
+ */
+export interface MapBackgroundImage {
+	path: string;
+	offsetX: number;
+	offsetY: number;
+	scale: number;
+	rotation?: number;
+	opacity?: number;
+}
+
 export interface MapData {
 	name: string;
 	paletteName: string;
@@ -47,6 +63,28 @@ export interface MapData {
 	showGmLayer?: boolean;        // undefined = true (on by default)
 	showTokens?: boolean;         // undefined = true (on by default)
 	staggerOffset?: "odd" | "even"; // undefined = inherit global setting
+	backgroundImage?: MapBackgroundImage;
+	/** Optional independent transform applied to the hex grid container,
+	 *  used during background-image calibration so the user can resize/shift
+	 *  the grid to fit features in the underlying image.
+	 *  `gridDisplayScale` is the legacy uniform-scale field, retained for
+	 *  back-compat; new code reads X/Y separately (falling back to
+	 *  `gridDisplayScale` if X/Y are missing). */
+	gridDisplayScale?: number;
+	gridDisplayScaleX?: number;
+	gridDisplayScaleY?: number;
+	gridDisplayOffsetX?: number;
+	gridDisplayOffsetY?: number;
+	/** Persisted viewport state — restored when the view is reopened so a
+	 *  calibrated map (whose bg image / grid transforms were sized at a
+	 *  specific font-size / zoom) doesn't drift on reload. */
+	savedViewport?: {
+		zoom: number;
+		panX: number;
+		panY: number;
+		/** Baked font-size as a CSS string (e.g. `"32px"`), or `""` for default. */
+		fontSize: string;
+	};
 }
 
 export interface TerrainPalette {

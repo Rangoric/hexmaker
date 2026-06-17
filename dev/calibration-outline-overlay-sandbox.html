@@ -1,0 +1,242 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Calibration outline overlay — alignment test</title>
+<style>
+:root {
+    --background-primary: #1e1e1e;
+    --background-secondary: #2a2a2a;
+    --background-modifier-border: #555;
+    --color-accent: #a78bfa;
+}
+* { box-sizing: border-box; }
+body { background: var(--background-primary); color: #ddd; font-family: system-ui, sans-serif; margin: 0; padding: 8px; }
+h1 { font-size: 0.95em; margin: 0 0 8px; }
+
+/* ── Real plugin CSS, copied verbatim ────────────────────────────────────────
+   Only relevant parts: viewport positioning, grid container layout, hex
+   shape and row/col stacking, and the calibration overrides. */
+
+.duckmage-hex-map-clip {
+    position: relative;
+    width: 760px;
+    height: 520px;
+    border: 1px solid var(--background-modifier-border);
+    overflow: hidden;
+    background: #0c111a;
+}
+
+.duckmage-hex-map-viewport {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    padding: 1em;
+}
+
+.duckmage-hex-map-grid {
+    display: flex;
+    flex-direction: column; /* pointy-top default; rows stack vertically */
+}
+
+/* The plugin sets `duckmage-grid-flat` on the grid container itself, not
+   the viewport. Same here, applied dynamically in JS. */
+.duckmage-grid-flat {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+}
+
+.duckmage-hex-row {
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    margin-bottom: calc(var(--hex-size, 2.2em) * -0.5);
+}
+.duckmage-hex-row-offset {
+    margin-left: calc(var(--hex-size, 2.2em) * 1.732 / 2);
+}
+
+.duckmage-hex-col {
+    display: flex;
+    flex-direction: column;
+    margin-right: calc(var(--hex-size, 2.2em) * -0.5);
+}
+.duckmage-hex-col-offset {
+    margin-top: calc(var(--hex-size, 2.2em) * 0.866);
+}
+
+.duckmage-hex {
+    --hex-size: 2.2em;
+    width: calc(var(--hex-size) * 1.732);
+    height: calc(var(--hex-size) * 2);
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    background: var(--background-secondary);
+    border: 2px solid var(--background-modifier-border);
+    margin: 0.15em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    /* Inherit font-size from viewport (the plugin's hexes do the same). The
+       previous sandbox version forced font-size:11px which made `2.2em` on
+       the hex (24px) disagree with the same `2.2em` on the offset cols/rows
+       (which inherit body's 16px → 35px). That'd be a sandbox-only bug.  */
+    color: #888;
+    flex-shrink: 0;
+}
+
+.duckmage-hex-label {
+    font-size: 11px;
+    color: #888;
+}
+
+.duckmage-grid-flat .duckmage-hex {
+    width: calc(var(--hex-size) * 2);
+    height: calc(var(--hex-size) * 1.732);
+    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+}
+
+/* Calibration mode — the rules under test. */
+.duckmage-hex-map-viewport.is-bg-calibrating .duckmage-hex {
+    pointer-events: none;
+}
+.duckmage-hex-map-viewport.is-bg-calibrating .duckmage-hex-map-grid {
+    cursor: move;
+    outline: 2px dashed var(--color-accent);
+    outline-offset: 4px;
+    position: relative; /* This is what anchors the SVG overlay */
+}
+
+.duckmage-calibration-outlines-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    overflow: visible;
+    z-index: 10;
+}
+</style>
+</head>
+<body>
+
+<h1>Calibration outline overlay — alignment test</h1>
+
+<div class="duckmage-hex-map-clip">
+    <div class="duckmage-hex-map-viewport is-bg-calibrating" id="viewport">
+        <div class="duckmage-hex-map-grid" id="grid"></div>
+    </div>
+</div>
+
+<script>
+// Build a small grid to mirror the plugin's pointy-top layout, then run the
+// SAME positionInGrid + polygon-points logic as renderCalibrationOutlines in
+// HexMapView.ts. If the SVG outlines visually trace each hex exactly,
+// the bug is plugin-only (state / timing). If they spill out, the bug
+// lives in the math.
+
+const ORIENTATION = new URLSearchParams(location.search).get("orient") || "pointy";
+const GRID_SCALE = Number(new URLSearchParams(location.search).get("scale") || 1);
+const ROWS = 5;
+const COLS = 7;
+
+const grid = document.getElementById("grid");
+const viewport = document.getElementById("viewport");
+
+if (ORIENTATION === "flat") {
+    grid.classList.add("duckmage-grid-flat");
+    for (let c = 0; c < COLS; c++) {
+        const col = document.createElement("div");
+        col.className = "duckmage-hex-col" + (c % 2 === 1 ? " duckmage-hex-col-offset" : "");
+        for (let r = 0; r < ROWS; r++) {
+            const hex = document.createElement("div");
+            hex.className = "duckmage-hex";
+            const label = document.createElement("span");
+            label.className = "duckmage-hex-label";
+            label.textContent = `${c},${r}`;
+            hex.appendChild(label);
+            col.appendChild(hex);
+        }
+        grid.appendChild(col);
+    }
+} else {
+    for (let r = 0; r < ROWS; r++) {
+        const row = document.createElement("div");
+        row.className = "duckmage-hex-row" + (r % 2 === 1 ? " duckmage-hex-row-offset" : "");
+        for (let c = 0; c < COLS; c++) {
+            const hex = document.createElement("div");
+            hex.className = "duckmage-hex";
+            const label = document.createElement("span");
+            label.className = "duckmage-hex-label";
+            label.textContent = `${c},${r}`;
+            hex.appendChild(label);
+            row.appendChild(hex);
+        }
+        grid.appendChild(row);
+    }
+}
+
+// Apply the plugin's gridDisplayScale transform if requested
+if (GRID_SCALE !== 1) {
+    grid.style.transformOrigin = "0 0";
+    grid.style.transform = `scale(${GRID_SCALE})`;
+}
+
+// ── This is verbatim what renderCalibrationOutlines does in HexMapView ──
+function renderCalibrationOutlines(gridContainer) {
+    const hexEls = Array.from(gridContainer.querySelectorAll(".duckmage-hex"));
+    if (hexEls.length === 0) return;
+
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.classList.add("duckmage-calibration-outlines-svg");
+    svg.setAttribute("width", String(gridContainer.offsetWidth));
+    svg.setAttribute("height", String(gridContainer.offsetHeight));
+    svg.setAttribute("viewBox", `0 0 ${gridContainer.offsetWidth} ${gridContainer.offsetHeight}`);
+
+    const isFlat = ORIENTATION === "flat";
+
+    const positionInGrid = (el) => {
+        let x = 0, y = 0;
+        let cur = el;
+        while (cur && cur !== gridContainer) {
+            x += cur.offsetLeft;
+            y += cur.offsetTop;
+            cur = cur.offsetParent;
+        }
+        return { x, y };
+    };
+
+    for (const hex of hexEls) {
+        const { x, y } = positionInGrid(hex);
+        const w = hex.offsetWidth, h = hex.offsetHeight;
+        const pts = isFlat
+            ? [[w * 0.25, 0], [w * 0.75, 0], [w, h * 0.5], [w * 0.75, h], [w * 0.25, h], [0, h * 0.5]]
+            : [[w * 0.5, 0], [w, h * 0.25], [w, h * 0.75], [w * 0.5, h], [0, h * 0.75], [0, h * 0.25]];
+        const poly = document.createElementNS(svgNS, "polygon");
+        poly.setAttribute(
+            "points",
+            pts.map(p => `${(p[0] + x).toFixed(1)},${(p[1] + y).toFixed(1)}`).join(" "),
+        );
+        poly.setAttribute("fill", "none");
+        poly.setAttribute("stroke", "#22d3ee");
+        poly.setAttribute("stroke-width", "2");
+        poly.setAttribute("stroke-linejoin", "round");
+        svg.appendChild(poly);
+    }
+
+    gridContainer.appendChild(svg);
+}
+
+renderCalibrationOutlines(grid);
+
+// Annotate for the LLM reader
+const annotation = document.createElement("div");
+annotation.style.cssText = "position:fixed; top:8px; right:8px; background:#222; padding:4px 8px; font-size:11px; border:1px solid #444;";
+annotation.textContent = `orient=${ORIENTATION}, scale=${GRID_SCALE}`;
+document.body.appendChild(annotation);
+</script>
+
+</body>
+</html>

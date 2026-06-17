@@ -130,6 +130,148 @@
     padding: 1em;
 }
 
+.duckmage-bg-image-layer {
+    position: absolute;
+    top: 1em;
+    left: 1em;
+    transform-origin: 0 0;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.duckmage-bg-image {
+    display: block;
+    user-select: none;
+    max-width: none;
+    max-height: none;
+}
+
+.duckmage-hex-map-viewport.is-bg-calibrating .duckmage-bg-image-layer {
+    pointer-events: auto;
+    cursor: move;
+    outline: 2px dashed var(--interactive-accent);
+    outline-offset: 4px;
+}
+
+/* Focused calibration target: the last-clicked image/grid gets a solid,
+   brighter outline so the user knows arrow-key nudges will go there. */
+.duckmage-hex-map-viewport.is-bg-calibrating .duckmage-bg-image-layer.is-focused {
+    outline: 3px solid var(--interactive-accent);
+}
+.duckmage-hex-map-viewport.is-bg-calibrating .duckmage-hex-map-grid.is-focused {
+    outline: 3px solid var(--color-accent);
+}
+
+/* Calibration mode: hexes are pointer-events: none so the grid container
+   captures the drag/wheel events. Hex outline is rendered via the SVG
+   overlay in HexMapView; see renderCalibrationOutlines. */
+.duckmage-hex-map-viewport.is-bg-calibrating .duckmage-hex {
+    pointer-events: none;
+}
+
+.duckmage-hex-map-viewport.is-bg-calibrating .duckmage-hex-map-grid {
+    cursor: move;
+    outline: 2px dashed var(--color-accent);
+    outline-offset: 4px;
+}
+
+/* Grid container is position: relative always so overlay SVGs (paths,
+   faction, region, calibration outline) can be anchored as descendants and
+   inherit any gridDisplay transform — otherwise they drift when calibrated
+   maps re-scale the grid. */
+.duckmage-hex-map-grid {
+    position: relative;
+}
+
+.duckmage-calibration-outlines-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    overflow: visible;
+    z-index: 10;
+}
+
+/* Floating commit chip during calibration — single ✓ button */
+.duckmage-calibration-help {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 1000;
+    pointer-events: none;
+}
+
+.duckmage-calibration-commit {
+    pointer-events: auto;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    font-size: 1.4em;
+    line-height: 1;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+}
+
+/* Resize handles for bg image + hex grid in calibration mode. Positioned at
+   each corner/edge of the parent (which is position: relative or absolute).
+   `--duckmage-cal-scale` is set by HexMapView.applyTransform as `1/zoom`, so
+   handles stay constant *screen* size regardless of viewport zoom — without
+   compensation the viewport's `transform: scale()` shrinks them at low zoom
+   to the point you can't grab them. transform-origin: center keeps the scale
+   centered around the offset anchor point. */
+.duckmage-calibration-handle {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    background: #22d3ee;
+    border: 1px solid #0c111a;
+    border-radius: 3px;
+    pointer-events: auto;
+    z-index: 20;
+    transform-origin: center;
+}
+.duckmage-calibration-handle-nw { top: -9px;  left: -9px;  cursor: nwse-resize; transform: scale(var(--duckmage-cal-scale, 1)); }
+.duckmage-calibration-handle-n  { top: -9px;  left: 50%; cursor: ns-resize;     transform: translateX(-50%) scale(var(--duckmage-cal-scale, 1)); }
+.duckmage-calibration-handle-ne { top: -9px;  right: -9px; cursor: nesw-resize; transform: scale(var(--duckmage-cal-scale, 1)); }
+.duckmage-calibration-handle-w  { top: 50%; left: -9px;  cursor: ew-resize;     transform: translateY(-50%) scale(var(--duckmage-cal-scale, 1)); }
+.duckmage-calibration-handle-e  { top: 50%; right: -9px; cursor: ew-resize;     transform: translateY(-50%) scale(var(--duckmage-cal-scale, 1)); }
+.duckmage-calibration-handle-sw { bottom: -9px; left: -9px;  cursor: nesw-resize; transform: scale(var(--duckmage-cal-scale, 1)); }
+.duckmage-calibration-handle-s  { bottom: -9px; left: 50%; cursor: ns-resize;     transform: translateX(-50%) scale(var(--duckmage-cal-scale, 1)); }
+.duckmage-calibration-handle-se { bottom: -9px; right: -9px; cursor: nwse-resize; transform: scale(var(--duckmage-cal-scale, 1)); }
+
+/* When a background image is present, hexes without a terrain become visually
+   transparent so the underlying image shows through. Hexes with a terrain
+   color set inline (via style="background-color: …") render normally. */
+.duckmage-hex-map-viewport.has-bg-image .duckmage-hex:not([style*="background-color"]) {
+    background-color: transparent;
+}
+
+.duckmage-bg-image-path {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+    font-size: 0.85em;
+    padding-right: 8px;
+}
+
+.duckmage-bg-image-row {
+    border: 1px dashed transparent;
+    border-radius: 6px;
+    padding: 4px 6px;
+    transition: border-color 0.1s, background 0.1s;
+}
+
+.duckmage-bg-image-row.is-drop-target {
+    border-color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+}
+
 .duckmage-hex-map-viewport.is-dragging {
     cursor: grabbing;
 }

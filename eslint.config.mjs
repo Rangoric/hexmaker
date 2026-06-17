@@ -4,7 +4,7 @@ import obsidianmd from "eslint-plugin-obsidianmd";
 import globals from "globals";
 
 export default defineConfig([
-  { ignores: ["**/tests/**", "node_modules/", "*.mjs", "main.js"] },
+  { ignores: ["**/tests/**", "node_modules/", "*.mjs", "main.js", "dev/**"] },
 
   ...obsidianmd.configs.recommended,
 

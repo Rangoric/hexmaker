@@ -60,3 +60,34 @@ export function getIconUrl(plugin: HexmakerPlugin, iconFilename: string): string
 	if (bundled) return bundled;
 	return plugin.app.vault.adapter.getResourcePath(`${plugin.manifest.dir}/icons/${iconFilename}`);
 }
+
+/**
+ * Write a File (from a drag-drop event) into the vault at the given folder.
+ * Creates intermediate folders as needed. Auto-renames on collision
+ * (foo.png → foo (1).png) so existing assets aren't clobbered.
+ * Returns the resolved vault-relative path of the written file.
+ */
+export async function importBinaryFileToVault(
+	plugin: HexmakerPlugin,
+	file: File,
+	destFolder: string,
+): Promise<string> {
+	const folder = normalizeFolder(destFolder);
+	if (folder && !plugin.app.vault.getAbstractFileByPath(folder)) {
+		await plugin.app.vault.createFolder(folder);
+	}
+	const safeName = file.name.replace(/[\\/:*?"<>|]/g, "_");
+	const dot = safeName.lastIndexOf(".");
+	const stem = dot > 0 ? safeName.slice(0, dot) : safeName;
+	const ext = dot > 0 ? safeName.slice(dot) : "";
+	let candidate = folder ? `${folder}/${safeName}` : safeName;
+	let n = 1;
+	while (plugin.app.vault.getAbstractFileByPath(candidate)) {
+		const next = `${stem} (${n})${ext}`;
+		candidate = folder ? `${folder}/${next}` : next;
+		n++;
+	}
+	const buffer = await file.arrayBuffer();
+	await plugin.app.vault.createBinary(candidate, buffer);
+	return candidate;
+}

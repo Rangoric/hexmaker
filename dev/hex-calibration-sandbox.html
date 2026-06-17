@@ -1,0 +1,250 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Hex calibration outline sandbox</title>
+<style>
+/* ── Mock of the relevant Obsidian theme tokens ────────────────────────── */
+:root {
+    --background-primary: #1e1e1e;
+    --background-secondary: #2a2a2a;
+    --background-modifier-border: #555;
+    --background-modifier-hover: #3a3a3a;
+    --text-normal: #ddd;
+    --text-muted: #999;
+    --color-accent: #a78bfa;
+    --interactive-accent: #a78bfa;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-family: system-ui, sans-serif;
+    margin: 0;
+    padding: 16px;
+}
+
+h1 { font-size: 1.1em; margin: 0 0 12px; }
+
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.controls button {
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+.controls button.active {
+    background: var(--color-accent);
+    color: #000;
+    border-color: var(--color-accent);
+}
+
+.label { font-size: 0.85em; color: var(--text-muted); margin-bottom: 8px; }
+
+/* ── Mock background image so we can see "see-through" effects ────────── */
+.bg-image {
+    position: relative;
+    background:
+        repeating-linear-gradient(45deg, #224 0 12px, #114 12px 24px),
+        radial-gradient(circle at 30% 40%, #2563eb 0 80px, transparent 120px),
+        radial-gradient(circle at 70% 60%, #16a34a 0 70px, transparent 110px);
+    background-color: #1a1a2e;
+    width: 720px;
+    height: 460px;
+    padding: 16px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+}
+
+/* ── Plugin hex CSS, copied verbatim from styles.css ──────────────────── */
+.duckmage-hex-map-grid {
+    display: flex;
+    flex-direction: column;
+}
+
+.duckmage-hex-map-grid > .duckmage-row {
+    display: flex;
+    /* odd-r offset: every second row pushed half a hex right */
+}
+
+.duckmage-grid-flat .duckmage-hex-map-grid > .duckmage-row {
+    /* (not used in this sandbox — we lay flat-top columns by hand below) */
+}
+
+/* Pointy-top default (used here) */
+.duckmage-hex {
+    --hex-size: 2.2em;
+    width: calc(var(--hex-size) * 1.732);
+    height: calc(var(--hex-size) * 2);
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    background: var(--background-secondary);
+    border: 2px solid var(--background-modifier-border);
+    margin: 0.15em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    cursor: pointer;
+    position: relative;
+    transition: background-color 0.15s ease;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* Flat-top */
+.duckmage-grid-flat .duckmage-hex {
+    width: calc(var(--hex-size) * 2);
+    height: calc(var(--hex-size) * 1.732);
+    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+}
+
+/* For a quick sandbox grid: pointy-top rows with offset on odd rows.
+   This is just a layout-correct mock; the calibration outline rules don't
+   depend on the row offset, only on the hex shape itself. */
+.duckmage-hex-map-grid.pointy .duckmage-row { display: flex; }
+.duckmage-hex-map-grid.pointy .duckmage-row.odd { margin-left: calc(var(--hex-size) * 1.732 / 2 + 0.15em); }
+.duckmage-hex-map-grid.flat .duckmage-row { display: flex; flex-direction: column; }
+
+/* ── Approach A: bright cyan border (what we had originally — broken on
+   diagonal edges because CSS border draws on the rectangle and clip-path
+   hides everything outside the polygon). ─────────────────────────────── */
+body.approach-a .duckmage-hex {
+    border-color: #22d3ee !important;
+    border-width: 3px !important;
+}
+
+/* ── Approach B: pseudo-element "ring" via a slightly larger
+   clip-pathed background sat behind the parent. Parent's own bg covers
+   the inner area; only a 2-3 px ring of cyan shows around each hex. ─── */
+body.approach-b .duckmage-hex { z-index: 0; }
+body.approach-b .duckmage-hex::before {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    background: #22d3ee;
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    z-index: -1;
+}
+body.approach-b .duckmage-grid-flat .duckmage-hex::before {
+    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+}
+
+/* ── Approach C: SVG overlay drawn over the grid container (the plugin
+   would render this in JS). Here we show what it looks like via an
+   absolutely-positioned mock SVG. Cleanest result but requires JS. ──── */
+body.approach-c .duckmage-hex { /* no outline change; SVG provides it */ }
+
+/* ── Approach D: drop-shadow stack (was a disaster — filter is heavy and
+   the shadow casts the whole filled hex, not just the edge). Included
+   here only to demonstrate it shouldn't be used. ─────────────────────── */
+body.approach-d .duckmage-hex {
+    border-color: transparent !important;
+    filter:
+        drop-shadow(0 2px 0 #22d3ee)
+        drop-shadow(0 -2px 0 #22d3ee)
+        drop-shadow(2px 0 0 #22d3ee)
+        drop-shadow(-2px 0 0 #22d3ee);
+}
+
+/* ── Approach E: transparent hex with bright box-shadow stack. Same
+   issue as D — box-shadow respects clip-path? No, it doesn't. ──────── */
+body.approach-e .duckmage-hex {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow:
+        0 0 0 2px #22d3ee;
+}
+</style>
+</head>
+<body class="approach-a">
+
+<h1>Hex calibration outline — CSS sandbox</h1>
+<div class="label">Same hex CSS as the plugin. Click an approach to swap the outline rule. Use this to iterate without bouncing the whole app.</div>
+
+<div class="controls">
+    <button data-approach="a" class="active">A: cyan border</button>
+    <button data-approach="b">B: pseudo-ring (larger clip behind)</button>
+    <button data-approach="c">C: SVG overlay (JS)</button>
+    <button data-approach="d">D: drop-shadow stack (BROKEN)</button>
+    <button data-approach="e">E: box-shadow</button>
+</div>
+
+<div class="bg-image">
+<div class="duckmage-hex-map-grid pointy" id="grid"></div>
+<svg id="svg-overlay" style="position:absolute; top:16px; left:16px; pointer-events:none; display:none;" width="700" height="430"></svg>
+</div>
+
+<script>
+const ROWS = 5, COLS = 7;
+const grid = document.getElementById("grid");
+for (let r = 0; r < ROWS; r++) {
+    const row = document.createElement("div");
+    row.className = "duckmage-row" + (r % 2 === 1 ? " odd" : "");
+    for (let c = 0; c < COLS; c++) {
+        const hex = document.createElement("div");
+        hex.className = "duckmage-hex";
+        hex.textContent = `${c},${r}`;
+        row.appendChild(hex);
+    }
+    grid.appendChild(row);
+}
+
+// Approach C: draw an SVG overlay that strokes each hex outline. The plugin
+// would do this in renderCalibrationOutlines; here it's a static mock built
+// after layout settles.
+function buildSvgOverlay() {
+    const svg = document.getElementById("svg-overlay");
+    svg.replaceChildren();
+    const hexes = grid.querySelectorAll(".duckmage-hex");
+    const containerRect = svg.getBoundingClientRect();
+    for (const h of hexes) {
+        const r = h.getBoundingClientRect();
+        const x = r.left - containerRect.left;
+        const y = r.top - containerRect.top;
+        const w = r.width, hgt = r.height;
+        // Pointy-top polygon — match clip-path
+        const pts = [
+            [w * 0.5, 0],
+            [w, hgt * 0.25],
+            [w, hgt * 0.75],
+            [w * 0.5, hgt],
+            [0, hgt * 0.75],
+            [0, hgt * 0.25],
+        ];
+        const ns = "http://www.w3.org/2000/svg";
+        const poly = document.createElementNS(ns, "polygon");
+        poly.setAttribute("points", pts.map(p => `${p[0] + x},${p[1] + y}`).join(" "));
+        poly.setAttribute("fill", "none");
+        poly.setAttribute("stroke", "#22d3ee");
+        poly.setAttribute("stroke-width", "2");
+        svg.appendChild(poly);
+    }
+}
+
+document.querySelectorAll(".controls button").forEach(b => {
+    b.addEventListener("click", () => {
+        const approach = b.dataset.approach;
+        document.body.className = "approach-" + approach;
+        document.querySelectorAll(".controls button").forEach(x => x.classList.toggle("active", x === b));
+        const svg = document.getElementById("svg-overlay");
+        if (approach === "c") { svg.style.display = "block"; buildSvgOverlay(); }
+        else svg.style.display = "none";
+    });
+});
+
+// Pre-build SVG so it's ready when approach C selected
+window.addEventListener("load", buildSvgOverlay);
+</script>
+</body>
+</html>

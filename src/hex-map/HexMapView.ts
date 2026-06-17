@@ -76,6 +76,11 @@ type RegionUndoEntry = {
   oldRegion: string | null;
   newRegion: string | null;
 };
+interface CalibrateSnapshot {
+  bg?: { offsetX: number; offsetY: number; scale: number; rotation: number; opacity: number };
+  grid: { scaleX: number; scaleY: number; offsetX: number; offsetY: number; legacyScale: number };
+}
+
 type UndoItem =
   | { kind: "terrain"; entries: TerrainUndoEntry[] }
   | { kind: "icon"; entries: IconUndoEntry[] }
@@ -87,6 +92,12 @@ type UndoItem =
       mapName: string;
       before: PathChain[];
       after: PathChain[];
+    }
+  | {
+      kind: "calibrate";
+      mapName: string;
+      before: CalibrateSnapshot;
+      after: CalibrateSnapshot;
     };
 
 function nullOverrides(paths: string[]): Map<string, null> {
@@ -242,19 +253,32 @@ export class HexMapView extends ItemView {
   }
 
   switchToMap(name: string): void {
-    // Save the departing map's viewport — including baked font size (see bakeZoom).
-    this.mapViewport.set(this.activeMapName, {
-      zoom: this.zoom,
-      panX: this.panX,
-      panY: this.panY,
-      fontSize: this.viewportEl?.style.fontSize ?? "",
-    });
+    // Save the departing map's viewport into the in-memory cache AND onto the
+    // map itself, so the state survives both same-session switching and full
+    // view reload. Skip if we haven't actually opened a map yet (initial
+    // load) — `this.viewportEl` is null in that case.
+    if (this.viewportEl) {
+      const snapshot = {
+        zoom: this.zoom,
+        panX: this.panX,
+        panY: this.panY,
+        fontSize: this.viewportEl.style.fontSize ?? "",
+      };
+      this.mapViewport.set(this.activeMapName, snapshot);
+      const departing = this.plugin.getMap(this.activeMapName);
+      if (departing) {
+        departing.savedViewport = snapshot;
+        void this.plugin.saveSettings();
+      }
+    }
 
     this.activeMapName = name;
     this.updateMapBtnLabel();
     this.refreshViewHeader();
 
-    const stored = this.mapViewport.get(name);
+    // Prefer the in-memory cache (live state from this session), fall back to
+    // persisted savedViewport on the map (survives view close/reopen).
+    const stored = this.mapViewport.get(name) ?? this.plugin.getMap(name)?.savedViewport;
     if (stored) {
       this.zoom = stored.zoom;
       this.panX = stored.panX;
@@ -312,6 +336,23 @@ export class HexMapView extends ItemView {
     const { contentEl } = this;
     contentEl.addClass("duckmage-hex-map-container");
 
+    // A prior build (or a crashed view) may have left a calibration banner
+    // attached to the document body. Sweep before we render so the user
+    // doesn't see a phantom "Calibrating background" on a fresh view.
+    this.sweepStrayCalibrationHelp();
+
+    // View-scoped Ctrl/Cmd+Z (undo) and Ctrl/Cmd+Shift+Z (redo).
+    // Active-view check keeps us from stealing the shortcut when the focus
+    // is on a Markdown editor in another tab.
+    this.registerDomEvent(activeDocument, "keydown", (e: KeyboardEvent) => {
+      if (this.app.workspace.getActiveViewOfType(HexMapView) !== this) return;
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key.toLowerCase() !== "z") return;
+      e.preventDefault();
+      if (e.shiftKey) void this.redo();
+      else void this.undo();
+    });
+
     // clipEl clips the panning viewport; controlsEl overlays buttons without clipping
     const clipEl = contentEl.createDiv({ cls: "duckmage-hex-map-clip" });
     const controlsEl = contentEl.createDiv({
@@ -333,6 +374,10 @@ export class HexMapView extends ItemView {
       contentEl,
       "wheel",
       (e: WheelEvent) => {
+        // Calibration mode: image/grid wheel handlers own plain-wheel scaling
+        // (they stopPropagation), so this only fires for Ctrl/Cmd+wheel
+        // (which the layer handlers explicitly let through) or wheels outside
+        // both layers. Treat both as a viewport zoom.
         e.preventDefault();
         const rect = contentEl.getBoundingClientRect();
         const cx = e.clientX - rect.left;
@@ -361,6 +406,8 @@ export class HexMapView extends ItemView {
     let rightDragMoved = false;
 
     this.registerDomEvent(contentEl, "mousedown", (e: MouseEvent) => {
+      // Calibration mode owns left-click drag (image + grid handlers manage it)
+      if (this.bgCalibrating && e.button === 0) return;
       // Middle click: always pan
       if (e.button === 1) {
         e.preventDefault(); // suppress auto-scroll cursor
@@ -724,6 +771,11 @@ export class HexMapView extends ItemView {
       {
         groupCls: "duckmage-expand-group-top",
         expandAction: async () => {
+          // Capture grid container height BEFORE the expand so we can shift
+          // pan to keep existing content visually anchored. Top expand adds
+          // a row at the top of the flex column, which would otherwise push
+          // existing rows downward.
+          const heightBefore = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetHeight ?? 0;
           this.getActiveMap().gridOffset.y--;
           this.getActiveMap().gridSize.rows++;
           await this.plugin.saveSettings();
@@ -731,13 +783,20 @@ export class HexMapView extends ItemView {
           const xs = Array.from({ length: r.gridSize.cols }, (_, i) => r.gridOffset.x + i);
           const newPaths = xs.map((x) => this.plugin.hexPath(x, r.gridOffset.y, this.activeMapName));
           this.renderGrid(nullOverrides(newPaths), nullOverrides(newPaths));
+          const heightAfter = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetHeight ?? 0;
+          this.panY -= (heightAfter - heightBefore) * this.zoom;
+          this.applyTransform();
           void this.plugin.generateHexNotes(this.activeMapName, xs, [r.gridOffset.y]);
         },
         shrinkAction: async () => {
+          const heightBefore = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetHeight ?? 0;
           this.getActiveMap().gridSize.rows--;
           this.getActiveMap().gridOffset.y++;
           await this.plugin.saveSettings();
           this.renderGrid();
+          const heightAfter = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetHeight ?? 0;
+          this.panY -= (heightAfter - heightBefore) * this.zoom;
+          this.applyTransform();
         },
         canShrink: () => this.getActiveMap().gridSize.rows > 1,
         edgePaths: () => {
@@ -776,6 +835,7 @@ export class HexMapView extends ItemView {
       {
         groupCls: "duckmage-expand-group-left",
         expandAction: async () => {
+          const widthBefore = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetWidth ?? 0;
           this.getActiveMap().gridOffset.x--;
           this.getActiveMap().gridSize.cols++;
           await this.plugin.saveSettings();
@@ -783,13 +843,20 @@ export class HexMapView extends ItemView {
           const ys = Array.from({ length: r.gridSize.rows }, (_, i) => r.gridOffset.y + i);
           const newPaths = ys.map((y) => this.plugin.hexPath(r.gridOffset.x, y, this.activeMapName));
           this.renderGrid(nullOverrides(newPaths), nullOverrides(newPaths));
+          const widthAfter = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetWidth ?? 0;
+          this.panX -= (widthAfter - widthBefore) * this.zoom;
+          this.applyTransform();
           void this.plugin.generateHexNotes(this.activeMapName, [r.gridOffset.x], ys);
         },
         shrinkAction: async () => {
+          const widthBefore = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetWidth ?? 0;
           this.getActiveMap().gridSize.cols--;
           this.getActiveMap().gridOffset.x++;
           await this.plugin.saveSettings();
           this.renderGrid();
+          const widthAfter = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetWidth ?? 0;
+          this.panX -= (widthAfter - widthBefore) * this.zoom;
+          this.applyTransform();
         },
         canShrink: () => this.getActiveMap().gridSize.cols > 1,
         edgePaths: () => {
@@ -1646,8 +1713,602 @@ export class HexMapView extends ItemView {
   }
   private applyTransform(): void {
     if (this.viewportEl) {
-      this.viewportEl.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
+      this.viewportEl.setCssProps({
+        transform: `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`,
+        // Inverse-zoom factor used by calibration resize handles so they stay
+        // constant screen-size regardless of how zoomed the viewport is.
+        "--duckmage-cal-scale": String(1 / Math.max(0.01, this.zoom)),
+      });
     }
+  }
+
+  private bgCalibrating = false;
+  /**
+   * Which calibration target the user last clicked. Arrow keys nudge whichever
+   * is focused. Cleared on exit.
+   */
+  private bgCalibrationFocus: "image" | "grid" | null = null;
+  /** Coalesce a stream of arrow-key nudges into a single undo entry. */
+  private nudgeUndoTimer: number | null = null;
+  private nudgeUndoBefore: CalibrateSnapshot | null = null;
+  /** Snapshot the bg image + grid display transforms for the active map. */
+  private captureCalibration(map: MapData): CalibrateSnapshot {
+    const bg = map.backgroundImage;
+    const legacy = map.gridDisplayScale ?? 1;
+    return {
+      bg: bg
+        ? {
+            offsetX: bg.offsetX,
+            offsetY: bg.offsetY,
+            scale: bg.scale,
+            rotation: bg.rotation ?? 0,
+            opacity: bg.opacity ?? 1,
+          }
+        : undefined,
+      grid: {
+        scaleX: map.gridDisplayScaleX ?? legacy,
+        scaleY: map.gridDisplayScaleY ?? legacy,
+        offsetX: map.gridDisplayOffsetX ?? 0,
+        offsetY: map.gridDisplayOffsetY ?? 0,
+        legacyScale: legacy,
+      },
+    };
+  }
+
+  private pushCalibrationUndo(
+    mapName: string,
+    before: CalibrateSnapshot,
+    after: CalibrateSnapshot,
+  ): void {
+    // Skip no-op snapshots (drag that didn't actually move anything)
+    if (JSON.stringify(before) === JSON.stringify(after)) return;
+    this.undoStack.push({ kind: "calibrate", mapName, before, after });
+    if (this.undoStack.length > this.UNDO_DEPTH) this.undoStack.shift();
+    this.redoStack = [];
+    this.updateUndoButton();
+  }
+
+  /** Restore a CalibrateSnapshot back onto a map and persist. */
+  private async applyCalibrationSnapshot(
+    mapName: string,
+    snap: CalibrateSnapshot,
+  ): Promise<void> {
+    const map = this.plugin.settings.maps.find((m) => m.name === mapName);
+    if (!map) return;
+    if (snap.bg && map.backgroundImage) {
+      map.backgroundImage.offsetX = snap.bg.offsetX;
+      map.backgroundImage.offsetY = snap.bg.offsetY;
+      map.backgroundImage.scale = snap.bg.scale;
+      map.backgroundImage.rotation = snap.bg.rotation;
+      map.backgroundImage.opacity = snap.bg.opacity;
+    }
+    map.gridDisplayScaleX = snap.grid.scaleX;
+    map.gridDisplayScaleY = snap.grid.scaleY;
+    map.gridDisplayOffsetX = snap.grid.offsetX;
+    map.gridDisplayOffsetY = snap.grid.offsetY;
+    map.gridDisplayScale = snap.grid.legacyScale;
+    await this.plugin.saveSettings();
+    this.renderGrid();
+  }
+
+  private renderBackgroundImage(viewportEl: HTMLElement, map: MapData): void {
+    const bg = map.backgroundImage;
+    viewportEl.toggleClass("has-bg-image", !!bg?.path);
+    viewportEl.toggleClass("is-bg-calibrating", this.bgCalibrating && !!bg?.path);
+    if (!bg?.path) return;
+    const file = this.app.vault.getAbstractFileByPath(bg.path);
+    if (!(file instanceof TFile)) return;
+
+    const layer = viewportEl.createDiv({ cls: "duckmage-bg-image-layer" });
+    // transform-origin: 0 0 — anchor math in attachResizeHandles assumes it.
+    // Apply the dynamic transform via setCssProps to satisfy the obsidianmd
+    // no-static-styles-assignment lint, then set opacity as inline style.
+    layer.setCssProps({
+      "transform-origin": "0 0",
+      transform:
+        `translate(${bg.offsetX}px, ${bg.offsetY}px) ` +
+        `rotate(${bg.rotation ?? 0}deg) scale(${bg.scale})`,
+    });
+    layer.style.opacity = String(bg.opacity ?? 1);
+    const img = layer.createEl("img", { cls: "duckmage-bg-image" });
+    img.src = this.app.vault.adapter.getResourcePath(bg.path);
+    img.alt = "";
+    img.draggable = false;
+
+    if (this.bgCalibrating) this.attachCalibrationHandlers(layer, map);
+  }
+
+  /**
+   * Attach drag-move + wheel-scale handlers to the bg image layer.
+   * Mutates map.backgroundImage in real time; caller saves on exit.
+   */
+  private attachCalibrationHandlers(layer: HTMLElement, map: MapData): void {
+    const bg = map.backgroundImage;
+    if (!bg) return;
+
+    layer.addEventListener("mousedown", (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      if ((e.target as HTMLElement).classList.contains("duckmage-calibration-handle")) {
+        this.setCalibrationFocus("image");
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      this.setCalibrationFocus("image");
+      const startX = e.clientX, startY = e.clientY;
+      const startOX = bg.offsetX, startOY = bg.offsetY;
+      const zoom = this.zoom;
+      const before = this.captureCalibration(map);
+      const onMove = (ev: MouseEvent) => {
+        bg.offsetX = startOX + (ev.clientX - startX) / zoom;
+        bg.offsetY = startOY + (ev.clientY - startY) / zoom;
+        layer.style.transform =
+          `translate(${bg.offsetX}px, ${bg.offsetY}px) ` +
+          `rotate(${bg.rotation ?? 0}deg) scale(${bg.scale})`;
+      };
+      const onUp = () => {
+        activeDocument.removeEventListener("mousemove", onMove);
+        activeDocument.removeEventListener("mouseup", onUp);
+        this.pushCalibrationUndo(this.activeMapName, before, this.captureCalibration(map));
+      };
+      activeDocument.addEventListener("mousemove", onMove);
+      activeDocument.addEventListener("mouseup", onUp);
+    });
+
+    // Wheel intentionally NOT bound here: scrolling falls through to the
+    // viewport zoom handler so the user can zoom in/out for precision.
+    // Resize handles are the only way to change image scale in calibration.
+
+    // Corner resize handles (aspect-locked since image proportions matter)
+    let bgResizeBefore: CalibrateSnapshot | null = null;
+    this.attachResizeHandles(layer, {
+      aspectLocked: true,
+      getStartTransform: () => ({
+        tx: bg.offsetX,
+        ty: bg.offsetY,
+        sx: bg.scale,
+        sy: bg.scale,
+      }),
+      onResize: ({ tx, ty, sx }) => {
+        bg.offsetX = tx;
+        bg.offsetY = ty;
+        bg.scale = Math.max(0.05, Math.min(20, sx));
+        layer.style.transform =
+          `translate(${bg.offsetX}px, ${bg.offsetY}px) ` +
+          `rotate(${bg.rotation ?? 0}deg) scale(${bg.scale})`;
+      },
+      onDragStart: () => { bgResizeBefore = this.captureCalibration(map); },
+      onDragEnd: () => {
+        if (bgResizeBefore) {
+          this.pushCalibrationUndo(this.activeMapName, bgResizeBefore, this.captureCalibration(map));
+          bgResizeBefore = null;
+        }
+      },
+    });
+  }
+
+  /**
+   * Attach drag-move + wheel-scale handlers + 8 resize handles (4 corners,
+   * 4 edges) to the hex grid container. Corner drags = uniform scale,
+   * top/bottom edges = vertical-only stretch, left/right edges = horizontal-
+   * only stretch. The vertical stretch is the "hex aspect" knob the user
+   * specifically asked for.
+   */
+  private attachGridCalibrationHandlers(grid: HTMLElement, map: MapData): void {
+    const applyGridTransform = () => {
+      const legacy = map.gridDisplayScale ?? 1;
+      const sx = map.gridDisplayScaleX ?? legacy;
+      const sy = map.gridDisplayScaleY ?? legacy;
+      const ox = map.gridDisplayOffsetX ?? 0;
+      const oy = map.gridDisplayOffsetY ?? 0;
+      grid.setCssProps({
+        "transform-origin": "0 0",
+        transform: `translate(${ox}px, ${oy}px) scale(${sx}, ${sy})`,
+      });
+    };
+
+    // Move the grid by dragging its body (anywhere not on a handle)
+    grid.addEventListener("mousedown", (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      if ((e.target as HTMLElement).classList.contains("duckmage-calibration-handle")) {
+        this.setCalibrationFocus("grid");
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      this.setCalibrationFocus("grid");
+      const startX = e.clientX, startY = e.clientY;
+      const startOX = map.gridDisplayOffsetX ?? 0;
+      const startOY = map.gridDisplayOffsetY ?? 0;
+      const zoom = this.zoom;
+      const before = this.captureCalibration(map);
+      const onMove = (ev: MouseEvent) => {
+        map.gridDisplayOffsetX = startOX + (ev.clientX - startX) / zoom;
+        map.gridDisplayOffsetY = startOY + (ev.clientY - startY) / zoom;
+        applyGridTransform();
+      };
+      const onUp = () => {
+        activeDocument.removeEventListener("mousemove", onMove);
+        activeDocument.removeEventListener("mouseup", onUp);
+        this.pushCalibrationUndo(this.activeMapName, before, this.captureCalibration(map));
+      };
+      activeDocument.addEventListener("mousemove", onMove);
+      activeDocument.addEventListener("mouseup", onUp);
+    });
+
+    // Wheel intentionally NOT bound: falls through to viewport zoom so the
+    // user can zoom for precision. Resize handles are the only way to
+    // change grid scale during calibration.
+
+    let gridResizeBefore: CalibrateSnapshot | null = null;
+    this.attachResizeHandles(grid, {
+      aspectLocked: false,
+      getStartTransform: () => {
+        const legacy = map.gridDisplayScale ?? 1;
+        return {
+          tx: map.gridDisplayOffsetX ?? 0,
+          ty: map.gridDisplayOffsetY ?? 0,
+          sx: map.gridDisplayScaleX ?? legacy,
+          sy: map.gridDisplayScaleY ?? legacy,
+        };
+      },
+      onResize: ({ tx, ty, sx, sy }) => {
+        map.gridDisplayOffsetX = tx;
+        map.gridDisplayOffsetY = ty;
+        map.gridDisplayScaleX = Math.max(0.1, Math.min(20, sx));
+        map.gridDisplayScaleY = Math.max(0.1, Math.min(20, sy));
+        if (Math.abs(sx - sy) < 0.001) map.gridDisplayScale = sx;
+        applyGridTransform();
+      },
+      onDragStart: () => { gridResizeBefore = this.captureCalibration(map); },
+      onDragEnd: () => {
+        if (gridResizeBefore) {
+          this.pushCalibrationUndo(this.activeMapName, gridResizeBefore, this.captureCalibration(map));
+          gridResizeBefore = null;
+        }
+      },
+    });
+  }
+
+  /**
+   * Add 8 resize handles (4 corners + 4 edges) to a positioned element.
+   * `onResize` is called with the scale factor change (x and y, possibly 1)
+   * relative to the start of the drag — caller multiplies its current scale
+   * by the factor and re-applies its transform.
+   *
+   * If `aspectLocked`, edge handles are disabled and corner drags constrain
+   * factor.x = factor.y (using whichever axis the cursor moved further on).
+   */
+  /**
+   * Attach 8 resize handles around `el`. Caller must use
+   * `transform-origin: 0 0` so the anchor math below works.
+   *
+   * Standard direct-manipulation rule: the side the user grabs moves with
+   * the cursor; the **opposite** side stays fixed in screen space. We
+   * achieve that by adjusting `translate` alongside `scale` on every
+   * mousemove. See `topics/design/notes/resize-handle-anchor-rule` for the
+   * derivation. The math (anchor at object-local (ax, ay)):
+   *
+   *   tx_new = tx_old + ax * (sx_old - sx_new)
+   *   ty_new = ty_old + ay * (sy_old - sy_new)
+   */
+  private attachResizeHandles(
+    el: HTMLElement,
+    opts: {
+      aspectLocked: boolean;
+      getStartTransform: () => { tx: number; ty: number; sx: number; sy: number };
+      onResize: (next: { tx: number; ty: number; sx: number; sy: number }) => void;
+      onDragStart?: () => void;
+      onDragEnd?: () => void;
+    },
+  ): void {
+    type Handle =
+      | "nw" | "n" | "ne"
+      | "w"        | "e"
+      | "sw" | "s" | "se";
+    const handles: Handle[] = opts.aspectLocked
+      ? ["nw", "ne", "sw", "se"]
+      : ["nw", "n", "ne", "w", "e", "sw", "s", "se"];
+
+    for (const h of handles) {
+      const handle = el.createDiv({
+        cls: `duckmage-calibration-handle duckmage-calibration-handle-${h}`,
+      });
+      handle.addEventListener("mousedown", (e: MouseEvent) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        opts.onDragStart?.();
+
+        const rect = el.getBoundingClientRect();
+        const start = opts.getStartTransform();
+        const viewportZoom = this.zoom; // CSS scale on the viewport wrapper
+        // Pre-transform dimensions (W0, H0): rect is post-everything, so undo
+        // both the element's own scale AND the viewport zoom to recover.
+        const W0 = rect.width / (start.sx * viewportZoom);
+        const H0 = rect.height / (start.sy * viewportZoom);
+
+        // Object-local anchor: the corner opposite the grabbed handle, in
+        // pre-transform pixel space (W0 / H0).
+        const ax = h.includes("e") ? 0 : h.includes("w") ? W0 : W0 / 2;
+        const ay = h.includes("s") ? 0 : h.includes("n") ? H0 : H0 / 2;
+
+        const startX = e.clientX, startY = e.clientY;
+        const onMove = (ev: MouseEvent) => {
+          // Cursor delta in screen pixels → pre-transform pixels (undo viewport zoom)
+          const dx = (ev.clientX - startX) / viewportZoom;
+          const dy = (ev.clientY - startY) / viewportZoom;
+
+          // New scale: only the dimension matching the grabbed axis changes.
+          // Edge handles leave the perpendicular scale untouched.
+          let sxNew = start.sx, syNew = start.sy;
+          if (h.includes("e")) sxNew = Math.max(0.05, (W0 * start.sx + dx) / W0);
+          if (h.includes("w")) sxNew = Math.max(0.05, (W0 * start.sx - dx) / W0);
+          if (h.includes("s")) syNew = Math.max(0.05, (H0 * start.sy + dy) / H0);
+          if (h.includes("n")) syNew = Math.max(0.05, (H0 * start.sy - dy) / H0);
+          if (opts.aspectLocked) {
+            const fx = sxNew / start.sx;
+            const fy = syNew / start.sy;
+            const dom = Math.abs(fx - 1) > Math.abs(fy - 1) ? fx : fy;
+            sxNew = start.sx * dom;
+            syNew = start.sy * dom;
+          }
+
+          // Translate adjustment to keep the anchor pinned in screen space.
+          const txNew = start.tx + ax * (start.sx - sxNew);
+          const tyNew = start.ty + ay * (start.sy - syNew);
+
+          opts.onResize({ tx: txNew, ty: tyNew, sx: sxNew, sy: syNew });
+        };
+        const onUp = () => {
+          activeDocument.removeEventListener("mousemove", onMove);
+          activeDocument.removeEventListener("mouseup", onUp);
+          opts.onDragEnd?.();
+        };
+        activeDocument.addEventListener("mousemove", onMove);
+        activeDocument.addEventListener("mouseup", onUp);
+      });
+    }
+  }
+
+  private calibrationHelpEl: HTMLElement | null = null;
+
+  /** Enter calibration mode for the active map's bg image. No-op if no image. */
+  enterBgCalibration(): void {
+    const map = this.getActiveMap();
+    if (!map.backgroundImage?.path) {
+      new Notice("Pick a background image first.");
+      return;
+    }
+    this.bgCalibrating = true;
+    this.bgCalibrationFocus = null;
+    // Cancel any pending bake — if it fires mid-calibration it changes the
+    // viewport font-size, which resizes the em-based hex grid while the SVG
+    // outline polygons (in pixel coords) stay at their pre-bake size, and we
+    // get the visual two-grids drift the user reported.
+    if (this.zoomSettleTimer !== null) {
+      window.clearTimeout(this.zoomSettleTimer);
+      this.zoomSettleTimer = null;
+    }
+    this.registerDomEvent(activeDocument, "keydown", (e: KeyboardEvent) => {
+      if (!this.bgCalibrating) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        void this.exitBgCalibration(true);
+        return;
+      }
+      this.handleCalibrationArrowKey(e);
+    });
+    this.renderGrid();
+    this.showCalibrationHelp();
+  }
+
+  /** Update DOM classes so the focused calibration target gets a brighter outline. */
+  private applyCalibrationFocusStyles(): void {
+    if (!this.viewportEl) return;
+    const layer = this.viewportEl.querySelector<HTMLElement>(".duckmage-bg-image-layer");
+    const grid = this.viewportEl.querySelector<HTMLElement>(".duckmage-hex-map-grid");
+    layer?.toggleClass("is-focused", this.bgCalibrationFocus === "image");
+    grid?.toggleClass("is-focused", this.bgCalibrationFocus === "grid");
+  }
+
+  /** Set the calibration focus target (called from layer/grid mousedown). */
+  private setCalibrationFocus(target: "image" | "grid"): void {
+    if (this.bgCalibrationFocus === target) return;
+    this.bgCalibrationFocus = target;
+    this.applyCalibrationFocusStyles();
+  }
+
+  /**
+   * Arrow keys nudge whichever calibration target was last clicked. Step is
+   * 1 CSS px (or 10 px with Shift). Sequential presses coalesce into a single
+   * undo entry via a 500ms debounce.
+   */
+  private handleCalibrationArrowKey(e: KeyboardEvent): void {
+    if (!this.bgCalibrationFocus) return;
+    const dirX = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    const dirY = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+    if (dirX === 0 && dirY === 0) return;
+    e.preventDefault();
+    const step = e.shiftKey ? 10 : 1;
+    const map = this.getActiveMap();
+    if (this.nudgeUndoBefore === null) {
+      this.nudgeUndoBefore = this.captureCalibration(map);
+    }
+    if (this.bgCalibrationFocus === "image" && map.backgroundImage) {
+      map.backgroundImage.offsetX += dirX * step;
+      map.backgroundImage.offsetY += dirY * step;
+      const bg = map.backgroundImage;
+      const layer = this.viewportEl?.querySelector<HTMLElement>(".duckmage-bg-image-layer");
+      layer?.setCssProps({
+        transform:
+          `translate(${bg.offsetX}px, ${bg.offsetY}px) ` +
+          `rotate(${bg.rotation ?? 0}deg) scale(${bg.scale})`,
+      });
+    } else if (this.bgCalibrationFocus === "grid") {
+      map.gridDisplayOffsetX = (map.gridDisplayOffsetX ?? 0) + dirX * step;
+      map.gridDisplayOffsetY = (map.gridDisplayOffsetY ?? 0) + dirY * step;
+      const legacy = map.gridDisplayScale ?? 1;
+      const sx = map.gridDisplayScaleX ?? legacy;
+      const sy = map.gridDisplayScaleY ?? legacy;
+      const grid = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid");
+      grid?.setCssProps({
+        "transform-origin": "0 0",
+        transform:
+          `translate(${map.gridDisplayOffsetX}px, ${map.gridDisplayOffsetY}px) ` +
+          `scale(${sx}, ${sy})`,
+      });
+    }
+    if (this.nudgeUndoTimer !== null) window.clearTimeout(this.nudgeUndoTimer);
+    this.nudgeUndoTimer = window.setTimeout(() => {
+      const after = this.captureCalibration(map);
+      if (this.nudgeUndoBefore) {
+        this.pushCalibrationUndo(this.activeMapName, this.nudgeUndoBefore, after);
+      }
+      this.nudgeUndoBefore = null;
+      this.nudgeUndoTimer = null;
+    }, 500);
+  }
+
+  /** Exit calibration. If `save`, persist the current transform. */
+  async exitBgCalibration(save: boolean): Promise<void> {
+    if (!this.bgCalibrating) return;
+    this.bgCalibrating = false;
+    this.bgCalibrationFocus = null;
+    // Flush any pending arrow-nudge undo entry so the final state is recorded
+    if (this.nudgeUndoTimer !== null) {
+      window.clearTimeout(this.nudgeUndoTimer);
+      this.nudgeUndoTimer = null;
+      if (this.nudgeUndoBefore) {
+        const after = this.captureCalibration(this.getActiveMap());
+        this.pushCalibrationUndo(this.activeMapName, this.nudgeUndoBefore, after);
+        this.nudgeUndoBefore = null;
+      }
+    }
+    this.hideCalibrationHelp();
+    if (save) await this.plugin.saveSettings();
+    this.renderGrid();
+  }
+
+  private showCalibrationHelp(): void {
+    this.hideCalibrationHelp();
+    // Anchor to contentEl so Obsidian tears it down on view close.
+    // Single-button chip — just a check mark to commit + esc as the
+    // documented secondary. Smaller footprint, less visual noise than
+    // the prior banner.
+    const chip = this.contentEl.createDiv({ cls: "duckmage-calibration-help" });
+    const lockBtn = chip.createEl("button", {
+      cls: "duckmage-calibration-commit mod-cta",
+      attr: { title: "Done calibrating (esc)", "aria-label": "Done calibrating" },
+    });
+    lockBtn.setText("✓");
+    lockBtn.addEventListener("click", () => void this.exitBgCalibration(true));
+    this.calibrationHelpEl = chip;
+  }
+
+  private hideCalibrationHelp(): void {
+    this.calibrationHelpEl?.remove();
+    this.calibrationHelpEl = null;
+  }
+
+  /**
+   * Defensive: remove any stray `.duckmage-calibration-help` from the document
+   * body, in case a prior plugin build (or a crash mid-calibration) left one
+   * attached. Called from onOpen so a freshly opened view starts clean.
+   */
+  private sweepStrayCalibrationHelp(): void {
+    activeDocument.querySelectorAll(".duckmage-calibration-help").forEach((el) => {
+      // Don't remove our own (just-created) banner if it lives in contentEl
+      if (!this.contentEl.contains(el)) el.remove();
+    });
+  }
+
+  /**
+   * View teardown. If the user closes the tab/window while calibration is
+   * active, persist whatever they had and tear down the banner so the next
+   * view open doesn't inherit a half-dead calibration state.
+   */
+  async onClose(): Promise<void> {
+    if (this.bgCalibrating) {
+      await this.exitBgCalibration(true);
+    }
+    // Persist the viewport (zoom / pan / baked font-size) so the next view
+    // open restores the exact frame we were looking at — calibration values
+    // are sized to a specific zoom + font-size pair and drift wildly if those
+    // are reset to defaults on reopen.
+    if (this.viewportEl) {
+      const map = this.plugin.getMap(this.activeMapName);
+      if (map) {
+        map.savedViewport = {
+          zoom: this.zoom,
+          panX: this.panX,
+          panY: this.panY,
+          fontSize: this.viewportEl.style.fontSize ?? "",
+        };
+        await this.plugin.saveSettings();
+      }
+    }
+  }
+
+  /**
+   * Draw bright hex outlines over the grid during calibration. CSS `border`
+   * can't draw the diagonal hex edges (it's clipped to the rectangle by
+   * `clip-path`), so we paint one stroked polygon per hex into an SVG that
+   * lives inside the gridContainer — same DOM ancestor as the hexes, so it
+   * inherits the gridDisplayScale transform automatically. Verified
+   * against the local sandbox in dev/hex-calibration-sandbox.html.
+   */
+  private renderCalibrationOutlines(gridContainer: HTMLElement): void {
+    const hexEls = Array.from(
+      gridContainer.querySelectorAll<HTMLElement>(".duckmage-hex"),
+    );
+    if (hexEls.length === 0) return;
+
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = activeDocument.createElementNS(svgNS, "svg");
+    svg.classList.add("duckmage-calibration-outlines-svg");
+    svg.setAttribute("width", String(gridContainer.offsetWidth));
+    svg.setAttribute("height", String(gridContainer.offsetHeight));
+    svg.setAttribute("viewBox", `0 0 ${gridContainer.offsetWidth} ${gridContainer.offsetHeight}`);
+
+    const isFlat = this.plugin.settings.hexOrientation === "flat";
+
+    const positionInGrid = (el: HTMLElement): { x: number; y: number } => {
+      let x = 0, y = 0;
+      let cur: HTMLElement | null = el;
+      while (cur && cur !== gridContainer) {
+        x += cur.offsetLeft;
+        y += cur.offsetTop;
+        cur = cur.offsetParent as HTMLElement | null;
+      }
+      return { x, y };
+    };
+
+    for (const hex of hexEls) {
+      const { x, y } = positionInGrid(hex);
+      const w = hex.offsetWidth, h = hex.offsetHeight;
+      const pts: [number, number][] = isFlat
+        ? [
+            [w * 0.25, 0], [w * 0.75, 0], [w, h * 0.5],
+            [w * 0.75, h], [w * 0.25, h], [0, h * 0.5],
+          ]
+        : [
+            [w * 0.5, 0], [w, h * 0.25], [w, h * 0.75],
+            [w * 0.5, h], [0, h * 0.75], [0, h * 0.25],
+          ];
+      const poly = activeDocument.createElementNS(svgNS, "polygon");
+      poly.setAttribute(
+        "points",
+        pts.map((p) => `${(p[0] + x).toFixed(1)},${(p[1] + y).toFixed(1)}`).join(" "),
+      );
+      poly.setAttribute("fill", "none");
+      poly.setAttribute("stroke", "#22d3ee");
+      poly.setAttribute("stroke-width", "2");
+      poly.setAttribute("stroke-linejoin", "round");
+      svg.appendChild(poly);
+    }
+
+    gridContainer.appendChild(svg);
   }
 
   private fitGridToView(): void {
@@ -1669,6 +2330,10 @@ export class HexMapView extends ItemView {
   }
 
   private scheduleZoomBake(): void {
+    // During calibration we keep zoom as a CSS transform on the viewport
+    // (instead of baking it into font-size) so the SVG outline overlay,
+    // the hex grid, and the bg image all scale together as a single unit.
+    if (this.bgCalibrating) return;
     if (this.zoomSettleTimer !== null) window.clearTimeout(this.zoomSettleTimer);
     this.zoomSettleTimer = window.setTimeout(() => {
       this.zoomSettleTimer = null;
@@ -1687,10 +2352,70 @@ export class HexMapView extends ItemView {
   // coordinates scale by the same factor as the transform did.
   private bakeZoom(): void {
     if (!this.viewportEl || this.zoom === 1) return;
+    // Defensive: do NOT bake while calibrating. Even if a pending timer fires
+    // here (shouldn't, since enterBgCalibration cancels it and
+    // scheduleZoomBake bails when calibrating), baking mid-calibration drifts
+    // the SVG outline from the hex grid.
+    if (this.bgCalibrating) return;
+    const F = this.zoom;
     const currentFs = parseFloat(getComputedStyle(this.viewportEl).fontSize);
-    this.viewportEl.style.fontSize = `${currentFs * this.zoom}px`;
+    this.viewportEl.style.fontSize = `${currentFs * F}px`;
     this.zoom = 1;
     this.applyTransform();
+
+    // bakeZoom grows em-based things (hex grid CSS dimensions) by F, but
+    // pixel-based calibration transforms (bg image offset/scale, grid display
+    // offset) do not naturally grow. Multiplying them here by F preserves
+    // their position and size relative to the now-bigger hex grid — so a
+    // calibrated bg image stays aligned across wheel zooming.
+    // Scale-multipliers (gridDisplayScaleX/Y) are unitless and do NOT change.
+    const map = this.getActiveMap();
+    if (map.backgroundImage) {
+      map.backgroundImage.offsetX *= F;
+      map.backgroundImage.offsetY *= F;
+      map.backgroundImage.scale *= F;
+      const bg = map.backgroundImage;
+      const bgLayer = this.viewportEl.querySelector<HTMLElement>(".duckmage-bg-image-layer");
+      if (bgLayer) {
+        bgLayer.setCssProps({
+          transform:
+            `translate(${bg.offsetX}px, ${bg.offsetY}px) ` +
+            `rotate(${bg.rotation ?? 0}deg) scale(${bg.scale})`,
+        });
+      }
+    }
+    if (
+      map.gridDisplayOffsetX !== undefined ||
+      map.gridDisplayOffsetY !== undefined ||
+      map.gridDisplayScaleX !== undefined ||
+      map.gridDisplayScaleY !== undefined ||
+      map.gridDisplayScale !== undefined
+    ) {
+      map.gridDisplayOffsetX = (map.gridDisplayOffsetX ?? 0) * F;
+      map.gridDisplayOffsetY = (map.gridDisplayOffsetY ?? 0) * F;
+      const legacy = map.gridDisplayScale ?? 1;
+      const sx = map.gridDisplayScaleX ?? legacy;
+      const sy = map.gridDisplayScaleY ?? legacy;
+      const gridContainer = this.viewportEl.querySelector<HTMLElement>(".duckmage-hex-map-grid");
+      if (gridContainer) {
+        gridContainer.setCssProps({
+          "transform-origin": "0 0",
+          transform:
+            `translate(${map.gridDisplayOffsetX}px, ${map.gridDisplayOffsetY}px) ` +
+            `scale(${sx}, ${sy})`,
+        });
+      }
+    }
+    // Also persist the new viewport state — font-size just baked from the
+    // viewport zoom, so the saved snapshot has to follow.
+    map.savedViewport = {
+      zoom: this.zoom,
+      panX: this.panX,
+      panY: this.panY,
+      fontSize: this.viewportEl.style.fontSize ?? "",
+    };
+    void this.plugin.saveSettings();
+
     this.updatePathOverlay();
     this.updateFactionOverlay();
     this.updateRegionOverlay();
@@ -1758,6 +2483,10 @@ export class HexMapView extends ItemView {
 
     const region = this.getActiveMap();
 
+    // Background image layer (behind hex grid; shares the viewport's pan/zoom
+    // transform via DOM nesting). Added first so it stacks under the grid.
+    this.renderBackgroundImage(this.viewportEl, region);
+
     // Sync overlay checkboxes and CSS classes to the active region's saved state
     this.overlayPanel?.syncToRegion();
 
@@ -1772,6 +2501,23 @@ export class HexMapView extends ItemView {
     const gridContainer = this.viewportEl.createDiv({
       cls: `duckmage-hex-map-grid${isFlat ? " duckmage-grid-flat" : ""}`,
     });
+
+    // Apply optional independent grid transform (used for bg-image calibration).
+    // Read X/Y separately so non-uniform stretch (top/bottom edge handles) works;
+    // fall back to legacy uniform gridDisplayScale for back-compat.
+    const legacyScale = region.gridDisplayScale ?? 1;
+    const gSX = region.gridDisplayScaleX ?? legacyScale;
+    const gSY = region.gridDisplayScaleY ?? legacyScale;
+    const gOX = region.gridDisplayOffsetX ?? 0;
+    const gOY = region.gridDisplayOffsetY ?? 0;
+    if (gSX !== 1 || gSY !== 1 || gOX !== 0 || gOY !== 0) {
+      gridContainer.setCssProps({
+        "transform-origin": "0 0",
+        transform: `translate(${gOX}px, ${gOY}px) scale(${gSX}, ${gSY})`,
+      });
+    }
+
+    if (this.bgCalibrating) this.attachGridCalibrationHandlers(gridContainer, region);
 
     const addHex = (parent: HTMLElement, x: number, y: number) => {
       const path = folder ? `${folder}/${x}_${y}.md` : `${x}_${y}.md`;
@@ -1902,6 +2648,10 @@ export class HexMapView extends ItemView {
     this.renderPathOverlay(gridContainer);
     this.renderRegionOverlay(gridContainer);
     this.renderFactionOverlay(gridContainer);
+    if (this.bgCalibrating) {
+      this.renderCalibrationOutlines(gridContainer);
+      this.applyCalibrationFocusStyles();
+    }
     this.renderTokenLayer(gridContainer);
   }
 
@@ -2548,6 +3298,8 @@ export class HexMapView extends ItemView {
       await this.applyRegionStroke(item.entries, "old");
     } else if (item.kind === "swap") {
       await this.executeHexSwap(item.x1, item.y1, item.x2, item.y2, true);
+    } else if (item.kind === "calibrate") {
+      await this.applyCalibrationSnapshot(item.mapName, item.before);
     } else {
       await this.applyPathSnapshot(item.mapName, item.before);
     }
@@ -2568,6 +3320,8 @@ export class HexMapView extends ItemView {
       await this.applyRegionStroke(item.entries, "new");
     } else if (item.kind === "swap") {
       await this.executeHexSwap(item.x1, item.y1, item.x2, item.y2, true);
+    } else if (item.kind === "calibrate") {
+      await this.applyCalibrationSnapshot(item.mapName, item.after);
     } else {
       await this.applyPathSnapshot(item.mapName, item.after);
     }
@@ -3095,7 +3849,11 @@ export class HexMapView extends ItemView {
         let ox = hexEl.offsetWidth / 2;
         let oy = hexEl.offsetHeight / 2;
         let cur: HTMLElement | null = hexEl;
-        while (cur && cur !== this.viewportEl) {
+        // Walk only up to gridContainer so coords are gridContainer-relative.
+        // The SVG itself lives inside gridContainer and inherits any
+        // gridDisplay transform — otherwise the overlay drifts away from
+        // the scaled hex grid on calibrated maps.
+        while (cur && cur !== gridContainer) {
           ox += cur.offsetLeft;
           oy += cur.offsetTop;
           cur = cur.offsetParent as HTMLElement | null;
@@ -3277,7 +4035,7 @@ export class HexMapView extends ItemView {
     }
 
     this.viewportEl?.addClass("duckmage-svg-labels-active");
-    this.viewportEl?.appendChild(svg);
+    gridContainer.appendChild(svg);
   }
 
   private updatePathOverlay(): void {
@@ -3334,7 +4092,10 @@ export class HexMapView extends ItemView {
       }
       let ox = hexEl.offsetWidth / 2, oy = hexEl.offsetHeight / 2;
       let cur: HTMLElement | null = hexEl;
-      while (cur && cur !== this.viewportEl) {
+      // Walk to gridContainer (NOT viewportEl) so overlay coords are
+      // gridContainer-relative — the SVG is appended inside gridContainer
+      // so it inherits any gridDisplay transform.
+      while (cur && cur !== gridContainer) {
         ox += cur.offsetLeft;
         oy += cur.offsetTop;
         cur = cur.offsetParent as HTMLElement | null;
@@ -3523,12 +4284,13 @@ export class HexMapView extends ItemView {
 
     if (!hasElements) return;
 
-    // Insert before path SVG so roads/labels render on top
-    const pathSvg = this.viewportEl?.querySelector("svg.duckmage-path-svg");
-    if (pathSvg && this.viewportEl) {
-      this.viewportEl.insertBefore(svg, pathSvg);
-    } else if (this.viewportEl) {
-      this.viewportEl.appendChild(svg);
+    // Insert before path SVG so roads/labels render on top. Anchored in
+    // gridContainer so the overlay inherits the gridDisplay transform.
+    const pathSvg = gridContainer.querySelector("svg.duckmage-path-svg");
+    if (pathSvg) {
+      gridContainer.insertBefore(svg, pathSvg);
+    } else {
+      gridContainer.appendChild(svg);
     }
 
     this.renderFactionLegend(activeFactions, gridContainer);
@@ -3704,7 +4466,10 @@ export class HexMapView extends ItemView {
       }
       let ox = hexEl.offsetWidth / 2, oy = hexEl.offsetHeight / 2;
       let cur: HTMLElement | null = hexEl;
-      while (cur && cur !== this.viewportEl) {
+      // Walk to gridContainer (NOT viewportEl) so overlay coords are
+      // gridContainer-relative — the SVG is appended inside gridContainer
+      // so it inherits any gridDisplay transform.
+      while (cur && cur !== gridContainer) {
         ox += cur.offsetLeft;
         oy += cur.offsetTop;
         cur = cur.offsetParent as HTMLElement | null;
@@ -3926,14 +4691,15 @@ export class HexMapView extends ItemView {
 
     if (!hasElements) return;
 
-    // Regions render below factions and paths
-    const factionSvg = this.viewportEl?.querySelector("svg.duckmage-faction-svg");
-    const pathSvg = this.viewportEl?.querySelector("svg.duckmage-path-svg");
+    // Regions render below factions and paths. Anchored in gridContainer so
+    // the overlay inherits the gridDisplay transform.
+    const factionSvg = gridContainer.querySelector("svg.duckmage-faction-svg");
+    const pathSvg = gridContainer.querySelector("svg.duckmage-path-svg");
     const insertBefore = factionSvg ?? pathSvg ?? null;
-    if (insertBefore && this.viewportEl) {
-      this.viewportEl.insertBefore(svg, insertBefore);
-    } else if (this.viewportEl) {
-      this.viewportEl.appendChild(svg);
+    if (insertBefore) {
+      gridContainer.insertBefore(svg, insertBefore);
+    } else {
+      gridContainer.appendChild(svg);
     }
   }
 
@@ -3956,7 +4722,10 @@ export class HexMapView extends ItemView {
       const y = Number(hexEl.dataset.y);
       let ox = hexEl.offsetWidth / 2, oy = hexEl.offsetHeight / 2;
       let cur: HTMLElement | null = hexEl;
-      while (cur && cur !== this.viewportEl) {
+      // Walk to gridContainer (NOT viewportEl) so overlay coords are
+      // gridContainer-relative — the SVG is appended inside gridContainer
+      // so it inherits any gridDisplay transform.
+      while (cur && cur !== gridContainer) {
         ox += cur.offsetLeft;
         oy += cur.offsetTop;
         cur = cur.offsetParent as HTMLElement | null;
