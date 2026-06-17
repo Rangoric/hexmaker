@@ -3830,6 +3830,28 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
     justify-content: flex-end;
 }
 
+.duckmage-pattern-preview-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 0 4px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--background-secondary);
+}
+
+.duckmage-pattern-preview-label {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.duckmage-pattern-preview-svg {
+    display: block;
+    border-radius: 4px;
+    background: var(--background-primary);
+}
+
 /* Region overlay SVG */
 .duckmage-region-svg {
     position: absolute;

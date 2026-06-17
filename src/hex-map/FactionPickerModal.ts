@@ -2,7 +2,13 @@ import { App, Notice, Setting, TFile } from "obsidian";
 import { HexmakerModal } from "../HexmakerModal";
 import type HexmakerPlugin from "../HexmakerPlugin";
 import { normalizeFolder } from "../utils";
-import { getFactionColorFromFile, setFactionColorInFile } from "../frontmatter";
+import {
+  getFactionColorFromFile,
+  setFactionColorInFile,
+  getFactionStyleFromFile,
+  setFactionStyleInFile,
+} from "../frontmatter";
+import { addOverlayPatternControls } from "./overlayPatternControls";
 
 // ── Faction editor sub-modal ─────────────────────────────────────────────────
 
@@ -67,8 +73,17 @@ class FactionEditorModal extends HexmakerModal {
       .addColorPicker((cp) =>
         cp.setValue(pendingColor).onChange((v) => {
           pendingColor = v;
+          refreshPreview();
         }),
       );
+
+    // ── Pattern + scale + opacity ─────────────────────────────────────────────
+    const initialStyle = getFactionStyleFromFile(this.app, this.file.path);
+    const { state: styleState, refreshPreview } = addOverlayPatternControls(
+      contentEl,
+      initialStyle,
+      () => pendingColor,
+    );
 
     // ── Buttons ───────────────────────────────────────────────────────────────
     const btnRow = contentEl.createDiv({ cls: "duckmage-faction-editor-btns" });
@@ -91,6 +106,7 @@ class FactionEditorModal extends HexmakerModal {
         }
         // this.file.path is updated in-place by Obsidian after rename
         await setFactionColorInFile(this.app, this.file.path, pendingColor);
+        await setFactionStyleInFile(this.app, this.file.path, styleState);
         this.onSaved(pendingColor, newBasename);
         this.close();
       })();

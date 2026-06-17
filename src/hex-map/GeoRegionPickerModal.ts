@@ -2,7 +2,13 @@ import { App, Notice, Setting, TFile } from "obsidian";
 import { HexmakerModal } from "../HexmakerModal";
 import type HexmakerPlugin from "../HexmakerPlugin";
 import { normalizeFolder } from "../utils";
-import { getRegionColorFromFile, setRegionColorInFile } from "../frontmatter";
+import {
+  getRegionColorFromFile,
+  setRegionColorInFile,
+  getRegionStyleFromFile,
+  setRegionStyleInFile,
+} from "../frontmatter";
+import { addOverlayPatternControls } from "./overlayPatternControls";
 
 // ── Region editor sub-modal ───────────────────────────────────────────────────
 
@@ -64,8 +70,17 @@ class GeoRegionEditorModal extends HexmakerModal {
       .addColorPicker((cp) =>
         cp.setValue(pendingColor).onChange((v) => {
           pendingColor = v;
+          refreshPreview();
         }),
       );
+
+    // ── Pattern + scale + opacity ─────────────────────────────────────────────
+    const initialStyle = getRegionStyleFromFile(this.app, this.file.path);
+    const { state: styleState, refreshPreview } = addOverlayPatternControls(
+      contentEl,
+      initialStyle,
+      () => pendingColor,
+    );
 
     // ── Buttons ───────────────────────────────────────────────────────────────
     const btnRow = contentEl.createDiv({ cls: "duckmage-faction-editor-btns" });
@@ -84,6 +99,7 @@ class GeoRegionEditorModal extends HexmakerModal {
           newBasename = pendingName;
         }
         await setRegionColorInFile(this.app, this.file.path, pendingColor);
+        await setRegionStyleInFile(this.app, this.file.path, styleState);
         this.onSaved(pendingColor, newBasename);
         this.close();
       })();

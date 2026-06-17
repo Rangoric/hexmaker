@@ -27,8 +27,12 @@ import {
   getIconOverrideFromFile,
   getFactionColorFromFile,
   getRegionColorFromFile,
+  getFactionStyleFromFile,
+  getRegionStyleFromFile,
+  type OverlayStyle,
 } from "../frontmatter";
 import { getIconUrl, normalizeFolder } from "../utils";
+import { drawPatternTile } from "../overlayPatterns";
 import type HexmakerPlugin from "../HexmakerPlugin";
 import type { TerrainColor, MapData } from "../types";
 
@@ -66,8 +70,8 @@ export interface MapPngRenderOptions {
   /** Tint hexes by their region. Default false. */
   showRegionOverlay?: boolean;
   /**
-   * Opacity of overlay tints, 0–1. Default 0.4. Multiple factions on the
-   * same hex are layered, so the effective coverage compounds.
+   * Deprecated. Overlay opacity is now read per faction/region from
+   * frontmatter (faction-pattern-opacity / region-pattern-opacity).
    */
   overlayOpacity?: number;
 }
@@ -91,7 +95,6 @@ export async function renderMapToPngBlob(
   const showPaths = opts.showPaths ?? true;
   const showFactionOverlay = opts.showFactionOverlay ?? false;
   const showRegionOverlay = opts.showRegionOverlay ?? false;
-  const overlayOpacity = clamp(opts.overlayOpacity ?? 0.4, 0, 1);
   const background = opts.background ?? "#1a1a1a";
   const borderColor = opts.borderColor ?? "#222";
   const coordColor = opts.coordColor ?? "#bbb";
@@ -151,6 +154,12 @@ export async function renderMapToPngBlob(
   const regionColorMap = showRegionOverlay
     ? buildRegionColorMap(plugin)
     : new Map<string, string>();
+  const factionStyleMap = showFactionOverlay
+    ? buildFactionStyleMap(plugin)
+    : new Map<string, OverlayStyle>();
+  const regionStyleMap = showRegionOverlay
+    ? buildRegionStyleMap(plugin)
+    : new Map<string, OverlayStyle>();
 
   // Step 3b: collect every hex's terrain + icon override + overlay info before
   // drawing so we can pre-load icon images once each. We also track which
@@ -162,8 +171,8 @@ export async function renderMapToPngBlob(
     cy: number;
     terrain?: TerrainColor;
     iconName?: string;
-    factionColors: string[];
-    regionColor?: string;
+    factions: { color: string; style: OverlayStyle }[];
+    region?: { color: string; style: OverlayStyle };
   }
   const hexes: HexState[] = [];
   const iconsNeeded = new Set<string>();
@@ -185,8 +194,8 @@ export async function renderMapToPngBlob(
 
       let terrain: TerrainColor | undefined;
       let iconOverride: string | undefined;
-      const factionColors: string[] = [];
-      let regionColor: string | undefined;
+      const factions: { color: string; style: OverlayStyle }[] = [];
+      let region: { color: string; style: OverlayStyle } | undefined;
       if (file instanceof TFile) {
         const terrainName = getTerrainFromFile(plugin.app, file.path);
         if (terrainName) terrain = terrainByName.get(terrainName);
@@ -194,8 +203,9 @@ export async function renderMapToPngBlob(
         if (showFactionOverlay) {
           for (const fName of getHexFactionLinks(plugin.app, file)) {
             const c = factionColorMap.get(fName);
-            if (c) {
-              factionColors.push(c);
+            const s = factionStyleMap.get(fName);
+            if (c && s) {
+              factions.push({ color: c, style: s });
               factionsUsed.set(fName, c);
             }
           }
@@ -204,8 +214,9 @@ export async function renderMapToPngBlob(
           const regionName = getHexRegionName(plugin.app, file);
           if (regionName) {
             const c = regionColorMap.get(regionName);
-            if (c) {
-              regionColor = c;
+            const s = regionStyleMap.get(regionName);
+            if (c && s) {
+              region = { color: c, style: s };
               regionsUsed.set(regionName, c);
               const center = shifted.get(`${hx}_${hy}`);
               if (center) {
@@ -226,8 +237,8 @@ export async function renderMapToPngBlob(
         cy: c.cy,
         terrain,
         iconName,
-        factionColors,
-        regionColor,
+        factions,
+        region,
       });
     }
   }
@@ -244,6 +255,22 @@ export async function renderMapToPngBlob(
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, W, H);
 
+  // Pattern cache: (pattern|color|scale) → CanvasPattern. Built lazily as
+  // distinct overlays are encountered during the hex loop.
+  const patternCache = new Map<string, CanvasPattern | null>();
+  const getPattern = (style: OverlayStyle, color: string): CanvasPattern | null => {
+    if (style.pattern === "solid") return null;
+    const key = `${style.pattern}|${color}|${style.scale}`;
+    if (patternCache.has(key)) return patternCache.get(key) ?? null;
+    const tile = new OffscreenCanvas(style.scale, style.scale);
+    const tctx = tile.getContext("2d");
+    if (!tctx) { patternCache.set(key, null); return null; }
+    drawPatternTile(tctx, { pattern: style.pattern, color, scale: style.scale });
+    const pat = ctx.createPattern(tile, "repeat");
+    patternCache.set(key, pat);
+    return pat;
+  };
+
   // Hexes — base fill + overlay tints + icons + coords
   for (const hex of hexes) {
     drawHex(
@@ -257,12 +284,20 @@ export async function renderMapToPngBlob(
     );
     // Region overlay first (under faction): regions are larger, factions
     // are usually narrower local groups, so faction tint reads on top.
-    if (showRegionOverlay && hex.regionColor) {
-      fillHexPolygon(ctx, hex.cx, hex.cy, R, orientation, hex.regionColor, overlayOpacity);
+    if (showRegionOverlay && hex.region) {
+      const pat = getPattern(hex.region.style, hex.region.color);
+      fillHexPolygon(
+        ctx, hex.cx, hex.cy, R, orientation,
+        pat ?? hex.region.color, hex.region.style.opacity,
+      );
     }
     if (showFactionOverlay) {
-      for (const color of hex.factionColors) {
-        fillHexPolygon(ctx, hex.cx, hex.cy, R, orientation, color, overlayOpacity);
+      for (const f of hex.factions) {
+        const pat = getPattern(f.style, f.color);
+        fillHexPolygon(
+          ctx, hex.cx, hex.cy, R, orientation,
+          pat ?? f.color, f.style.opacity,
+        );
       }
     }
     if (showIcons && hex.iconName) {
@@ -389,10 +424,6 @@ function drawPath(
   if (dash.length > 0) ctx.setLineDash(dash);
   else ctx.setLineDash([]);
   ctx.stroke(path);
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
 }
 
 /**
@@ -546,7 +577,7 @@ function fillHexPolygon(
   cy: number,
   radius: number,
   orientation: "flat" | "pointy",
-  color: string,
+  fill: string | CanvasPattern,
   opacity: number,
 ): void {
   const pts = hexPolygonPoints(cx, cy, orientation, radius);
@@ -554,7 +585,7 @@ function fillHexPolygon(
   ctx.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
   ctx.closePath();
-  ctx.fillStyle = color;
+  ctx.fillStyle = fill;
   const prev = ctx.globalAlpha;
   ctx.globalAlpha = opacity;
   ctx.fill();
@@ -591,6 +622,28 @@ function buildRegionColorMap(plugin: HexmakerPlugin): Map<string, string> {
     if (f.basename.startsWith("_")) continue;
     const color = getRegionColorFromFile(plugin.app, f.path);
     if (color) out.set(f.basename, color);
+  }
+  return out;
+}
+
+function buildFactionStyleMap(plugin: HexmakerPlugin): Map<string, OverlayStyle> {
+  const out = new Map<string, OverlayStyle>();
+  const folder = normalizeFolder(plugin.settings.factionsFolder ?? "");
+  for (const f of plugin.app.vault.getMarkdownFiles()) {
+    if (folder && !f.path.startsWith(folder + "/")) continue;
+    if (f.basename.startsWith("_")) continue;
+    out.set(f.basename, getFactionStyleFromFile(plugin.app, f.path));
+  }
+  return out;
+}
+
+function buildRegionStyleMap(plugin: HexmakerPlugin): Map<string, OverlayStyle> {
+  const out = new Map<string, OverlayStyle>();
+  const folder = normalizeFolder(plugin.settings.regionsFolder ?? "");
+  for (const f of plugin.app.vault.getMarkdownFiles()) {
+    if (folder && !f.path.startsWith(folder + "/")) continue;
+    if (f.basename.startsWith("_")) continue;
+    out.set(f.basename, getRegionStyleFromFile(plugin.app, f.path));
   }
   return out;
 }

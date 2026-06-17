@@ -14,7 +14,8 @@ import { HexEditorModal } from "./HexEditorModal";
 import { TerrainPickerModal } from "./TerrainPickerModal";
 import { IconPickerModal } from "./IconPickerModal";
 import { addLinkToSection, getLinksInSection, removeLinkFromSection } from "../sections";
-import { getFactionColorFromFile, getRegionColorFromFile, setHexRegionInFile, getSubmapFromFile, setSubmapInFile } from "../frontmatter";
+import { getFactionColorFromFile, getRegionColorFromFile, getFactionStyleFromFile, getRegionStyleFromFile, setHexRegionInFile, getSubmapFromFile, setSubmapInFile } from "../frontmatter";
+import { buildSvgPattern, colorToIdToken, type OverlayPatternKey } from "../overlayPatterns";
 import {
   VIEW_TYPE_HEX_MAP,
   VIEW_TYPE_HEX_TABLE,
@@ -3340,13 +3341,17 @@ export class HexMapView extends ItemView {
       centerMap.set(`${hexEl.dataset.x}_${hexEl.dataset.y}`, { cx: ox, cy: oy });
     }
 
-    // ── Build faction color map ───────────────────────────────────────────────
+    // ── Build faction color + style maps ──────────────────────────────────────
     const folder = normalizeFolder(this.plugin.settings.factionsFolder);
     const factionColorMap = new Map<string, string>();
+    const factionStyleMap = new Map<string, { pattern: OverlayPatternKey; scale: number; opacity: number }>();
     for (const f of this.app.vault.getMarkdownFiles()) {
       if (folder && !f.path.startsWith(folder + "/")) continue;
       const color = getFactionColorFromFile(this.app, f.path);
-      if (color) factionColorMap.set(f.basename, color);
+      if (color) {
+        factionColorMap.set(f.basename, color);
+        factionStyleMap.set(f.basename, getFactionStyleFromFile(this.app, f.path));
+      }
     }
 
     // ── Group hexes by faction name ───────────────────────────────────────────
@@ -3394,9 +3399,33 @@ export class HexMapView extends ItemView {
     const activeFactions: { name: string; color: string }[] = [];
     let hasElements = false;
 
+    // ── Shared <defs> for SVG patterns (deduped by key|color|scale) ───────────
+    const defsEl = activeDocument.createElementNS(svgNS, "defs");
+    svg.appendChild(defsEl);
+    const patternIds = new Map<string, string>();
+    const ensurePattern = (
+      key: OverlayPatternKey,
+      color: string,
+      scale: number,
+    ): string | null => {
+      if (key === "solid") return null;
+      const cacheKey = `${key}|${color}|${scale}`;
+      const cached = patternIds.get(cacheKey);
+      if (cached) return cached;
+      const id = `dm-fac-pat-${key}-${colorToIdToken(color)}-${scale}`;
+      const el = buildSvgPattern(activeDocument, { id, pattern: key, color, scale });
+      if (!el) return null;
+      defsEl.appendChild(el);
+      patternIds.set(cacheKey, id);
+      return id;
+    };
+
     for (const [factionName, hexKeys] of factionHexKeys) {
       const color = factionColorMap.get(factionName);
       if (!color) continue;
+      const style = factionStyleMap.get(factionName) ?? { pattern: "solid" as OverlayPatternKey, scale: 16, opacity: 0.45 };
+      const patternId = ensurePattern(style.pattern, color, style.scale);
+      const fillVal = patternId ? `url(#${patternId})` : color;
 
       // ── Edge counting ─────────────────────────────────────────────────────
       type EdgeEntry = { v1: [number, number]; v2: [number, number]; count: number };
@@ -3465,7 +3494,7 @@ export class HexMapView extends ItemView {
 
       // ── Render filled blob(s) ─────────────────────────────────────────────
       const g = activeDocument.createElementNS(svgNS, "g");
-      g.setAttribute("opacity", "0.45");
+      g.setAttribute("opacity", String(style.opacity));
       svg.appendChild(g);
 
       for (const ring of rings) {
@@ -3478,7 +3507,7 @@ export class HexMapView extends ItemView {
             .join(" ") + " Z";
         const path = activeDocument.createElementNS(svgNS, "path");
         path.setAttribute("d", d);
-        path.setAttribute("fill", color);
+        path.setAttribute("fill", fillVal);
         path.setAttribute("stroke", color);
         path.setAttribute("stroke-width", String(gapPx * 2 + 2));
         path.setAttribute("stroke-linejoin", "round");
@@ -3685,14 +3714,18 @@ export class HexMapView extends ItemView {
     }
     if (regionHexKeys.size === 0) return;
 
-    // ── Region color map ────────────────────────────────────────────────────
+    // ── Region color + style maps ───────────────────────────────────────────
     const folder = normalizeFolder(this.plugin.settings.regionsFolder);
     const regionColorMap = new Map<string, string>();
+    const regionStyleMap = new Map<string, { pattern: OverlayPatternKey; scale: number; opacity: number }>();
     for (const f of this.app.vault.getMarkdownFiles()) {
       if (f.basename.startsWith("_")) continue;
       if (folder && !f.path.startsWith(folder + "/")) continue;
       const color = getRegionColorFromFile(this.app, f.path);
-      if (color) regionColorMap.set(f.basename, color);
+      if (color) {
+        regionColorMap.set(f.basename, color);
+        regionStyleMap.set(f.basename, getRegionStyleFromFile(this.app, f.path));
+      }
     }
 
     // ── SVG setup ───────────────────────────────────────────────────────────
@@ -3725,9 +3758,33 @@ export class HexMapView extends ItemView {
 
     let hasElements = false;
 
+    // ── Shared <defs> for SVG patterns (deduped) ────────────────────────────
+    const regionDefsEl = activeDocument.createElementNS(svgNS, "defs");
+    svg.appendChild(regionDefsEl);
+    const regionPatternIds = new Map<string, string>();
+    const ensureRegionPattern = (
+      key: OverlayPatternKey,
+      color: string,
+      scale: number,
+    ): string | null => {
+      if (key === "solid") return null;
+      const cacheKey = `${key}|${color}|${scale}`;
+      const cached = regionPatternIds.get(cacheKey);
+      if (cached) return cached;
+      const id = `dm-reg-pat-${key}-${colorToIdToken(color)}-${scale}`;
+      const el = buildSvgPattern(activeDocument, { id, pattern: key, color, scale });
+      if (!el) return null;
+      regionDefsEl.appendChild(el);
+      regionPatternIds.set(cacheKey, id);
+      return id;
+    };
+
     for (const [regionName, hexKeys] of regionHexKeys) {
       const color = regionColorMap.get(regionName);
       if (!color) continue;
+      const style = regionStyleMap.get(regionName) ?? { pattern: "solid" as OverlayPatternKey, scale: 16, opacity: 0.45 };
+      const patternId = ensureRegionPattern(style.pattern, color, style.scale);
+      const fillVal = patternId ? `url(#${patternId})` : color;
 
       // ── Edge counting ───────────────────────────────────────────────────
       type EdgeEntry = { v1: [number, number]; v2: [number, number]; count: number };
@@ -3813,7 +3870,7 @@ export class HexMapView extends ItemView {
 
       // ── Render filled blob(s) ───────────────────────────────────────────
       const g = activeDocument.createElementNS(svgNS, "g");
-      g.setAttribute("opacity", "0.45");
+      g.setAttribute("opacity", String(style.opacity));
       svg.appendChild(g);
 
       for (const ring of rings) {
@@ -3826,7 +3883,7 @@ export class HexMapView extends ItemView {
             .join(" ") + " Z";
         const path = activeDocument.createElementNS(svgNS, "path");
         path.setAttribute("d", d);
-        path.setAttribute("fill", color);
+        path.setAttribute("fill", fillVal);
         // Stroke bridges the inter-hex gap; round joins/caps smooth blob edges
         path.setAttribute("stroke", color);
         path.setAttribute("stroke-width", String(gapPx * 2 + 2));

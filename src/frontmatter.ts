@@ -1,5 +1,26 @@
 import { App, TFile } from "obsidian";
 import type { TokenEntry, TokenShape, TokenSize } from "./types";
+import {
+  type OverlayPatternKey,
+  DEFAULT_OVERLAY_PATTERN_KEY,
+  DEFAULT_OVERLAY_PATTERN_SCALE,
+  DEFAULT_OVERLAY_PATTERN_OPACITY,
+  normalizeOverlayPatternKey,
+  normalizeOverlayPatternScale,
+  normalizeOverlayPatternOpacity,
+} from "./overlayPatterns";
+
+export interface OverlayStyle {
+  pattern: OverlayPatternKey;
+  scale: number;
+  opacity: number;
+}
+
+export const DEFAULT_OVERLAY_STYLE: OverlayStyle = {
+  pattern: DEFAULT_OVERLAY_PATTERN_KEY,
+  scale: DEFAULT_OVERLAY_PATTERN_SCALE,
+  opacity: DEFAULT_OVERLAY_PATTERN_OPACITY,
+};
 
 export interface Frontmatter {
   [key: string]: string | string[] | boolean | undefined;
@@ -13,6 +34,14 @@ export interface Frontmatter {
   linkedFolder?: string;
   "roll-filter"?: boolean;
   "encounter-filter"?: boolean;
+  "faction-color"?: string;
+  "faction-pattern"?: string;
+  "faction-pattern-scale"?: string;
+  "faction-pattern-opacity"?: string;
+  "region-color"?: string;
+  "region-pattern"?: string;
+  "region-pattern-scale"?: string;
+  "region-pattern-opacity"?: string;
 }
 
 export function getFrontMatter(app: App, path: string) {
@@ -67,6 +96,39 @@ export async function setFactionColorInFile(
   return true;
 }
 
+export function getFactionStyleFromFile(app: App, path: string): OverlayStyle {
+  const fm = getFrontMatter(app, path);
+  return {
+    pattern: normalizeOverlayPatternKey(fm?.["faction-pattern"]),
+    scale: normalizeOverlayPatternScale(fm?.["faction-pattern-scale"]),
+    opacity: normalizeOverlayPatternOpacity(fm?.["faction-pattern-opacity"]),
+  };
+}
+
+export async function setFactionStyleInFile(
+  app: App,
+  path: string,
+  style: Partial<OverlayStyle>,
+): Promise<boolean> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return false;
+  await app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+    if (style.pattern !== undefined) {
+      if (style.pattern === DEFAULT_OVERLAY_PATTERN_KEY) delete fm["faction-pattern"];
+      else fm["faction-pattern"] = style.pattern;
+    }
+    if (style.scale !== undefined) {
+      if (style.scale === DEFAULT_OVERLAY_PATTERN_SCALE) delete fm["faction-pattern-scale"];
+      else fm["faction-pattern-scale"] = String(style.scale);
+    }
+    if (style.opacity !== undefined) {
+      if (style.opacity === DEFAULT_OVERLAY_PATTERN_OPACITY) delete fm["faction-pattern-opacity"];
+      else fm["faction-pattern-opacity"] = String(style.opacity);
+    }
+  });
+  return true;
+}
+
 export function getHexRegionFromFile(app: App, path: string): string | null {
   const region = getFrontMatter(app, path)?.["region"];
   return typeof region === "string" ? region : null;
@@ -106,6 +168,39 @@ export async function setRegionColorInFile(
       delete fm["region-color"];
     } else {
       fm["region-color"] = color;
+    }
+  });
+  return true;
+}
+
+export function getRegionStyleFromFile(app: App, path: string): OverlayStyle {
+  const fm = getFrontMatter(app, path);
+  return {
+    pattern: normalizeOverlayPatternKey(fm?.["region-pattern"]),
+    scale: normalizeOverlayPatternScale(fm?.["region-pattern-scale"]),
+    opacity: normalizeOverlayPatternOpacity(fm?.["region-pattern-opacity"]),
+  };
+}
+
+export async function setRegionStyleInFile(
+  app: App,
+  path: string,
+  style: Partial<OverlayStyle>,
+): Promise<boolean> {
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile)) return false;
+  await app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
+    if (style.pattern !== undefined) {
+      if (style.pattern === DEFAULT_OVERLAY_PATTERN_KEY) delete fm["region-pattern"];
+      else fm["region-pattern"] = style.pattern;
+    }
+    if (style.scale !== undefined) {
+      if (style.scale === DEFAULT_OVERLAY_PATTERN_SCALE) delete fm["region-pattern-scale"];
+      else fm["region-pattern-scale"] = String(style.scale);
+    }
+    if (style.opacity !== undefined) {
+      if (style.opacity === DEFAULT_OVERLAY_PATTERN_OPACITY) delete fm["region-pattern-opacity"];
+      else fm["region-pattern-opacity"] = String(style.opacity);
     }
   });
   return true;
