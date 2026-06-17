@@ -7,74 +7,124 @@ import {
   MAX_PATTERN_SCALE,
   MIN_PATTERN_OPACITY,
   MAX_PATTERN_OPACITY,
+  MIN_OUTLINE_WIDTH,
+  MAX_OUTLINE_WIDTH,
   buildSvgPattern,
 } from "../overlayPatterns";
 import type { OverlayStyle } from "../frontmatter";
+import { hexPolygonPoints } from "./hexGeometry";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const PREVIEW_W = 120;
-const PREVIEW_H = 36;
+
+/** Returns the live on-map hex width in CSS pixels; falls back to 96 if no map view is open. */
+export function getOnMapHexSizePx(): number {
+  const hex = activeDocument.querySelector(".duckmage-hex");
+  if (hex) {
+    const r = hex.getBoundingClientRect();
+    if (r.width > 0) return r.width;
+  }
+  return 96;
+}
 
 /**
- * Add a pattern dropdown + scale + opacity sliders + live preview to `containerEl`.
- * Returns the live state object; callers read this on Save and write to frontmatter.
+ * Render a hex-shaped preview into `container` showing what the overlay will
+ * look like on the map. Replaces any existing children.
+ */
+export function renderHexPreview(
+  container: HTMLElement,
+  opts: {
+    color: string;
+    style: OverlayStyle;
+    orientation: "flat" | "pointy";
+    hexSizePx: number;
+  },
+): void {
+  container.replaceChildren();
+  const { color, style, orientation, hexSizePx } = opts;
+
+  const W = hexSizePx;
+  let radius: number;
+  let H: number;
+  if (orientation === "flat") {
+    radius = W / 2;
+    H = W * Math.sqrt(3) / 2;
+  } else {
+    radius = W / Math.sqrt(3);
+    H = 2 * radius;
+  }
+
+  const PAD = 3;
+  const svgW = W + 2 * PAD;
+  const svgH = H + 2 * PAD;
+  const cx = svgW / 2;
+  const cy = svgH / 2;
+
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("width", String(svgW));
+  svg.setAttribute("height", String(svgH));
+  svg.classList.add("duckmage-hex-preview-svg");
+
+  // Pattern def (only if non-solid)
+  let fillVal: string = color;
+  if (style.pattern !== "solid") {
+    const defs = document.createElementNS(SVG_NS, "defs");
+    const id = `dm-prev-${Math.random().toString(36).slice(2, 9)}`;
+    const pat = buildSvgPattern(document, {
+      id,
+      pattern: style.pattern,
+      color,
+      scale: style.scale,
+    });
+    if (pat) {
+      defs.appendChild(pat);
+      svg.appendChild(defs);
+      fillVal = `url(#${id})`;
+    }
+  }
+
+  const pts = hexPolygonPoints(cx, cy, orientation, radius - 1);
+  const poly = document.createElementNS(SVG_NS, "polygon");
+  poly.setAttribute("points", pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "));
+  poly.setAttribute("fill", fillVal);
+  poly.setAttribute("stroke", color);
+  poly.setAttribute("stroke-width", String(style.outlineWidth));
+  poly.setAttribute("opacity", String(style.opacity));
+  svg.appendChild(poly);
+
+  container.appendChild(svg);
+}
+
+/**
+ * Add a pattern dropdown + scale + opacity sliders + hex-shaped live preview
+ * (rendered at the actual on-map hex size) to `containerEl`. Returns the live
+ * state object; callers read it on Save and write to frontmatter.
  */
 export function addOverlayPatternControls(
   containerEl: HTMLElement,
   initial: OverlayStyle,
   getColor: () => string,
+  orientation: "flat" | "pointy",
 ): { state: OverlayStyle; refreshPreview: () => void } {
   const state: OverlayStyle = { ...initial };
 
-  // ── Live preview ──────────────────────────────────────────────────────────
   const previewWrap = containerEl.createDiv({ cls: "duckmage-pattern-preview-wrap" });
   previewWrap.createSpan({
     text: "Preview",
     cls: "duckmage-pattern-preview-label",
   });
-  const previewSvg = document.createElementNS(SVG_NS, "svg");
-  previewSvg.setAttribute("width", String(PREVIEW_W));
-  previewSvg.setAttribute("height", String(PREVIEW_H));
-  previewSvg.classList.add("duckmage-pattern-preview-svg");
-  previewWrap.appendChild(previewSvg);
+  const previewHost = previewWrap.createDiv({ cls: "duckmage-pattern-preview-host" });
 
+  const hexSizePx = getOnMapHexSizePx();
   const refreshPreview = () => {
-    previewSvg.replaceChildren();
-    const color = getColor();
-    if (state.pattern === "solid") {
-      const rect = document.createElementNS(SVG_NS, "rect");
-      rect.setAttribute("x", "0");
-      rect.setAttribute("y", "0");
-      rect.setAttribute("width", String(PREVIEW_W));
-      rect.setAttribute("height", String(PREVIEW_H));
-      rect.setAttribute("fill", color);
-      rect.setAttribute("opacity", String(state.opacity));
-      previewSvg.appendChild(rect);
-      return;
-    }
-    const defs = document.createElementNS(SVG_NS, "defs");
-    const id = `dm-preview-${Math.random().toString(36).slice(2, 9)}`;
-    const pat = buildSvgPattern(document, {
-      id,
-      pattern: state.pattern,
-      color,
-      scale: state.scale,
+    renderHexPreview(previewHost, {
+      color: getColor(),
+      style: state,
+      orientation,
+      hexSizePx,
     });
-    if (pat) defs.appendChild(pat);
-    previewSvg.appendChild(defs);
-    const bg = document.createElementNS(SVG_NS, "rect");
-    bg.setAttribute("x", "0");
-    bg.setAttribute("y", "0");
-    bg.setAttribute("width", String(PREVIEW_W));
-    bg.setAttribute("height", String(PREVIEW_H));
-    bg.setAttribute("fill", `url(#${id})`);
-    bg.setAttribute("opacity", String(state.opacity));
-    previewSvg.appendChild(bg);
   };
-
   refreshPreview();
 
-  // ── Pattern dropdown ──────────────────────────────────────────────────────
   new Setting(containerEl).setName("Pattern").addDropdown((dd) => {
     for (const key of OVERLAY_PATTERN_KEYS) {
       dd.addOption(key, OVERLAY_PATTERN_LABELS[key]);
@@ -85,7 +135,6 @@ export function addOverlayPatternControls(
     });
   });
 
-  // ── Scale slider ──────────────────────────────────────────────────────────
   new Setting(containerEl).setName("Pattern scale").addSlider((sl) =>
     sl
       .setLimits(MIN_PATTERN_SCALE, MAX_PATTERN_SCALE, 1)
@@ -97,7 +146,6 @@ export function addOverlayPatternControls(
       }),
   );
 
-  // ── Opacity slider ────────────────────────────────────────────────────────
   new Setting(containerEl).setName("Opacity").addSlider((sl) =>
     sl
       .setLimits(MIN_PATTERN_OPACITY, MAX_PATTERN_OPACITY, 0.05)
@@ -105,6 +153,17 @@ export function addOverlayPatternControls(
       .setDynamicTooltip()
       .onChange((v) => {
         state.opacity = v;
+        refreshPreview();
+      }),
+  );
+
+  new Setting(containerEl).setName("Outline width").addSlider((sl) =>
+    sl
+      .setLimits(MIN_OUTLINE_WIDTH, MAX_OUTLINE_WIDTH, 0.5)
+      .setValue(state.outlineWidth)
+      .setDynamicTooltip()
+      .onChange((v) => {
+        state.outlineWidth = v;
         refreshPreview();
       }),
   );

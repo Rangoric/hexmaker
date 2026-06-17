@@ -3718,11 +3718,16 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
 }
 
 .duckmage-faction-tile-preview {
-    width: 48px;
-    height: 48px;
+    width: 56px;
+    height: 56px;
     border-radius: 4px;
-    border: 1px solid var(--background-modifier-border);
-    background-color: var(--duckmage-tile-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.duckmage-faction-tile-preview svg {
+    display: block;
 }
 
 /* Empty / no-color state: diagonal stripe */
@@ -3833,9 +3838,9 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
 .duckmage-pattern-preview-wrap {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin: 10px 0 4px;
-    padding: 6px 10px;
+    gap: 14px;
+    margin: 10px 0 6px;
+    padding: 8px 12px;
     border-radius: 6px;
     background: var(--background-secondary);
 }
@@ -3846,10 +3851,14 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
     font-weight: 500;
 }
 
-.duckmage-pattern-preview-svg {
+.duckmage-pattern-preview-host {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.duckmage-hex-preview-svg {
     display: block;
-    border-radius: 4px;
-    background: var(--background-primary);
 }
 
 /* Region overlay SVG */

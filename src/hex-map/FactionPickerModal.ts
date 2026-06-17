@@ -7,18 +7,28 @@ import {
   setFactionColorInFile,
   getFactionStyleFromFile,
   setFactionStyleInFile,
+  type OverlayStyle,
 } from "../frontmatter";
-import { addOverlayPatternControls } from "./overlayPatternControls";
+import { addOverlayPatternControls, renderHexPreview } from "./overlayPatternControls";
 
 // ── Faction editor sub-modal ─────────────────────────────────────────────────
 
 class FactionEditorModal extends HexmakerModal {
   constructor(
     app: App,
+    private plugin: HexmakerPlugin,
     private file: TFile,
     private initialColor: string | null,
-    /** Called on save with the (possibly updated) color and basename. */
-    private onSaved: (color: string | null, newBasename: string) => void,
+    /**
+     * Called on save with the (possibly updated) color, basename, and full
+     * overlay style. We pass the style directly because the metadata cache
+     * may not yet reflect the just-written frontmatter.
+     */
+    private onSaved: (
+      color: string | null,
+      newBasename: string,
+      style: OverlayStyle,
+    ) => void,
   ) {
     super(app);
   }
@@ -83,6 +93,7 @@ class FactionEditorModal extends HexmakerModal {
       contentEl,
       initialStyle,
       () => pendingColor,
+      this.plugin.settings.hexOrientation,
     );
 
     // ── Buttons ───────────────────────────────────────────────────────────────
@@ -107,7 +118,7 @@ class FactionEditorModal extends HexmakerModal {
         // this.file.path is updated in-place by Obsidian after rename
         await setFactionColorInFile(this.app, this.file.path, pendingColor);
         await setFactionStyleInFile(this.app, this.file.path, styleState);
-        this.onSaved(pendingColor, newBasename);
+        this.onSaved(pendingColor, newBasename, styleState);
         this.close();
       })();
     });
@@ -120,7 +131,7 @@ class FactionEditorModal extends HexmakerModal {
     clearBtn.addEventListener("click", () => {
       void (async () => {
         await setFactionColorInFile(this.app, this.file.path, null);
-        this.onSaved(null, this.file.basename);
+        this.onSaved(null, this.file.basename, styleState);
         this.close();
       })();
     });
@@ -190,14 +201,18 @@ export class FactionPickerModal extends HexmakerModal {
         });
       }
 
+      const orientation = this.plugin.settings.hexOrientation;
+      const TILE_HEX_PX = 48;
+
       for (const file of files) {
         let color = this.pendingColorOverrides.get(file.path) ?? getFactionColorFromFile(this.app, file.path);
+        let style = getFactionStyleFromFile(this.app, file.path);
 
         const tile = grid.createDiv({ cls: "duckmage-faction-tile" });
 
         const preview = tile.createDiv({ cls: "duckmage-faction-tile-preview" });
         if (color) {
-          preview.setCssProps({ "--duckmage-tile-color": color });
+          renderHexPreview(preview, { color, style, orientation, hexSizePx: TILE_HEX_PX });
         } else {
           preview.addClass("duckmage-faction-tile-preview-empty");
         }
@@ -219,15 +234,22 @@ export class FactionPickerModal extends HexmakerModal {
           e.stopPropagation();
           new FactionEditorModal(
             this.app,
+            this.plugin,
             file, // TFile mutated in-place by Obsidian on rename
             color,
-            (newColor, newBasename) => {
+            (newColor, newBasename, newStyle) => {
               color = newColor;
+              style = newStyle;
+              preview.replaceChildren();
               if (newColor) {
-                preview.setCssProps({ "--duckmage-tile-color": newColor });
                 preview.removeClass("duckmage-faction-tile-preview-empty");
+                renderHexPreview(preview, {
+                  color: newColor,
+                  style: newStyle,
+                  orientation,
+                  hexSizePx: TILE_HEX_PX,
+                });
               } else {
-                preview.setCssProps({ "--duckmage-tile-color": "" });
                 preview.addClass("duckmage-faction-tile-preview-empty");
               }
               nameEl.setText(newBasename);
@@ -280,6 +302,7 @@ export class FactionPickerModal extends HexmakerModal {
 
     new FactionEditorModal(
       this.app,
+      this.plugin,
       file,
       null,
       (newColor) => {
@@ -288,6 +311,8 @@ export class FactionPickerModal extends HexmakerModal {
       },
     ).open();
   }
+
+
 
   onClose(): void {
     this.contentEl.empty();

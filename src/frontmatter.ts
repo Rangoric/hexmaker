@@ -5,21 +5,25 @@ import {
   DEFAULT_OVERLAY_PATTERN_KEY,
   DEFAULT_OVERLAY_PATTERN_SCALE,
   DEFAULT_OVERLAY_PATTERN_OPACITY,
+  DEFAULT_OVERLAY_OUTLINE_WIDTH,
   normalizeOverlayPatternKey,
   normalizeOverlayPatternScale,
   normalizeOverlayPatternOpacity,
+  normalizeOverlayOutlineWidth,
 } from "./overlayPatterns";
 
 export interface OverlayStyle {
   pattern: OverlayPatternKey;
   scale: number;
   opacity: number;
+  outlineWidth: number;
 }
 
 export const DEFAULT_OVERLAY_STYLE: OverlayStyle = {
   pattern: DEFAULT_OVERLAY_PATTERN_KEY,
   scale: DEFAULT_OVERLAY_PATTERN_SCALE,
   opacity: DEFAULT_OVERLAY_PATTERN_OPACITY,
+  outlineWidth: DEFAULT_OVERLAY_OUTLINE_WIDTH,
 };
 
 export interface Frontmatter {
@@ -38,10 +42,12 @@ export interface Frontmatter {
   "faction-pattern"?: string;
   "faction-pattern-scale"?: string;
   "faction-pattern-opacity"?: string;
+  "faction-outline-width"?: string;
   "region-color"?: string;
   "region-pattern"?: string;
   "region-pattern-scale"?: string;
   "region-pattern-opacity"?: string;
+  "region-outline-width"?: string;
 }
 
 export function getFrontMatter(app: App, path: string) {
@@ -102,6 +108,7 @@ export function getFactionStyleFromFile(app: App, path: string): OverlayStyle {
     pattern: normalizeOverlayPatternKey(fm?.["faction-pattern"]),
     scale: normalizeOverlayPatternScale(fm?.["faction-pattern-scale"]),
     opacity: normalizeOverlayPatternOpacity(fm?.["faction-pattern-opacity"]),
+    outlineWidth: normalizeOverlayOutlineWidth(fm?.["faction-outline-width"]),
   };
 }
 
@@ -124,6 +131,10 @@ export async function setFactionStyleInFile(
     if (style.opacity !== undefined) {
       if (style.opacity === DEFAULT_OVERLAY_PATTERN_OPACITY) delete fm["faction-pattern-opacity"];
       else fm["faction-pattern-opacity"] = String(style.opacity);
+    }
+    if (style.outlineWidth !== undefined) {
+      if (style.outlineWidth === DEFAULT_OVERLAY_OUTLINE_WIDTH) delete fm["faction-outline-width"];
+      else fm["faction-outline-width"] = String(style.outlineWidth);
     }
   });
   return true;
@@ -179,6 +190,7 @@ export function getRegionStyleFromFile(app: App, path: string): OverlayStyle {
     pattern: normalizeOverlayPatternKey(fm?.["region-pattern"]),
     scale: normalizeOverlayPatternScale(fm?.["region-pattern-scale"]),
     opacity: normalizeOverlayPatternOpacity(fm?.["region-pattern-opacity"]),
+    outlineWidth: normalizeOverlayOutlineWidth(fm?.["region-outline-width"]),
   };
 }
 
@@ -201,6 +213,10 @@ export async function setRegionStyleInFile(
     if (style.opacity !== undefined) {
       if (style.opacity === DEFAULT_OVERLAY_PATTERN_OPACITY) delete fm["region-pattern-opacity"];
       else fm["region-pattern-opacity"] = String(style.opacity);
+    }
+    if (style.outlineWidth !== undefined) {
+      if (style.outlineWidth === DEFAULT_OVERLAY_OUTLINE_WIDTH) delete fm["region-outline-width"];
+      else fm["region-outline-width"] = String(style.outlineWidth);
     }
   });
   return true;

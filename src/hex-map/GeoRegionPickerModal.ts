@@ -7,17 +7,23 @@ import {
   setRegionColorInFile,
   getRegionStyleFromFile,
   setRegionStyleInFile,
+  type OverlayStyle,
 } from "../frontmatter";
-import { addOverlayPatternControls } from "./overlayPatternControls";
+import { addOverlayPatternControls, renderHexPreview } from "./overlayPatternControls";
 
 // ── Region editor sub-modal ───────────────────────────────────────────────────
 
 class GeoRegionEditorModal extends HexmakerModal {
   constructor(
     app: App,
+    private plugin: HexmakerPlugin,
     private file: TFile,
     private initialColor: string | null,
-    private onSaved: (color: string | null, newBasename: string) => void,
+    private onSaved: (
+      color: string | null,
+      newBasename: string,
+      style: OverlayStyle,
+    ) => void,
   ) {
     super(app);
   }
@@ -80,6 +86,7 @@ class GeoRegionEditorModal extends HexmakerModal {
       contentEl,
       initialStyle,
       () => pendingColor,
+      this.plugin.settings.hexOrientation,
     );
 
     // ── Buttons ───────────────────────────────────────────────────────────────
@@ -100,7 +107,7 @@ class GeoRegionEditorModal extends HexmakerModal {
         }
         await setRegionColorInFile(this.app, this.file.path, pendingColor);
         await setRegionStyleInFile(this.app, this.file.path, styleState);
-        this.onSaved(pendingColor, newBasename);
+        this.onSaved(pendingColor, newBasename, styleState);
         this.close();
       })();
     });
@@ -113,7 +120,7 @@ class GeoRegionEditorModal extends HexmakerModal {
     clearBtn.addEventListener("click", () => {
       void (async () => {
         await setRegionColorInFile(this.app, this.file.path, null);
-        this.onSaved(null, this.file.basename);
+        this.onSaved(null, this.file.basename, styleState);
         this.close();
       })();
     });
@@ -183,14 +190,18 @@ export class GeoRegionPickerModal extends HexmakerModal {
         });
       }
 
+      const orientation = this.plugin.settings.hexOrientation;
+      const TILE_HEX_PX = 48;
+
       for (const file of files) {
         let color = this.pendingColorOverrides.get(file.path) ?? getRegionColorFromFile(this.app, file.path);
+        let style = getRegionStyleFromFile(this.app, file.path);
 
         const tile = grid.createDiv({ cls: "duckmage-faction-tile" });
 
         const preview = tile.createDiv({ cls: "duckmage-faction-tile-preview" });
         if (color) {
-          preview.setCssProps({ "--duckmage-tile-color": color });
+          renderHexPreview(preview, { color, style, orientation, hexSizePx: TILE_HEX_PX });
         } else {
           preview.addClass("duckmage-faction-tile-preview-empty");
         }
@@ -210,15 +221,22 @@ export class GeoRegionPickerModal extends HexmakerModal {
           e.stopPropagation();
           new GeoRegionEditorModal(
             this.app,
+            this.plugin,
             file,
             color,
-            (newColor, newBasename) => {
+            (newColor, newBasename, newStyle) => {
               color = newColor;
+              style = newStyle;
+              preview.replaceChildren();
               if (newColor) {
-                preview.setCssProps({ "--duckmage-tile-color": newColor });
                 preview.removeClass("duckmage-faction-tile-preview-empty");
+                renderHexPreview(preview, {
+                  color: newColor,
+                  style: newStyle,
+                  orientation,
+                  hexSizePx: TILE_HEX_PX,
+                });
               } else {
-                preview.setCssProps({ "--duckmage-tile-color": "" });
                 preview.addClass("duckmage-faction-tile-preview-empty");
               }
               nameEl.setText(newBasename);
@@ -268,7 +286,7 @@ export class GeoRegionPickerModal extends HexmakerModal {
     const file = await this.app.vault.create(filePath, "");
     void this.plugin.ensureRegionTable(name);
 
-    new GeoRegionEditorModal(this.app, file, null, (newColor) => {
+    new GeoRegionEditorModal(this.app, this.plugin, file, null, (newColor) => {
       if (newColor) this.pendingColorOverrides.set(file.path, newColor);
       this.buildPalette();
     }).open();

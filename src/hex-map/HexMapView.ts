@@ -14,7 +14,7 @@ import { HexEditorModal } from "./HexEditorModal";
 import { TerrainPickerModal } from "./TerrainPickerModal";
 import { IconPickerModal } from "./IconPickerModal";
 import { addLinkToSection, getLinksInSection, removeLinkFromSection } from "../sections";
-import { getFactionColorFromFile, getRegionColorFromFile, getFactionStyleFromFile, getRegionStyleFromFile, setHexRegionInFile, getSubmapFromFile, setSubmapInFile } from "../frontmatter";
+import { getFactionColorFromFile, getRegionColorFromFile, getFactionStyleFromFile, getRegionStyleFromFile, setHexRegionInFile, getSubmapFromFile, setSubmapInFile, type OverlayStyle } from "../frontmatter";
 import { buildSvgPattern, colorToIdToken, type OverlayPatternKey } from "../overlayPatterns";
 import {
   VIEW_TYPE_HEX_MAP,
@@ -3344,7 +3344,7 @@ export class HexMapView extends ItemView {
     // ── Build faction color + style maps ──────────────────────────────────────
     const folder = normalizeFolder(this.plugin.settings.factionsFolder);
     const factionColorMap = new Map<string, string>();
-    const factionStyleMap = new Map<string, { pattern: OverlayPatternKey; scale: number; opacity: number }>();
+    const factionStyleMap = new Map<string, OverlayStyle>();
     for (const f of this.app.vault.getMarkdownFiles()) {
       if (folder && !f.path.startsWith(folder + "/")) continue;
       const color = getFactionColorFromFile(this.app, f.path);
@@ -3423,7 +3423,7 @@ export class HexMapView extends ItemView {
     for (const [factionName, hexKeys] of factionHexKeys) {
       const color = factionColorMap.get(factionName);
       if (!color) continue;
-      const style = factionStyleMap.get(factionName) ?? { pattern: "solid" as OverlayPatternKey, scale: 16, opacity: 0.45 };
+      const style = factionStyleMap.get(factionName) ?? { pattern: "solid" as OverlayPatternKey, scale: 16, opacity: 0.45, outlineWidth: 1.5 };
       const patternId = ensurePattern(style.pattern, color, style.scale);
       const fillVal = patternId ? `url(#${patternId})` : color;
 
@@ -3509,7 +3509,7 @@ export class HexMapView extends ItemView {
         path.setAttribute("d", d);
         path.setAttribute("fill", fillVal);
         path.setAttribute("stroke", color);
-        path.setAttribute("stroke-width", String(gapPx * 2 + 2));
+        path.setAttribute("stroke-width", String(style.outlineWidth));
         path.setAttribute("stroke-linejoin", "round");
         path.setAttribute("stroke-linecap", "round");
         path.setAttribute("paint-order", "stroke fill");
@@ -3717,7 +3717,7 @@ export class HexMapView extends ItemView {
     // ── Region color + style maps ───────────────────────────────────────────
     const folder = normalizeFolder(this.plugin.settings.regionsFolder);
     const regionColorMap = new Map<string, string>();
-    const regionStyleMap = new Map<string, { pattern: OverlayPatternKey; scale: number; opacity: number }>();
+    const regionStyleMap = new Map<string, OverlayStyle>();
     for (const f of this.app.vault.getMarkdownFiles()) {
       if (f.basename.startsWith("_")) continue;
       if (folder && !f.path.startsWith(folder + "/")) continue;
@@ -3782,7 +3782,7 @@ export class HexMapView extends ItemView {
     for (const [regionName, hexKeys] of regionHexKeys) {
       const color = regionColorMap.get(regionName);
       if (!color) continue;
-      const style = regionStyleMap.get(regionName) ?? { pattern: "solid" as OverlayPatternKey, scale: 16, opacity: 0.45 };
+      const style = regionStyleMap.get(regionName) ?? { pattern: "solid" as OverlayPatternKey, scale: 16, opacity: 0.45, outlineWidth: 1.5 };
       const patternId = ensureRegionPattern(style.pattern, color, style.scale);
       const fillVal = patternId ? `url(#${patternId})` : color;
 
@@ -3884,9 +3884,8 @@ export class HexMapView extends ItemView {
         const path = activeDocument.createElementNS(svgNS, "path");
         path.setAttribute("d", d);
         path.setAttribute("fill", fillVal);
-        // Stroke bridges the inter-hex gap; round joins/caps smooth blob edges
         path.setAttribute("stroke", color);
-        path.setAttribute("stroke-width", String(gapPx * 2 + 2));
+        path.setAttribute("stroke-width", String(style.outlineWidth));
         path.setAttribute("stroke-linejoin", "round");
         path.setAttribute("stroke-linecap", "round");
         path.setAttribute("paint-order", "stroke fill");

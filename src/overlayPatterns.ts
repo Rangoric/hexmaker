@@ -40,11 +40,14 @@ export const OVERLAY_PATTERN_LABELS: Record<OverlayPatternKey, string> = {
 export const DEFAULT_OVERLAY_PATTERN_KEY: OverlayPatternKey = "solid";
 export const DEFAULT_OVERLAY_PATTERN_SCALE = 16;
 export const DEFAULT_OVERLAY_PATTERN_OPACITY = 0.45;
+export const DEFAULT_OVERLAY_OUTLINE_WIDTH = 1.5;
 
 export const MIN_PATTERN_SCALE = 8;
 export const MAX_PATTERN_SCALE = 48;
 export const MIN_PATTERN_OPACITY = 0.05;
 export const MAX_PATTERN_OPACITY = 1.0;
+export const MIN_OUTLINE_WIDTH = 0;
+export const MAX_OUTLINE_WIDTH = 20;
 
 export function isOverlayPatternKey(v: unknown): v is OverlayPatternKey {
   return (
@@ -77,6 +80,17 @@ export function normalizeOverlayPatternOpacity(v: unknown): number {
         : NaN;
   if (!Number.isFinite(n)) return DEFAULT_OVERLAY_PATTERN_OPACITY;
   return Math.min(MAX_PATTERN_OPACITY, Math.max(MIN_PATTERN_OPACITY, n));
+}
+
+export function normalizeOverlayOutlineWidth(v: unknown): number {
+  const n =
+    typeof v === "number"
+      ? v
+      : typeof v === "string"
+        ? parseFloat(v)
+        : NaN;
+  if (!Number.isFinite(n)) return DEFAULT_OVERLAY_OUTLINE_WIDTH;
+  return Math.min(MAX_OUTLINE_WIDTH, Math.max(MIN_OUTLINE_WIDTH, n));
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
