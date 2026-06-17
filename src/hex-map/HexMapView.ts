@@ -820,13 +820,8 @@ export class HexMapView extends ItemView {
     if (map.backgroundImage) {
       // Re-apply the bg layer's transform with the new offset so the visual
       // updates immediately, and persist the new offset.
-      const bg = map.backgroundImage;
       const layer = this.viewportEl?.querySelector<HTMLElement>(".duckmage-bg-image-layer");
-      layer?.setCssProps({
-        transform:
-          `translate(${bg.offsetX}px, ${bg.offsetY}px) ` +
-          `rotate(${bg.rotation ?? 0}deg) scale(${bg.scale})`,
-      });
+      if (layer) this.applyBgLayerVars(layer, map.backgroundImage);
       void this.plugin.saveSettings();
     }
   }
@@ -1820,7 +1815,9 @@ export class HexMapView extends ItemView {
   private applyTransform(): void {
     if (this.viewportEl) {
       this.viewportEl.setCssProps({
-        transform: `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`,
+        "--duckmage-vp-tx": `${this.panX}px`,
+        "--duckmage-vp-ty": `${this.panY}px`,
+        "--duckmage-vp-scale": String(this.zoom),
         // Inverse-zoom factor used by calibration resize handles so they stay
         // constant screen-size regardless of how zoomed the viewport is.
         "--duckmage-cal-scale": String(1 / Math.max(0.01, this.zoom)),
@@ -1897,6 +1894,45 @@ export class HexMapView extends ItemView {
     this.renderGrid();
   }
 
+  /**
+   * Write the bg image's translate / rotate / scale / opacity to the layer
+   * as CSS custom properties. The actual `transform` declaration lives in
+   * `.duckmage-bg-image-layer`'s CSS rule — JS only feeds the variables in,
+   * which keeps the obsidianmd no-static-styles-assignment rule happy.
+   */
+  private applyBgLayerVars(
+    layer: HTMLElement,
+    bg: { offsetX: number; offsetY: number; rotation?: number; scale: number; opacity?: number },
+  ): void {
+    layer.setCssProps({
+      "--duckmage-bg-tx": `${bg.offsetX}px`,
+      "--duckmage-bg-ty": `${bg.offsetY}px`,
+      "--duckmage-bg-rot": `${bg.rotation ?? 0}deg`,
+      "--duckmage-bg-scale": String(bg.scale),
+      "--duckmage-bg-opacity": String(bg.opacity ?? 1),
+    });
+  }
+
+  /**
+   * Same pattern for the grid container's gridDisplay transform.
+   */
+  private applyGridLayerVars(
+    grid: HTMLElement,
+    map: MapData,
+  ): void {
+    const legacy = map.gridDisplayScale ?? 1;
+    const sx = map.gridDisplayScaleX ?? legacy;
+    const sy = map.gridDisplayScaleY ?? legacy;
+    const ox = map.gridDisplayOffsetX ?? 0;
+    const oy = map.gridDisplayOffsetY ?? 0;
+    grid.setCssProps({
+      "--duckmage-grid-tx": `${ox}px`,
+      "--duckmage-grid-ty": `${oy}px`,
+      "--duckmage-grid-sx": String(sx),
+      "--duckmage-grid-sy": String(sy),
+    });
+  }
+
   private renderBackgroundImage(viewportEl: HTMLElement, map: MapData): void {
     const bg = map.backgroundImage;
     viewportEl.toggleClass("has-bg-image", !!bg?.path);
@@ -1906,16 +1942,7 @@ export class HexMapView extends ItemView {
     if (!(file instanceof TFile)) return;
 
     const layer = viewportEl.createDiv({ cls: "duckmage-bg-image-layer" });
-    // transform-origin: 0 0 — anchor math in attachResizeHandles assumes it.
-    // Apply the dynamic transform via setCssProps to satisfy the obsidianmd
-    // no-static-styles-assignment lint, then set opacity as inline style.
-    layer.setCssProps({
-      "transform-origin": "0 0",
-      transform:
-        `translate(${bg.offsetX}px, ${bg.offsetY}px) ` +
-        `rotate(${bg.rotation ?? 0}deg) scale(${bg.scale})`,
-    });
-    layer.style.opacity = String(bg.opacity ?? 1);
+    this.applyBgLayerVars(layer, bg);
     const img = layer.createEl("img", { cls: "duckmage-bg-image" });
     img.src = this.app.vault.adapter.getResourcePath(bg.path);
     img.alt = "";
@@ -1948,9 +1975,7 @@ export class HexMapView extends ItemView {
       const onMove = (ev: MouseEvent) => {
         bg.offsetX = startOX + (ev.clientX - startX) / zoom;
         bg.offsetY = startOY + (ev.clientY - startY) / zoom;
-        layer.style.transform =
-          `translate(${bg.offsetX}px, ${bg.offsetY}px) ` +
-          `rotate(${bg.rotation ?? 0}deg) scale(${bg.scale})`;
+        this.applyBgLayerVars(layer, bg);
       };
       const onUp = () => {
         activeDocument.removeEventListener("mousemove", onMove);
@@ -1979,9 +2004,7 @@ export class HexMapView extends ItemView {
         bg.offsetX = tx;
         bg.offsetY = ty;
         bg.scale = Math.max(0.05, Math.min(20, sx));
-        layer.style.transform =
-          `translate(${bg.offsetX}px, ${bg.offsetY}px) ` +
-          `rotate(${bg.rotation ?? 0}deg) scale(${bg.scale})`;
+        this.applyBgLayerVars(layer, bg);
       },
       onDragStart: () => { bgResizeBefore = this.captureCalibration(map); },
       onDragEnd: () => {
@@ -2002,15 +2025,7 @@ export class HexMapView extends ItemView {
    */
   private attachGridCalibrationHandlers(grid: HTMLElement, map: MapData): void {
     const applyGridTransform = () => {
-      const legacy = map.gridDisplayScale ?? 1;
-      const sx = map.gridDisplayScaleX ?? legacy;
-      const sy = map.gridDisplayScaleY ?? legacy;
-      const ox = map.gridDisplayOffsetX ?? 0;
-      const oy = map.gridDisplayOffsetY ?? 0;
-      grid.setCssProps({
-        "transform-origin": "0 0",
-        transform: `translate(${ox}px, ${oy}px) scale(${sx}, ${sy})`,
-      });
+      this.applyGridLayerVars(grid, map);
     };
 
     // Move the grid by dragging its body (anywhere not on a handle)
@@ -2244,26 +2259,13 @@ export class HexMapView extends ItemView {
     if (this.bgCalibrationFocus === "image" && map.backgroundImage) {
       map.backgroundImage.offsetX += dirX * step;
       map.backgroundImage.offsetY += dirY * step;
-      const bg = map.backgroundImage;
       const layer = this.viewportEl?.querySelector<HTMLElement>(".duckmage-bg-image-layer");
-      layer?.setCssProps({
-        transform:
-          `translate(${bg.offsetX}px, ${bg.offsetY}px) ` +
-          `rotate(${bg.rotation ?? 0}deg) scale(${bg.scale})`,
-      });
+      if (layer) this.applyBgLayerVars(layer, map.backgroundImage);
     } else if (this.bgCalibrationFocus === "grid") {
       map.gridDisplayOffsetX = (map.gridDisplayOffsetX ?? 0) + dirX * step;
       map.gridDisplayOffsetY = (map.gridDisplayOffsetY ?? 0) + dirY * step;
-      const legacy = map.gridDisplayScale ?? 1;
-      const sx = map.gridDisplayScaleX ?? legacy;
-      const sy = map.gridDisplayScaleY ?? legacy;
       const grid = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid");
-      grid?.setCssProps({
-        "transform-origin": "0 0",
-        transform:
-          `translate(${map.gridDisplayOffsetX}px, ${map.gridDisplayOffsetY}px) ` +
-          `scale(${sx}, ${sy})`,
-      });
+      if (grid) this.applyGridLayerVars(grid, map);
     }
     if (this.nudgeUndoTimer !== null) window.clearTimeout(this.nudgeUndoTimer);
     this.nudgeUndoTimer = window.setTimeout(() => {
@@ -2480,15 +2482,8 @@ export class HexMapView extends ItemView {
       map.backgroundImage.offsetX *= F;
       map.backgroundImage.offsetY *= F;
       map.backgroundImage.scale *= F;
-      const bg = map.backgroundImage;
       const bgLayer = this.viewportEl.querySelector<HTMLElement>(".duckmage-bg-image-layer");
-      if (bgLayer) {
-        bgLayer.setCssProps({
-          transform:
-            `translate(${bg.offsetX}px, ${bg.offsetY}px) ` +
-            `rotate(${bg.rotation ?? 0}deg) scale(${bg.scale})`,
-        });
-      }
+      if (bgLayer) this.applyBgLayerVars(bgLayer, map.backgroundImage);
     }
     if (
       map.gridDisplayOffsetX !== undefined ||
@@ -2499,18 +2494,8 @@ export class HexMapView extends ItemView {
     ) {
       map.gridDisplayOffsetX = (map.gridDisplayOffsetX ?? 0) * F;
       map.gridDisplayOffsetY = (map.gridDisplayOffsetY ?? 0) * F;
-      const legacy = map.gridDisplayScale ?? 1;
-      const sx = map.gridDisplayScaleX ?? legacy;
-      const sy = map.gridDisplayScaleY ?? legacy;
       const gridContainer = this.viewportEl.querySelector<HTMLElement>(".duckmage-hex-map-grid");
-      if (gridContainer) {
-        gridContainer.setCssProps({
-          "transform-origin": "0 0",
-          transform:
-            `translate(${map.gridDisplayOffsetX}px, ${map.gridDisplayOffsetY}px) ` +
-            `scale(${sx}, ${sy})`,
-        });
-      }
+      if (gridContainer) this.applyGridLayerVars(gridContainer, map);
     }
     // Also persist the new viewport state — font-size just baked from the
     // viewport zoom, so the saved snapshot has to follow.
@@ -2609,19 +2594,10 @@ export class HexMapView extends ItemView {
     });
 
     // Apply optional independent grid transform (used for bg-image calibration).
-    // Read X/Y separately so non-uniform stretch (top/bottom edge handles) works;
-    // fall back to legacy uniform gridDisplayScale for back-compat.
-    const legacyScale = region.gridDisplayScale ?? 1;
-    const gSX = region.gridDisplayScaleX ?? legacyScale;
-    const gSY = region.gridDisplayScaleY ?? legacyScale;
-    const gOX = region.gridDisplayOffsetX ?? 0;
-    const gOY = region.gridDisplayOffsetY ?? 0;
-    if (gSX !== 1 || gSY !== 1 || gOX !== 0 || gOY !== 0) {
-      gridContainer.setCssProps({
-        "transform-origin": "0 0",
-        transform: `translate(${gOX}px, ${gOY}px) scale(${gSX}, ${gSY})`,
-      });
-    }
+    // Custom-property values default to identity in CSS when unset, so we
+    // can safely write them unconditionally — no special-casing for the
+    // un-calibrated default.
+    this.applyGridLayerVars(gridContainer, region);
 
     if (this.bgCalibrating) this.attachGridCalibrationHandlers(gridContainer, region);
 

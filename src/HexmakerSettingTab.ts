@@ -199,7 +199,6 @@ export class HexmakerSettingTab extends PluginSettingTab {
         slider
           .setLimits(0, 0.5, 0.01)
           .setValue(parseFloat(this.plugin.settings.hexGap ?? "0.15") || 0.15)
-          .setDynamicTooltip()
           .onChange(async (value) => {
             this.plugin.settings.hexGap = String(value);
             await this.plugin.saveSettings();

@@ -70,7 +70,7 @@ export function renderHexPreview(
   const cx = svgW / 2;
   const cy = svgH / 2;
 
-  const svg = document.createElementNS(SVG_NS, "svg");
+  const svg = activeDocument.createElementNS(SVG_NS, "svg");
   svg.setAttribute("width", String(svgW));
   svg.setAttribute("height", String(svgH));
   svg.classList.add("duckmage-hex-preview-svg");
@@ -78,9 +78,9 @@ export function renderHexPreview(
   // Pattern def (only if non-solid)
   let fillVal: string = color;
   if (style.pattern !== "solid") {
-    const defs = document.createElementNS(SVG_NS, "defs");
+    const defs = activeDocument.createElementNS(SVG_NS, "defs");
     const id = `dm-prev-${Math.random().toString(36).slice(2, 9)}`;
-    const pat = buildSvgPattern(document, {
+    const pat = buildSvgPattern(activeDocument, {
       id,
       pattern: style.pattern,
       color,
@@ -94,7 +94,7 @@ export function renderHexPreview(
   }
 
   const pts = hexPolygonPoints(cx, cy, orientation, radius - 1);
-  const poly = document.createElementNS(SVG_NS, "polygon");
+  const poly = activeDocument.createElementNS(SVG_NS, "polygon");
   poly.setAttribute("points", pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "));
   poly.setAttribute("fill", fillVal);
   poly.setAttribute("stroke", color);
@@ -150,7 +150,6 @@ export function addOverlayPatternControls(
     sl
       .setLimits(MIN_PATTERN_SCALE, MAX_PATTERN_SCALE, 1)
       .setValue(state.scale)
-      .setDynamicTooltip()
       .onChange((v) => {
         state.scale = v;
         refreshPreview();
@@ -161,7 +160,6 @@ export function addOverlayPatternControls(
     sl
       .setLimits(MIN_PATTERN_OPACITY, MAX_PATTERN_OPACITY, 0.05)
       .setValue(state.opacity)
-      .setDynamicTooltip()
       .onChange((v) => {
         state.opacity = v;
         refreshPreview();
@@ -172,7 +170,6 @@ export function addOverlayPatternControls(
     sl
       .setLimits(MIN_OUTLINE_WIDTH, MAX_OUTLINE_WIDTH, 0.5)
       .setValue(state.outlineWidth)
-      .setDynamicTooltip()
       .onChange((v) => {
         state.outlineWidth = v;
         refreshPreview();

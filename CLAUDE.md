@@ -186,3 +186,24 @@ Renders an interactive hex-grid map for tabletop RPG world-building inside Obsid
 - Exclude notes whose `basename` starts with `"_"` whenever enumerating vault files for display, dropdowns, or linking. Pattern: `.filter(f => !f.basename.startsWith("_"))`.
 - **All modals must extend `DuckmageModal`** (`src/DuckmageModal.ts`) rather than Obsidian's `Modal` directly. `DuckmageModal` is the single place for shared modal behaviour. Any functionality needed by more than one modal belongs there, not in `utils.ts` or duplicated across files.
 - All modals call `this.makeDraggable()` in `onOpen` (inherited from `DuckmageModal`), which adds the `duckmage-editor-modal-drag` class and locks dragging to the title-bar area. (`FileLinkSuggestModal` is the sole exception — it extends `SuggestModal` and cannot inherit from `DuckmageModal`.)
+
+### Obsidian reviewer-bot conventions (enforced beyond what eslint catches)
+
+The obsidianmd reviewer flags patterns the locally-installed
+`eslint-plugin-obsidianmd` doesn't have rules for. Watch for these
+in any new code; failing these means another bump-and-fix cycle.
+
+- **`document` / `window` → `activeDocument` / `activeWindow`.** Required
+  for popout-window compatibility. Globals are listed in `eslint.config.mjs`.
+  Use `activeDocument.createElementNS(...)`, `activeDocument.body.createDiv(...)`,
+  `window.setTimeout(...)` is OK but prefer `activeWindow.setTimeout(...)`
+  inside view code where popouts could fire it.
+- **Dynamic CSS: never `.style.foo = …` or `setCssProps({ transform: … })`.**
+  The local eslint rule (`obsidianmd/no-static-styles-assignment`) is
+  promoted to an error to catch this. The pattern is: declare the
+  `transform` / `opacity` / etc. in CSS using `var(--duckmage-..., default)`
+  fallbacks, and write the dynamic values to the custom properties from
+  JS. See `.duckmage-bg-image-layer`, `.duckmage-hex-map-grid`,
+  `.duckmage-hex-map-viewport` for the canonical examples.
+- **`setDynamicTooltip()` is deprecated.** The slider value is now always
+  shown inline. Drop the call from any new `.addSlider(...)` chain.

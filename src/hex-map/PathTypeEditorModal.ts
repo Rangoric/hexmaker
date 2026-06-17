@@ -77,7 +77,6 @@ export class PathTypeEditorModal extends HexmakerModal {
 				slider
 					.setLimits(1, 10, 1)
 					.setValue(this.pendingWidth)
-					.setDynamicTooltip()
 					.onChange(value => {
 						this.pendingWidth = value;
 						redrawPreview();

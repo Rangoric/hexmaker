@@ -128,6 +128,12 @@
     will-change: transform;
     cursor: grab;
     padding: 1em;
+    /* Viewport pan/zoom values are written to these CSS custom properties
+       from JS via setCssProps. See `.duckmage-bg-image-layer` for the
+       motivation. */
+    transform:
+        translate(var(--duckmage-vp-tx, 0px), var(--duckmage-vp-ty, 0px))
+        scale(var(--duckmage-vp-scale, 1));
 }
 
 .duckmage-bg-image-layer {
@@ -137,6 +143,16 @@
     transform-origin: 0 0;
     pointer-events: none;
     z-index: 0;
+    /* Dynamic transform values are written to these CSS custom properties
+       from JS via setCssProps. Doing it this way keeps the `transform`
+       declaration itself in CSS (satisfies obsidianmd's
+       no-static-styles-assignment rule) while still letting the values
+       come from JS state. */
+    transform:
+        translate(var(--duckmage-bg-tx, 0px), var(--duckmage-bg-ty, 0px))
+        rotate(var(--duckmage-bg-rot, 0deg))
+        scale(var(--duckmage-bg-scale, 1));
+    opacity: var(--duckmage-bg-opacity, 1);
 }
 
 .duckmage-bg-image {
@@ -181,6 +197,14 @@
    maps re-scale the grid. */
 .duckmage-hex-map-grid {
     position: relative;
+    /* gridDisplay transform: values are written to these CSS custom
+       properties from JS. Defaults are identity, so an un-calibrated map
+       renders unchanged. See `.duckmage-bg-image-layer` for the same
+       pattern and why we do it this way. */
+    transform-origin: 0 0;
+    transform:
+        translate(var(--duckmage-grid-tx, 0px), var(--duckmage-grid-ty, 0px))
+        scale(var(--duckmage-grid-sx, 1), var(--duckmage-grid-sy, 1));
 }
 
 .duckmage-calibration-outlines-svg {
