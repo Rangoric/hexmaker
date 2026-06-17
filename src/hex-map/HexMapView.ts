@@ -760,6 +760,118 @@ export class HexMapView extends ItemView {
     return Promise.resolve();
   }
 
+  /**
+   * Effective horizontal scale of the grid container's CSS transform.
+   * Used by the expand/shrink buttons so visual pan compensation accounts
+   * for calibrated maps where the grid is non-uniformly scaled. Falls back
+   * to the legacy uniform `gridDisplayScale`, then to 1.
+   */
+  private gridDisplayScaleX(map: MapData): number {
+    return map.gridDisplayScaleX ?? map.gridDisplayScale ?? 1;
+  }
+  private gridDisplayScaleY(map: MapData): number {
+    return map.gridDisplayScaleY ?? map.gridDisplayScale ?? 1;
+  }
+
+  /**
+   * Apply pan + bg-image compensation after the grid grew/shrank on the
+   * top/left side.
+   *
+   * Two compensations work together so an expand at the top (or left)
+   * looks like "the canvas extended that way" instead of "everything
+   * shifted":
+   *
+   * - **Pan**: existing hexes' in-container layout offset just grew by
+   *   `stride`, which would shift them in viewport pixels by
+   *   `stride * scale`. To freeze their screen position we shift the
+   *   viewport translate by `-stride * scale * zoom`.
+   * - **BG image**: that pan shift moves the bg image in screen space too
+   *   (the bg layer is a viewport descendant). The bg image's
+   *   `viewport-coord` position doesn't track the grid's layout change,
+   *   so the bg/hex alignment breaks unless we also shift `bg.offsetY/X`
+   *   by `+stride * scale` (matching the layout shift of the hexes).
+   *   Net bg screen movement: zero. Alignment preserved.
+   *
+   * `direction: "above"` is the top / left case (one positive-side
+   * compensation). `shrink: true` flips the sign — removing a top/left
+   * row/col is the inverse of adding one.
+   */
+  private shiftForGridGrowth(
+    opts: { axis: "row" | "col"; direction: "above"; shrink?: boolean },
+    map: MapData,
+  ): void {
+    const stride = this.measureGridStride(opts.axis);
+    if (stride === 0) return;
+    const sign = opts.shrink ? -1 : 1;
+    if (opts.axis === "row") {
+      const sy = this.gridDisplayScaleY(map);
+      this.panY -= sign * stride * sy * this.zoom;
+      if (map.backgroundImage) {
+        map.backgroundImage.offsetY += sign * stride * sy;
+      }
+    } else {
+      const sx = this.gridDisplayScaleX(map);
+      this.panX -= sign * stride * sx * this.zoom;
+      if (map.backgroundImage) {
+        map.backgroundImage.offsetX += sign * stride * sx;
+      }
+    }
+    this.applyTransform();
+    if (map.backgroundImage) {
+      // Re-apply the bg layer's transform with the new offset so the visual
+      // updates immediately, and persist the new offset.
+      const bg = map.backgroundImage;
+      const layer = this.viewportEl?.querySelector<HTMLElement>(".duckmage-bg-image-layer");
+      layer?.setCssProps({
+        transform:
+          `translate(${bg.offsetX}px, ${bg.offsetY}px) ` +
+          `rotate(${bg.rotation ?? 0}deg) scale(${bg.scale})`,
+      });
+      void this.plugin.saveSettings();
+    }
+  }
+
+  /**
+   * Layout stride between adjacent rows/cols, measured directly from two
+   * consecutive elements in the DOM after render. This is more reliable
+   * than computing from hex dimensions because it captures everything that
+   * affects spacing: hex height + hex margin + row margin-bottom, etc.
+   *
+   * Returns 0 if there aren't enough elements to measure.
+   */
+  private measureGridStride(axis: "row" | "col"): number {
+    const isFlat = this.plugin.settings.hexOrientation === "flat";
+    if (axis === "row") {
+      if (isFlat) {
+        // Flat-top: hexes stacked vertically inside a column with no overlap.
+        // Measure the offsetTop delta between two consecutive hexes in the
+        // same column.
+        const col = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-col");
+        const hexes = col?.querySelectorAll<HTMLElement>(".duckmage-hex");
+        if (!hexes || hexes.length < 2) return 0;
+        return hexes[1].offsetTop - hexes[0].offsetTop;
+      }
+      // Pointy-top: rows stack vertically inside the grid container. Measure
+      // the offsetTop delta between the first two rows.
+      const rows = this.viewportEl?.querySelectorAll<HTMLElement>(".duckmage-hex-row");
+      if (!rows || rows.length < 2) return 0;
+      return rows[1].offsetTop - rows[0].offsetTop;
+    }
+    // axis === "col"
+    if (isFlat) {
+      // Flat-top: columns are siblings in the grid container; measure delta.
+      const cols = this.viewportEl?.querySelectorAll<HTMLElement>(".duckmage-hex-col");
+      if (!cols || cols.length < 2) return 0;
+      return cols[1].offsetLeft - cols[0].offsetLeft;
+    }
+    // Pointy-top: hexes within a row are side-by-side. Measure delta between
+    // first two hexes in the first row.
+    const row = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-row");
+    const hexes = row?.querySelectorAll<HTMLElement>(".duckmage-hex");
+    if (!hexes || hexes.length < 2) return 0;
+    return hexes[1].offsetLeft - hexes[0].offsetLeft;
+  }
+
   private createExpandButtons(container: HTMLElement): void {
     const dirs: Array<{
       groupCls: string;
@@ -771,11 +883,16 @@ export class HexMapView extends ItemView {
       {
         groupCls: "duckmage-expand-group-top",
         expandAction: async () => {
-          // Capture grid container height BEFORE the expand so we can shift
-          // pan to keep existing content visually anchored. Top expand adds
-          // a row at the top of the flex column, which would otherwise push
-          // existing rows downward.
-          const heightBefore = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetHeight ?? 0;
+          // Top expand: new row appears at the top of the flex column,
+          // pushing existing rows down by one row stride in pre-transform
+          // pixels. Two compensations together keep everything visually
+          // anchored in screen space:
+          //   1. panY shift offsets the screen-space movement of existing
+          //      hexes (caused by their new in-container offset).
+          //   2. bg.offsetY shift moves the bg image by the same viewport
+          //      amount, so the bg image's alignment with the existing hex
+          //      content is preserved — without this, the pan-only fix
+          //      breaks the bg/hex relationship the user calibrated.
           this.getActiveMap().gridOffset.y--;
           this.getActiveMap().gridSize.rows++;
           await this.plugin.saveSettings();
@@ -783,20 +900,15 @@ export class HexMapView extends ItemView {
           const xs = Array.from({ length: r.gridSize.cols }, (_, i) => r.gridOffset.x + i);
           const newPaths = xs.map((x) => this.plugin.hexPath(x, r.gridOffset.y, this.activeMapName));
           this.renderGrid(nullOverrides(newPaths), nullOverrides(newPaths));
-          const heightAfter = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetHeight ?? 0;
-          this.panY -= (heightAfter - heightBefore) * this.zoom;
-          this.applyTransform();
+          this.shiftForGridGrowth({ axis: "row", direction: "above" }, r);
           void this.plugin.generateHexNotes(this.activeMapName, xs, [r.gridOffset.y]);
         },
         shrinkAction: async () => {
-          const heightBefore = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetHeight ?? 0;
           this.getActiveMap().gridSize.rows--;
           this.getActiveMap().gridOffset.y++;
           await this.plugin.saveSettings();
           this.renderGrid();
-          const heightAfter = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetHeight ?? 0;
-          this.panY -= (heightAfter - heightBefore) * this.zoom;
-          this.applyTransform();
+          this.shiftForGridGrowth({ axis: "row", direction: "above", shrink: true }, this.getActiveMap());
         },
         canShrink: () => this.getActiveMap().gridSize.rows > 1,
         edgePaths: () => {
@@ -835,7 +947,6 @@ export class HexMapView extends ItemView {
       {
         groupCls: "duckmage-expand-group-left",
         expandAction: async () => {
-          const widthBefore = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetWidth ?? 0;
           this.getActiveMap().gridOffset.x--;
           this.getActiveMap().gridSize.cols++;
           await this.plugin.saveSettings();
@@ -843,20 +954,15 @@ export class HexMapView extends ItemView {
           const ys = Array.from({ length: r.gridSize.rows }, (_, i) => r.gridOffset.y + i);
           const newPaths = ys.map((y) => this.plugin.hexPath(r.gridOffset.x, y, this.activeMapName));
           this.renderGrid(nullOverrides(newPaths), nullOverrides(newPaths));
-          const widthAfter = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetWidth ?? 0;
-          this.panX -= (widthAfter - widthBefore) * this.zoom;
-          this.applyTransform();
+          this.shiftForGridGrowth({ axis: "col", direction: "above" }, r);
           void this.plugin.generateHexNotes(this.activeMapName, [r.gridOffset.x], ys);
         },
         shrinkAction: async () => {
-          const widthBefore = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetWidth ?? 0;
           this.getActiveMap().gridSize.cols--;
           this.getActiveMap().gridOffset.x++;
           await this.plugin.saveSettings();
           this.renderGrid();
-          const widthAfter = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid")?.offsetWidth ?? 0;
-          this.panX -= (widthAfter - widthBefore) * this.zoom;
-          this.applyTransform();
+          this.shiftForGridGrowth({ axis: "col", direction: "above", shrink: true }, this.getActiveMap());
         },
         canShrink: () => this.getActiveMap().gridSize.cols > 1,
         edgePaths: () => {

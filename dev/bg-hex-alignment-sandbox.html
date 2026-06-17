@@ -1,0 +1,296 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>BG image + hex grid alignment after top-expand</title>
+<style>
+:root {
+    --background-primary: #1e1e1e;
+    --background-secondary: #2a2a2a;
+    --background-modifier-border: #555;
+}
+* { box-sizing: border-box; }
+body {
+    background: var(--background-primary);
+    color: #ddd;
+    font-family: system-ui, sans-serif;
+    margin: 0;
+    padding: 8px;
+}
+
+h1 { font-size: 0.95em; margin: 0 0 8px; }
+
+.controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.controls button {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 14px;
+    cursor: pointer;
+}
+
+#status {
+    font-size: 0.85em;
+    color: #999;
+    margin-bottom: 8px;
+    font-family: monospace;
+}
+
+.duckmage-hex-map-clip {
+    position: relative;
+    width: 720px;
+    height: 480px;
+    background: #0c111a;
+    border: 1px solid var(--background-modifier-border);
+    overflow: hidden;
+}
+
+.duckmage-hex-map-viewport {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    padding: 1em;
+    will-change: transform;
+}
+
+.duckmage-bg-image-layer {
+    position: absolute;
+    top: 1em;
+    left: 1em;
+    transform-origin: 0 0;
+    pointer-events: none;
+    z-index: 0;
+}
+.duckmage-bg-image {
+    display: block;
+    user-select: none;
+    /* Synthetic "image": a striped panel with a clear feature anchor at
+       the top-left. Tracking the anchor lets us verify bg ↔ hex alignment. */
+    width: 480px;
+    height: 360px;
+    background:
+        radial-gradient(circle at 60px 60px, #f59e0b 0 18px, transparent 22px),
+        repeating-linear-gradient(45deg, #1a3a52 0 12px, #0f2236 12px 24px);
+}
+
+.duckmage-hex-map-grid {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.duckmage-hex-row {
+    display: flex;
+    flex-wrap: nowrap;
+    margin-bottom: calc(var(--hex-size, 2.2em) * -0.5);
+}
+.duckmage-hex-row-offset {
+    margin-left: calc(var(--hex-size, 2.2em) * 1.732 / 2);
+}
+
+.duckmage-hex {
+    --hex-size: 2.2em;
+    width: calc(var(--hex-size) * 1.732);
+    height: calc(var(--hex-size) * 2);
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    background: rgba(120, 200, 80, 0.55);
+    border: 2px solid #0c111a;
+    margin: 0.15em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    position: relative;
+    font-size: 11px;
+    color: #1a1a1a;
+}
+
+/* Marker dots used to verify alignment after the click. */
+.marker {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #ef4444;
+    pointer-events: none;
+    z-index: 100;
+}
+</style>
+</head>
+<body>
+
+<h1>BG ↔ hex alignment after top-expand</h1>
+<div class="controls">
+    <button id="btn-top">Top expand (+ row)</button>
+    <button id="btn-top-broken">Top expand (broken: pan only)</button>
+    <button id="btn-reset">Reset</button>
+</div>
+<div id="status">awaiting click…</div>
+
+<div class="duckmage-hex-map-clip">
+    <div class="duckmage-hex-map-viewport" id="viewport">
+        <div class="duckmage-bg-image-layer" id="bgLayer">
+            <div class="duckmage-bg-image"></div>
+        </div>
+        <div class="duckmage-hex-map-grid" id="grid"></div>
+    </div>
+    <!-- These markers live OUTSIDE the viewport so they're at fixed screen
+         positions. We track whether the hex / bg feature stay at these
+         markers after the click. -->
+    <div class="marker" id="markerHex" title="should overlap the top-left hex"></div>
+    <div class="marker" id="markerBg"  title="should overlap the bg feature"></div>
+</div>
+
+<script>
+const ROWS_INITIAL = 4;
+const COLS = 6;
+let rows = ROWS_INITIAL;
+let gridOffsetY = 0;
+
+const state = {
+    panX: 0,
+    panY: 0,
+    zoom: 1,
+    bgOffsetX: 100, // bg image starts offset within viewport
+    bgOffsetY: 60,
+    bgScale: 1,
+    gridDisplayScaleY: 1, // simulate uncalibrated for now
+};
+
+const viewport = document.getElementById("viewport");
+const bgLayer = document.getElementById("bgLayer");
+const grid = document.getElementById("grid");
+const markerHex = document.getElementById("markerHex");
+const markerBg = document.getElementById("markerBg");
+const statusEl = document.getElementById("status");
+
+function applyTransform() {
+    viewport.style.transform =
+        `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+    bgLayer.style.transform =
+        `translate(${state.bgOffsetX}px, ${state.bgOffsetY}px) scale(${state.bgScale})`;
+}
+
+function renderGrid() {
+    grid.replaceChildren();
+    for (let j = 0; j < rows; j++) {
+        const row = document.createElement("div");
+        const y = gridOffsetY + j;
+        row.className = "duckmage-hex-row" + (Math.abs(y) % 2 === 1 ? " duckmage-hex-row-offset" : "");
+        for (let i = 0; i < COLS; i++) {
+            const hex = document.createElement("div");
+            hex.className = "duckmage-hex";
+            hex.dataset.x = i;
+            hex.dataset.y = y;
+            hex.textContent = `${i},${y}`;
+            row.appendChild(hex);
+        }
+        grid.appendChild(row);
+    }
+}
+
+function measureRowStride() {
+    // Measure the delta between the first two rows' offsetTop. This captures
+    // everything that contributes to row stride: hex height, hex margin,
+    // row's negative margin-bottom — without us having to derive the formula.
+    const rows = grid.querySelectorAll(".duckmage-hex-row");
+    if (rows.length < 2) return 0;
+    return rows[1].offsetTop - rows[0].offsetTop;
+}
+
+function placeMarkersOnReference() {
+    // Anchor markers on:
+    //  - markerHex: center of hex (0, 0) — the first row, first column hex
+    //  - markerBg:  bg image feature center at (60, 60) inside the image
+    // Both expressed in screen coords (relative to the clip's top-left).
+    const firstHex = grid.querySelector(".duckmage-hex");
+    if (firstHex) {
+        const r = firstHex.getBoundingClientRect();
+        const clip = viewport.parentElement.getBoundingClientRect();
+        markerHex.style.left = `${r.left - clip.left + r.width/2 - 5}px`;
+        markerHex.style.top  = `${r.top  - clip.top  + r.height/2 - 5}px`;
+    }
+    const bgRect = bgLayer.getBoundingClientRect();
+    const clipRect = viewport.parentElement.getBoundingClientRect();
+    // Feature is at (60, 60) within the bg image, at scale 1. Account for
+    // viewport zoom + the layer's own scale.
+    const featurePx = 60;
+    markerBg.style.left = `${bgRect.left - clipRect.left + featurePx * state.zoom * state.bgScale - 5}px`;
+    markerBg.style.top  = `${bgRect.top  - clipRect.top  + featurePx * state.zoom * state.bgScale - 5}px`;
+    markerBg.style.background = "#22d3ee"; // visually distinct so they don't blur together
+}
+
+function reportStatus() {
+    // Track the hex at LOGICAL (0, 0) — the originally-top hex. After
+    // expand-top, it's no longer the first row in DOM order; querying by
+    // dataset keeps the same reference point across clicks. That's the
+    // hex whose screen position the user expects to stay put.
+    const anchorHex = grid.querySelector('.duckmage-hex[data-x="0"][data-y="0"]');
+    const clip = viewport.parentElement.getBoundingClientRect();
+    const hexRect = anchorHex.getBoundingClientRect();
+    const bgRect = bgLayer.getBoundingClientRect();
+    const featurePx = 60;
+    const hexScreenY = hexRect.top - clip.top + hexRect.height/2;
+    const bgScreenY  = bgRect.top  - clip.top + featurePx * state.zoom * state.bgScale;
+    statusEl.textContent =
+        `hex (logical 0,0) screen y=${hexScreenY.toFixed(1)} | ` +
+        `bg feature screen y=${bgScreenY.toFixed(1)} | ` +
+        `panY=${state.panY.toFixed(1)} bgOffsetY=${state.bgOffsetY.toFixed(1)} | ` +
+        `gridOffsetY=${gridOffsetY}`;
+}
+
+function reset() {
+    rows = ROWS_INITIAL;
+    gridOffsetY = 0;
+    state.panX = 0;
+    state.panY = 0;
+    state.bgOffsetX = 100;
+    state.bgOffsetY = 60;
+    renderGrid();
+    applyTransform();
+    placeMarkersOnReference();
+    reportStatus();
+}
+
+document.getElementById("btn-top").addEventListener("click", () => {
+    // === BOTH compensations (the plugin's new fix): pan + bg.offset ===
+    gridOffsetY--;
+    rows++;
+    renderGrid();
+    const stride = measureRowStride();
+    const sy = state.gridDisplayScaleY;
+    state.panY -= stride * sy * state.zoom;
+    state.bgOffsetY += stride * sy;
+    applyTransform();
+    reportStatus();
+});
+
+document.getElementById("btn-top-broken").addEventListener("click", () => {
+    // === pan-only (what the plugin had before the alignment fix) ===
+    gridOffsetY--;
+    rows++;
+    renderGrid();
+    const stride = measureRowStride();
+    const sy = state.gridDisplayScaleY;
+    state.panY -= stride * sy * state.zoom;
+    // intentionally skip bg.offsetY shift
+    applyTransform();
+    reportStatus();
+});
+
+document.getElementById("btn-reset").addEventListener("click", reset);
+
+renderGrid();
+applyTransform();
+placeMarkersOnReference();
+reportStatus();
+</script>
+
+</body>
+</html>
