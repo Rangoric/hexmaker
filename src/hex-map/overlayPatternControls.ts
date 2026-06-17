@@ -29,6 +29,11 @@ export function getOnMapHexSizePx(): number {
 /**
  * Render a hex-shaped preview into `container` showing what the overlay will
  * look like on the map. Replaces any existing children.
+ *
+ * `patternScaleMultiplier` shrinks the pattern tile so more repeats fit in a
+ * small swatch. Useful for the legend/palette where the swatch is much
+ * smaller than an on-map hex and the user-chosen scale would otherwise show
+ * just 1-2 tile repeats.
  */
 export function renderHexPreview(
   container: HTMLElement,
@@ -37,10 +42,16 @@ export function renderHexPreview(
     style: OverlayStyle;
     orientation: "flat" | "pointy";
     hexSizePx: number;
+    patternScaleMultiplier?: number;
   },
 ): void {
   container.replaceChildren();
   const { color, style, orientation, hexSizePx } = opts;
+  const MIN_EFFECTIVE_SCALE = 4;
+  const effectiveScale = Math.max(
+    MIN_EFFECTIVE_SCALE,
+    style.scale * (opts.patternScaleMultiplier ?? 1),
+  );
 
   const W = hexSizePx;
   let radius: number;
@@ -73,7 +84,7 @@ export function renderHexPreview(
       id,
       pattern: style.pattern,
       color,
-      scale: style.scale,
+      scale: effectiveScale,
     });
     if (pat) {
       defs.appendChild(pat);

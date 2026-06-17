@@ -3902,11 +3902,14 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
 }
 
 .duckmage-faction-legend-swatch {
-    width: 12px;
-    height: 12px;
-    border-radius: 3px;
-    border: 1px solid var(--background-modifier-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
+}
+
+.duckmage-faction-legend-swatch svg {
+    display: block;
 }
 
 .duckmage-faction-legend-name {

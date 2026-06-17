@@ -176,7 +176,8 @@ export async function renderMapToPngBlob(
   }
   const hexes: HexState[] = [];
   const iconsNeeded = new Set<string>();
-  const factionsUsed = new Map<string, string>(); // name → color
+  interface LegendEntry { color: string; style: OverlayStyle }
+  const factionsUsed = new Map<string, LegendEntry>(); // name → entry
   const regionsUsed = new Map<string, string>(); // name → color
   // Per-region hex centres, used to position the on-map region label at the
   // cluster centroid (with PCA-derived rotation). Same approach as the
@@ -206,7 +207,7 @@ export async function renderMapToPngBlob(
             const s = factionStyleMap.get(fName);
             if (c && s) {
               factions.push({ color: c, style: s });
-              factionsUsed.set(fName, c);
+              factionsUsed.set(fName, { color: c, style: s });
             }
           }
         }
@@ -340,6 +341,7 @@ export async function renderMapToPngBlob(
       fontSize,
       legendPadding,
       true, // measure pass first to anchor from the bottom
+      orientation,
     );
     drawLegend(
       ctx,
@@ -350,6 +352,7 @@ export async function renderMapToPngBlob(
       fontSize,
       legendPadding,
       false,
+      orientation,
     );
   }
 
@@ -483,7 +486,7 @@ function drawRegionLabel(
   ctx.restore();
 }
 
-function sortedEntries(m: Map<string, string>): Array<[string, string]> {
+function sortedEntries<V>(m: Map<string, V>): Array<[string, V]> {
   return Array.from(m.entries()).sort((a, b) =>
     a[0].localeCompare(b[0], undefined, { sensitivity: "base" }),
   );
@@ -499,15 +502,16 @@ function drawLegend(
   x: number,
   y: number,
   title: string,
-  entries: Array<[string, string]>,
+  entries: Array<[string, { color: string; style: OverlayStyle }]>,
   fontSize: number,
   pad: number,
   measureOnly: boolean,
+  orientation: "flat" | "pointy" = "flat",
 ): { width: number; height: number } {
   if (entries.length === 0) return { width: 0, height: 0 };
 
-  const lineHeight = Math.round(fontSize * 1.45);
-  const swatch = Math.round(fontSize * 1.1);
+  const swatch = Math.round(fontSize * 1.7);
+  const lineHeight = Math.max(Math.round(fontSize * 1.45), swatch + 4);
   const gap = Math.round(fontSize * 0.5);
 
   // Measure widths. We need to set the font for accurate measurements.
@@ -550,13 +554,49 @@ function drawLegend(
   // Entry rows.
   ctx.font = `${fontSize}px sans-serif`;
   let entryY = y + pad + lineHeight;
-  for (const [name, color] of entries) {
-    // Swatch — vertically centred on the text baseline.
+  // Shrink pattern tile so more repeats are visible in the small swatch
+  // (user's scale slider is sized for on-map hexes ~96 px wide).
+  const LEGEND_PATTERN_MULT = swatch / 96;
+  const MIN_EFFECTIVE_SCALE = 4;
+  for (const [name, entry] of entries) {
+    const { color, style } = entry;
     const swatchY = entryY + Math.round((lineHeight - swatch) / 2);
-    ctx.fillStyle = color;
-    ctx.fillRect(x + pad, swatchY, swatch, swatch);
-    ctx.strokeStyle = "#888";
-    ctx.strokeRect(x + pad + 0.5, swatchY + 0.5, swatch - 1, swatch - 1);
+    // Build pattern fill if non-solid
+    let fill: string | CanvasPattern = color;
+    if (style.pattern !== "solid") {
+      const effectiveScale = Math.max(
+        MIN_EFFECTIVE_SCALE,
+        style.scale * LEGEND_PATTERN_MULT,
+      );
+      const tile = new OffscreenCanvas(effectiveScale, effectiveScale);
+      const tctx = tile.getContext("2d");
+      if (tctx) {
+        drawPatternTile(tctx, {
+          pattern: style.pattern,
+          color,
+          scale: effectiveScale,
+        });
+        const pat = ctx.createPattern(tile, "repeat");
+        if (pat) fill = pat;
+      }
+    }
+    // Hex polygon swatch
+    const cx = x + pad + swatch / 2;
+    const cy = swatchY + swatch / 2;
+    const r = swatch / 2 - 1;
+    const pts = hexPolygonPoints(cx, cy, orientation, r);
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath();
+    const prevAlpha = ctx.globalAlpha;
+    ctx.globalAlpha = style.opacity;
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.globalAlpha = prevAlpha;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
     ctx.fillStyle = "#fff";
     ctx.fillText(name, x + pad + swatch + gap, entryY);

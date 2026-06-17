@@ -16,6 +16,7 @@ import { IconPickerModal } from "./IconPickerModal";
 import { addLinkToSection, getLinksInSection, removeLinkFromSection } from "../sections";
 import { getFactionColorFromFile, getRegionColorFromFile, getFactionStyleFromFile, getRegionStyleFromFile, setHexRegionInFile, getSubmapFromFile, setSubmapInFile, type OverlayStyle } from "../frontmatter";
 import { buildSvgPattern, colorToIdToken, type OverlayPatternKey } from "../overlayPatterns";
+import { renderHexPreview } from "./overlayPatternControls";
 import {
   VIEW_TYPE_HEX_MAP,
   VIEW_TYPE_HEX_TABLE,
@@ -3396,7 +3397,7 @@ export class HexMapView extends ItemView {
       return k1 < k2 ? `${k1}|${k2}` : `${k2}|${k1}`;
     };
 
-    const activeFactions: { name: string; color: string }[] = [];
+    const activeFactions: { name: string; color: string; style: OverlayStyle }[] = [];
     let hasElements = false;
 
     // ── Shared <defs> for SVG patterns (deduped by key|color|scale) ───────────
@@ -3516,7 +3517,7 @@ export class HexMapView extends ItemView {
         g.appendChild(path);
       }
 
-      activeFactions.push({ name: factionName, color });
+      activeFactions.push({ name: factionName, color, style });
       hasElements = true;
     }
 
@@ -3534,7 +3535,7 @@ export class HexMapView extends ItemView {
   }
 
   private renderFactionLegend(
-    factions: { name: string; color: string }[],
+    factions: { name: string; color: string; style: OverlayStyle }[],
     gridContainer: HTMLElement,
   ): void {
     if (!this.viewportEl) return;
@@ -3543,10 +3544,21 @@ export class HexMapView extends ItemView {
     const gridRight = gridContainer.offsetLeft + gridContainer.offsetWidth;
     legend.style.left = `${gridRight + 24}px`;
     legend.style.top = `${gridContainer.offsetTop}px`;
-    for (const { name, color } of [...factions].sort((a, b) => a.name.localeCompare(b.name))) {
+    const orientation = this.plugin.settings.hexOrientation;
+    const LEGEND_HEX_PX = 32;
+    // Shrink the pattern so more repeats fit in the small swatch (the user's
+    // scale slider is sized for on-map hexes, ~96 px wide).
+    const LEGEND_PATTERN_MULT = LEGEND_HEX_PX / 96;
+    for (const { name, color, style } of [...factions].sort((a, b) => a.name.localeCompare(b.name))) {
       const row = legend.createDiv({ cls: "duckmage-faction-legend-row" });
       const swatch = row.createDiv({ cls: "duckmage-faction-legend-swatch" });
-      swatch.style.backgroundColor = color;
+      renderHexPreview(swatch, {
+        color,
+        style,
+        orientation,
+        hexSizePx: LEGEND_HEX_PX,
+        patternScaleMultiplier: LEGEND_PATTERN_MULT,
+      });
       row.createSpan({ text: name, cls: "duckmage-faction-legend-name" });
     }
   }
