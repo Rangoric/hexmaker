@@ -424,14 +424,37 @@ div.duckmage-hex-icon {
     object-fit: unset; /* not applicable to divs */
 }
 
+/* Coord label: absolutely-positioned inside the hex so the parent's
+   flex centering doesn't fight us. Vertical anchor is set by a
+   `duckmage-coord-{top,middle,bottom}` class on the viewport — see
+   the rules below. Horizontal is always centered via translate(-50%). */
 .duckmage-hex-label {
-    position: relative; /* above icon */
+    position: absolute;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    top: 78%; /* default: bottom — matches the previous SVG-label offset */
     font-size: 0.6em;
     font-weight: 600;
     color: var(--text-muted);
     pointer-events: none;
     user-select: none;
     z-index: 1;
+    white-space: nowrap;
+}
+
+/* Coord placement (settings → "Coordinate placement"). The %s are tuned
+   so the label sits inside the visible hex polygon (which is clipped at
+   25%/75% on the vertical axis for pointy-top hexes and at 0/100% for
+   flat-top — but the label needs to stay readable in both, so we use a
+   conservative margin from the edge). */
+.duckmage-hex-map-viewport.duckmage-coord-top .duckmage-hex-label {
+    top: 22%;
+}
+.duckmage-hex-map-viewport.duckmage-coord-middle .duckmage-hex-label {
+    top: 50%;
+}
+.duckmage-hex-map-viewport.duckmage-coord-bottom .duckmage-hex-label {
+    top: 78%;
 }
 
 /* Outline keeps coordinates readable over any terrain color */

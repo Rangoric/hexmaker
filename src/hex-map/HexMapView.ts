@@ -2660,6 +2660,18 @@ export class HexMapView extends ItemView {
       /^\d*\.?\d+$/.test(gap) ? `${gap}em` : gap,
     );
 
+    // Apply the coord-placement class so CSS can position HTML labels
+    // top / middle / bottom inside the hex. The setting was previously
+    // honoured only by the (now-removed) SVG coord-label copies; the
+    // HTML labels need this class to know where to render.
+    const placement = this.plugin.settings.coordPlacement ?? "bottom";
+    this.viewportEl.removeClass(
+      "duckmage-coord-top",
+      "duckmage-coord-middle",
+      "duckmage-coord-bottom",
+    );
+    this.viewportEl.addClass(`duckmage-coord-${placement}`);
+
     const region = this.getActiveMap();
 
     // Background image layer (behind hex grid; shares the viewport's pan/zoom
