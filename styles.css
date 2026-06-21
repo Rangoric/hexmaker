@@ -1277,10 +1277,11 @@ input.duckmage-input-error {
         crosshair;
 }
 
-/* When the SVG overlay is active it renders all labels — hide the HTML copies */
-.duckmage-hex-map-viewport.duckmage-svg-labels-active .duckmage-hex-label {
-    visibility: hidden;
-}
+/* Coord labels live in each hex's DOM (.duckmage-hex-label) — the SVG
+   path overlay no longer renders a duplicate. The old rule that hid
+   HTML labels while the SVG overlay was active is gone with that code;
+   HTML labels are always visible, and they track the hex layout
+   perfectly across font-size changes (no slip-on-zoom). */
 
 /* ── Expand / shrink button groups ───────────────────────────────────────── */
 

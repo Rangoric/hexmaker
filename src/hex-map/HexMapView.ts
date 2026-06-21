@@ -4235,47 +4235,17 @@ export class HexMapView extends ItemView {
         svg.appendChild(imgEl);
       });
 
-    // Render all hex coordinate labels as SVG text so they sit above roads,
-    // rivers, and icons regardless of CSS stacking context.
-    gridContainer
-      .querySelectorAll<HTMLElement>(".duckmage-hex")
-      .forEach((hexEl) => {
-        const x = hexEl.dataset.x!;
-        const y = hexEl.dataset.y!;
-        const pos = centerMap.get(`${x}_${y}`);
-        if (!pos) return;
-        const hasTerrain = !!hexEl.style.backgroundColor;
-        const textEl = activeDocument.createElementNS(svgNS, "text");
-        textEl.setAttribute("x", String(pos.cx));
-        // Vertical placement is user-configurable so coord labels can be moved
-        // out from under terrain icons. ±0.28 of hex height is the visual margin
-        // that keeps the label inside the hex without overlapping its border.
-        const placement = this.plugin.settings.coordPlacement;
-        const dy =
-          placement === "top"
-            ? -hexEl.offsetHeight * 0.28
-            : placement === "middle"
-              ? 0
-              : hexEl.offsetHeight * 0.28;
-        textEl.setAttribute("y", String(pos.cy + dy));
-        textEl.setAttribute("text-anchor", "middle");
-        textEl.setAttribute("dominant-baseline", "middle");
-        textEl.setAttribute("font-size", String(hexEl.offsetHeight * 0.12));
-        textEl.setAttribute("font-weight", "600");
-        if (hasTerrain) {
-          textEl.setAttribute("fill", "#ffffff");
-          textEl.setAttribute("paint-order", "stroke");
-          textEl.setAttribute("stroke", "rgba(0,0,0,0.85)");
-          textEl.setAttribute("stroke-width", "2");
-          textEl.setAttribute("stroke-linejoin", "round");
-        } else {
-          textEl.setAttribute("fill", "var(--text-muted)");
-        }
-        textEl.setAttribute("pointer-events", "none");
-        textEl.setAttribute("class", "duckmage-svg-coord-label");
-        textEl.textContent = `${x},${y}`;
-        svg.appendChild(textEl);
-      });
+    // NOTE: coord labels are NO LONGER rendered in the SVG. The SVG
+    // copies were a stable source of "label drift on zoom" — the SVG's
+    // pixel positions are computed against pre-bake hex sizes, so any
+    // paint frame between the bake's font-size change and the SVG
+    // rebuild shows labels visibly stranded relative to the now-bigger
+    // hexes. The HTML `.duckmage-hex-label` spans inside each hex track
+    // the hex layout perfectly across font-size changes (they ARE part
+    // of the hex DOM), so we rely on those instead. Trade-off: a path
+    // or GM icon drawn through a hex can visually obscure that hex's
+    // coord label. Acceptable cost vs. the slip — see
+    // dev/coord-slip-validator.html for the regression test.
 
     // GM layer icons — additive badges, terrain icon untouched.
     // hexmaker#28: a hex can carry MULTIPLE GM icons (with duplicates
