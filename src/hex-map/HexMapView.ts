@@ -5,7 +5,7 @@ import {
   getTerrainFromFile,
   getIconOverrideFromFile,
   getGmIconsFromFile,
-  setGmIconInFile,
+  setGmIconsInFile,
   setTerrainInFile,
   setIconOverrideInFile,
   Frontmatter,
@@ -63,6 +63,12 @@ type IconUndoEntry = {
   oldIcon: string | null;
   newIcon: string | null;
   isGm: boolean;
+  /** Full GM-icon list before/after the stroke. Only populated when
+   *  isGm=true and the new painter (multi-add) path mutated this hex.
+   *  Undo restores the full list; legacy oldIcon/newIcon kept for
+   *  back-compat with strokes recorded before the multi-add change. */
+  oldGmList?: string[];
+  newGmList?: string[];
 };
 type FactionUndoEntry = {
   hexPath: string;
@@ -210,9 +216,11 @@ export class HexMapView extends ItemView {
     string,
     { x: number; y: number; icon: string | null }
   >();
+  // GM icon writes are coalesced per-hex. The value is the full list to
+  // write — multi-add semantics. Empty list means "clear all GM icons."
   private pendingGmIconWrites = new Map<
     string,
-    { x: number; y: number; icon: string | null }
+    { x: number; y: number; list: string[] }
   >();
   private flushing = new Set<string>(); // "t:<path>", "i:<path>", or "g:<path>"
   // Per-map viewport state saved when navigating away; restored on return (or fit on first visit).
@@ -1346,7 +1354,11 @@ export class HexMapView extends ItemView {
     if (this.drawingMode !== "icon") return;
     this.drawingMode = null;
     this.paintIconName = null;
-    this.paintIconGmOnly = false;
+    // NB: do NOT reset paintIconGmOnly here — the user's preference for
+    // GM-vs-regular icon paint persists across mode toggles. Otherwise
+    // every re-open of the icon picker reverts to "regular" and the GM
+    // checkbox starts off, even for a user who's been working in GM
+    // mode for the whole session.
     this.isErasingMode = false;
     this.updateBrushHighlight(null, null);
     this.updateToolbarButtonStates();
@@ -3125,35 +3137,48 @@ export class HexMapView extends ItemView {
     );
 
     if (this.paintIconGmOnly) {
-      // ── GM icon — paint mode SETS the list to [icon] (overwrites
-      // whatever was there). The multi-icon model (added per #28)
-      // lives in HexEditorModal where the user can left-click-to-add /
-      // right-click-to-remove individual icons. NB: undo for a
-      // multi-icon hex painted over only restores the FIRST icon (the
-      // one in `oldIcon`); we accept that small fidelity loss for the
-      // painter to stay simple.
+      // ── GM icon paint — APPEND mode (hexmaker#28). Each click adds
+      // one of the selected icon to the hex's list (count goes up on
+      // repeats). Eraser mode clears the entire list. The full list is
+      // tracked on the stroke for proper undo (restores the pre-stroke
+      // list verbatim, including duplicates).
       const priorList = this.parseGmIconsDataset(hexEl?.dataset.gmIcons);
-      if (this.currentIconStroke && !this.currentIconStroke.has(path)) {
-        this.currentIconStroke.set(path, {
+      // First touch of this hex during the current stroke records the
+      // pre-stroke list once; subsequent touches keep that snapshot and
+      // only update the new list.
+      let strokeEntry = this.currentIconStroke?.get(path);
+      if (!strokeEntry) {
+        strokeEntry = {
           x, y, path,
           oldIcon: priorList[0] ?? null,
-          newIcon: icon,
+          newIcon: null,
           isGm: true,
-        });
-      } else {
-        const existing = this.currentIconStroke?.get(path);
-        if (existing) existing.newIcon = icon;
+          oldGmList: [...priorList],
+          newGmList: [...priorList],
+        };
+        this.currentIconStroke?.set(path, strokeEntry);
       }
+      let newList: string[];
+      if (this.isErasingMode) {
+        // Eraser clears all GM icons on the hex.
+        newList = [];
+      } else if (icon) {
+        newList = [...(strokeEntry.newGmList ?? priorList), icon];
+      } else {
+        newList = strokeEntry.newGmList ?? priorList;
+      }
+      strokeEntry.newGmList = newList;
+      strokeEntry.newIcon = newList[0] ?? null; // keep legacy field consistent
       if (hexEl) {
-        if (icon) {
-          hexEl.dataset.gmIcons = JSON.stringify([icon]);
+        if (newList.length > 0) {
+          hexEl.dataset.gmIcons = JSON.stringify(newList);
+          hexEl.addClass("duckmage-hex-exists");
         } else {
           delete hexEl.dataset.gmIcons;
         }
-        if (icon !== null) hexEl.addClass("duckmage-hex-exists");
       }
       this.updateGmIcons();
-      this.scheduleGmIconWrite(x, y, path, icon);
+      this.scheduleGmIconsListWrite(x, y, path, newList);
     } else {
       // ── Regular icon override ────────────────────────────────────────────
       if (this.currentIconStroke && !this.currentIconStroke.has(path)) {
@@ -3524,11 +3549,17 @@ export class HexMapView extends ItemView {
         `[data-x="${entry.x}"][data-y="${entry.y}"]`,
       );
       if (entry.isGm) {
+        // Prefer the full list snapshot (recorded by the multi-add
+        // painter); fall back to a single-icon list for stroke entries
+        // recorded by older paint paths that only knew about one icon.
+        const list = which === "old"
+          ? (entry.oldGmList ?? (entry.oldIcon !== null ? [entry.oldIcon] : []))
+          : (entry.newGmList ?? (entry.newIcon !== null ? [entry.newIcon] : []));
         if (hexEl) {
-          if (icon) hexEl.dataset.gmIcons = JSON.stringify([icon]);
+          if (list.length > 0) hexEl.dataset.gmIcons = JSON.stringify(list);
           else delete hexEl.dataset.gmIcons;
         }
-        this.scheduleGmIconWrite(entry.x, entry.y, entry.path, icon);
+        this.scheduleGmIconsListWrite(entry.x, entry.y, entry.path, list);
       } else {
         if (hexEl) {
           hexEl.querySelector(".duckmage-hex-icon")?.remove();
@@ -3742,13 +3773,19 @@ export class HexMapView extends ItemView {
     }
   }
 
-  private scheduleGmIconWrite(
+  /**
+   * Queue a write of the full GM-icon list for a hex (multi-add per
+   * hexmaker#28). Coalesces rapid mutations on the same hex into a
+   * single flush — only the latest list is persisted. Empty list
+   * clears all GM icons on the hex.
+   */
+  private scheduleGmIconsListWrite(
     x: number,
     y: number,
     path: string,
-    icon: string | null,
+    list: string[],
   ): void {
-    this.pendingGmIconWrites.set(path, { x, y, icon });
+    this.pendingGmIconWrites.set(path, { x, y, list: [...list] });
     this.updateSavingIndicator();
     if (!this.flushing.has(`g:${path}`)) void this.flushGmIconWrites(path);
   }
@@ -3759,7 +3796,7 @@ export class HexMapView extends ItemView {
     this.updateSavingIndicator();
     try {
       while (this.pendingGmIconWrites.has(path)) {
-        const { x, y, icon } = this.pendingGmIconWrites.get(path)!;
+        const { x, y, list } = this.pendingGmIconWrites.get(path)!;
         this.pendingGmIconWrites.delete(path);
         let attempt = 0;
         while (true) {
@@ -3769,8 +3806,8 @@ export class HexMapView extends ItemView {
             );
           try {
             const onDisk = !!this.app.vault.getAbstractFileByPath(path);
-            if (icon === null) {
-              if (onDisk) await setGmIconInFile(this.app, path, null);
+            if (list.length === 0) {
+              if (onDisk) await setGmIconsInFile(this.app, path, []);
             } else {
               if (!onDisk) {
                 if (
@@ -3787,7 +3824,7 @@ export class HexMapView extends ItemView {
                   ?.querySelector<HTMLElement>(`[data-x="${x}"][data-y="${y}"]`)
                   ?.addClass("duckmage-hex-exists");
               }
-              await setGmIconInFile(this.app, path, icon);
+              await setGmIconsInFile(this.app, path, list);
             }
             break; // success
           } catch (err) {
