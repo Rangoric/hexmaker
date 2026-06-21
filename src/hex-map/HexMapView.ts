@@ -2553,6 +2553,7 @@ export class HexMapView extends ItemView {
     this.viewportEl.querySelector("svg.duckmage-faction-svg")?.remove();
     this.viewportEl.querySelector(".duckmage-faction-legend")?.remove();
     this.viewportEl.querySelector("svg.duckmage-region-svg")?.remove();
+    this.viewportEl.querySelector(".duckmage-region-labels-layer")?.remove();
 
     this.viewportEl.style.fontSize = `${currentFs * F}px`;
     this.zoom = 1;
@@ -4754,10 +4755,12 @@ export class HexMapView extends ItemView {
 
   private clearRegionOverlay(): void {
     this.viewportEl?.querySelector("svg.duckmage-region-svg")?.remove();
+    this.viewportEl?.querySelector(".duckmage-region-labels-layer")?.remove();
   }
 
   private renderRegionOverlay(gridContainer: HTMLElement): void {
     this.viewportEl?.querySelector("svg.duckmage-region-svg")?.remove();
+    this.viewportEl?.querySelector(".duckmage-region-labels-layer")?.remove();
     if (!this.getActiveMap().showRegionOverlay) return;
 
     const hexEls = Array.from(
@@ -4865,6 +4868,19 @@ export class HexMapView extends ItemView {
       regionPatternIds.set(cacheKey, id);
       return id;
     };
+
+    // Region labels are emitted as HTML below the SVG-blob loop. Collected
+    // here so each region's PCA-rotated name can be rendered as a
+    // gridContainer-relative HTML <div> instead of an SVG <text> — that
+    // way the label tracks the em-based hex layout perfectly across
+    // font-size changes (no slip-on-zoom).
+    const regionLabels: Array<{
+      name: string;
+      mx: number;
+      my: number;
+      n: number;
+      angle: number;
+    }> = [];
 
     for (const [regionName, hexKeys] of regionHexKeys) {
       const color = regionColorMap.get(regionName);
@@ -4979,22 +4995,18 @@ export class HexMapView extends ItemView {
         g.appendChild(path);
       }
 
-      // ── Region name label (full opacity, above fill) ────────────────────
-      // Font size scales with sqrt(hexCount) so larger regions get bigger labels
-      const fontSize = Math.round(Math.min(10 + 3 * Math.sqrt(n), 52));
-      const text = activeDocument.createElementNS(svgNS, "text");
-      text.setAttribute("x", mx.toFixed(1));
-      text.setAttribute("y", my.toFixed(1));
-      text.setAttribute("text-anchor", "middle");
-      text.setAttribute("dominant-baseline", "middle");
-      text.setAttribute("font-size", String(fontSize));
-      text.setAttribute(
-        "transform",
-        `rotate(${labelAngle.toFixed(1)},${mx.toFixed(1)},${my.toFixed(1)})`,
-      );
-      text.setAttribute("class", "duckmage-region-label");
-      text.textContent = regionName;
-      svg.appendChild(text);
+      // Capture the region label spec; the labels themselves are rendered
+      // as HTML below (NOT in the SVG) so they don't slip-on-zoom — same
+      // reason coord labels were moved out of the SVG. mx/my are in
+      // gridContainer-local pixel coords at THIS render's hex layout;
+      // we convert them to percentages of the grid's pixel dimensions so
+      // the labels rescale automatically when font-size changes.
+      regionLabels.push({
+        name: regionName,
+        mx, my,
+        n,
+        angle: labelAngle,
+      });
 
       hasElements = true;
     }
@@ -5010,6 +5022,35 @@ export class HexMapView extends ItemView {
       gridContainer.insertBefore(svg, insertBefore);
     } else {
       gridContainer.appendChild(svg);
+    }
+
+    // Region name labels — rendered as HTML inside gridContainer so they
+    // ride the em-based grid layout instead of pixel-pinned SVG text.
+    // The position is converted from gridContainer-local pixels (mx/my)
+    // to percentages so the labels stay anchored when font-size mutates
+    // during a bake-zoom transition. PCA rotation is preserved via the
+    // CSS transform (rotation composed after the centering translate).
+    if (regionLabels.length > 0) {
+      const gw = gridContainer.offsetWidth || 1;
+      const gh = gridContainer.offsetHeight || 1;
+      const labelsLayer = gridContainer.createDiv({
+        cls: "duckmage-region-labels-layer",
+      });
+      for (const lbl of regionLabels) {
+        const fontSize = Math.round(Math.min(10 + 3 * Math.sqrt(lbl.n), 52));
+        const el = labelsLayer.createDiv({
+          cls: "duckmage-region-label",
+          text: lbl.name,
+        });
+        const leftPct = (lbl.mx / gw) * 100;
+        const topPct = (lbl.my / gh) * 100;
+        el.setCssProps({
+          "--duckmage-region-label-left": `${leftPct.toFixed(3)}%`,
+          "--duckmage-region-label-top": `${topPct.toFixed(3)}%`,
+          "--duckmage-region-label-angle": `${lbl.angle.toFixed(1)}deg`,
+          "--duckmage-region-label-font-size": `${fontSize}px`,
+        });
+      }
     }
   }
 
