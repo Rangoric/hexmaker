@@ -11,7 +11,8 @@ import {
   getTerrainFromFile,
   setTerrainInFile,
   setIconOverrideInFile,
-  setGmIconInFile,
+  setGmIconsInFile,
+  getGmIconsFromFile,
   getSubmapFromFile,
 } from "../frontmatter";
 import {
@@ -36,6 +37,9 @@ export class HexEditorModal extends HexmakerModal {
   private directTerrain: string | null = null;
   private directIcon: string | null = null;
   private directGmIcon: string | null = null;
+  /** Full GM-icon list (multi-icon model). Mirrors `directGmIcon` for old
+   *  read sites; `directGmIcon` is the first entry of this list. */
+  private directGmIcons: string[] = [];
   private dataPreloaded = false;
 
   constructor(
@@ -61,6 +65,7 @@ export class HexEditorModal extends HexmakerModal {
     this.directTerrain = null;
     this.directIcon = null;
     this.directGmIcon = null;
+    this.directGmIcons = [];
 
     const path = this.plugin.hexPath(this.x, this.y, this.mapName);
     const file = this.app.vault.getAbstractFileByPath(path);
@@ -78,6 +83,14 @@ export class HexEditorModal extends HexmakerModal {
       if (im) this.directIcon = im[1].trim();
       const gm = fmMatch[1].match(/^\s*gm-icon:\s*(.+)$/m);
       if (gm) this.directGmIcon = gm[1].trim();
+    }
+    // Authoritative multi-icon read via the helper (handles the new
+    // `gm-icons` array AND the legacy `gm-icon` singular). Done after
+    // the regex-based directGmIcon read so the modal stays compatible
+    // with existing single-icon notes.
+    this.directGmIcons = getGmIconsFromFile(this.app, path);
+    if (this.directGmIcon === null && this.directGmIcons.length > 0) {
+      this.directGmIcon = this.directGmIcons[0];
     }
 
     ({ text: this.allText, links: this.allLinks } = await getAllSectionData(
@@ -190,7 +203,7 @@ export class HexEditorModal extends HexmakerModal {
         });
       }
     }
-    this.renderTerrainSection(terrainBody, path, directTerrain, directIcon, this.directGmIcon);
+    this.renderTerrainSection(terrainBody, path, directTerrain, directIcon, this.directGmIcons);
 
     bodyEl.createEl("hr", { cls: "duckmage-editor-divider" });
 
@@ -409,7 +422,7 @@ export class HexEditorModal extends HexmakerModal {
     path: string,
     currentTerrain: string | null,
     currentIcon: string | null,
-    currentGmIcon: string | null,
+    currentGmIcons: string[],
   ): void {
     const palette = this.plugin.getMapPalette(this.mapName);
 
@@ -492,21 +505,116 @@ export class HexEditorModal extends HexmakerModal {
       },
     );
 
-    // GM icon palette — only when GM layer is active
+    // GM icon palette — only when GM layer is active. Multi-add model:
+    // left-click an icon to add one, right-click to remove one. Tile shows
+    // a "+N" badge when N>0. Special "— clear all —" tile wipes the list.
     if (this.options.gmLayerActive) {
-      section.createEl("p", { text: "Game master icon", cls: "duckmage-icon-inline-label" });
-      this.renderIconGrid(
-        section,
-        visibleIcons,
-        currentGmIcon,
-        "— none —",
-        async (picked) => {
-          await this.ensureHexNote();
-          await setGmIconInFile(this.app, path, picked);
-          this.onChanged();
-        },
-      );
+      section.createEl("p", { text: "Game master icons", cls: "duckmage-icon-inline-label" });
+      this.renderGmIconCountGrid(section, visibleIcons, currentGmIcons, path);
     }
+  }
+
+  /**
+   * Multi-add GM icon picker. Local state is a copy of `initialCounts`
+   * (the count of each icon name on this hex). Left-click increments,
+   * right-click decrements (clamped at 0). Each change writes the full
+   * list to frontmatter via `setGmIconsInFile`, which preserves order
+   * — the user sees their additions in the order they made them on the
+   * map render.
+   */
+  private renderGmIconCountGrid(
+    container: HTMLElement,
+    icons: string[],
+    initialList: string[],
+    path: string,
+  ): void {
+    // Working copy of the list (with duplicates) the user is editing.
+    const list: string[] = [...initialList];
+    const grid = container.createDiv({ cls: "duckmage-icon-picker duckmage-icon-picker-inline" });
+
+    const countOf = (icon: string): number => list.filter((i) => i === icon).length;
+
+    const persist = async (): Promise<void> => {
+      await this.ensureHexNote();
+      await setGmIconsInFile(this.app, path, list);
+      this.onChanged();
+    };
+
+    const makeTile = (icon: string | null): HTMLElement => {
+      const label = icon
+        ? icon.replace(/^bw-/, "").replace(/\.(png|jpg|jpeg|gif|svg|webp)$/i, "").replace(/-/g, " ")
+        : "— clear all —";
+      const tile = grid.createDiv({ cls: "duckmage-icon-option" });
+      tile.dataset["icon"] = icon ?? "";
+      const preview = tile.createDiv({
+        cls: `duckmage-icon-preview${!icon ? " duckmage-icon-preview-clear" : ""}`,
+      });
+      if (icon) {
+        const img = preview.createEl("img", { cls: "duckmage-icon-preview-img" });
+        img.src = getIconUrl(this.plugin, icon);
+        img.alt = label;
+      }
+      tile.createSpan({ text: label, cls: "duckmage-icon-option-name" });
+
+      // Count badge — created lazily on first non-zero count.
+      const refreshBadge = (): void => {
+        const c = icon ? countOf(icon) : 0;
+        let badge = tile.querySelector<HTMLElement>(".duckmage-icon-count-badge");
+        if (c > 0) {
+          if (!badge) {
+            badge = tile.createDiv({ cls: "duckmage-icon-count-badge" });
+          }
+          badge.setText(c > 1 ? `×${c}` : "✓");
+          tile.addClass("is-selected");
+        } else {
+          badge?.remove();
+          tile.removeClass("is-selected");
+        }
+      };
+      refreshBadge();
+
+      // Left-click: add (or clear-all for the special null tile).
+      tile.addEventListener("click", () => {
+        void (async () => {
+          if (icon === null) {
+            list.length = 0;
+          } else {
+            list.push(icon);
+          }
+          // Refresh ALL tiles' badges since clear-all resets every count.
+          grid.querySelectorAll<HTMLElement>(".duckmage-icon-option").forEach((t) => {
+            const ic = t.dataset["icon"] || null;
+            const c = ic ? countOf(ic) : 0;
+            let b = t.querySelector<HTMLElement>(".duckmage-icon-count-badge");
+            if (c > 0) {
+              if (!b) b = t.createDiv({ cls: "duckmage-icon-count-badge" });
+              b.setText(c > 1 ? `×${c}` : "✓");
+              t.addClass("is-selected");
+            } else {
+              b?.remove();
+              t.removeClass("is-selected");
+            }
+          });
+          await persist();
+        })();
+      });
+
+      // Right-click: remove one. No-op on the clear-all tile.
+      tile.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        if (icon === null) return;
+        const idx = list.lastIndexOf(icon);
+        if (idx === -1) return;
+        list.splice(idx, 1);
+        refreshBadge();
+        void persist();
+      });
+
+      return tile;
+    };
+
+    makeTile(null);
+    for (const icon of icons) makeTile(icon);
   }
 
   private renderIconGrid(

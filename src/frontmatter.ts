@@ -31,6 +31,7 @@ export interface Frontmatter {
   terrain?: string;
   icon?: string;
   "gm-icon"?: string;
+  "gm-icons"?: string[];
   tags?: string[];
   aliases?: string[];
   cssclass?: string;
@@ -244,23 +245,68 @@ export async function setIconOverrideInFile(
   return true;
 }
 
+/**
+ * Legacy single-icon getter — returns the first GM icon if any.
+ * Kept for back-compat with code that hasn't migrated to the multi-icon
+ * model yet (e.g. on-map painter, which is still single-set). Prefer
+ * `getGmIconsFromFile` for any new read site.
+ */
 export function getGmIconFromFile(app: App, path: string): string | null {
-  const icon = getFrontMatter(app, path)?.["gm-icon"];
-  return typeof icon === "string" ? icon : null;
+  return getGmIconsFromFile(app, path)[0] ?? null;
 }
 
+/**
+ * Multi-icon getter — returns the list of GM icons, with duplicates
+ * preserved (a user can stack multiple of the same icon for a count).
+ *
+ * Reads the new array key `gm-icons`. Falls back to the legacy
+ * singular key `gm-icon` if present so existing notes Just Work.
+ */
+export function getGmIconsFromFile(app: App, path: string): string[] {
+  const fm = getFrontMatter(app, path);
+  if (!fm) return [];
+  const arr = fm["gm-icons"];
+  if (Array.isArray(arr)) {
+    return arr.filter((v): v is string => typeof v === "string");
+  }
+  const legacy = fm["gm-icon"];
+  return typeof legacy === "string" ? [legacy] : [];
+}
+
+/**
+ * Legacy single-icon writer. Replaces the entire GM icon list with
+ * `[icon]` (or clears it when `icon === null`). Used by the on-map
+ * paint tool, which is still single-set. The editor uses
+ * `setGmIconsInFile` to manage the multi-icon list directly.
+ */
 export async function setGmIconInFile(
   app: App,
   path: string,
   icon: string | null,
 ): Promise<boolean> {
+  return setGmIconsInFile(app, path, icon === null ? [] : [icon]);
+}
+
+/**
+ * Multi-icon writer. Replaces the entire `gm-icons` list with the
+ * given array (which may have duplicates for count). Always clears the
+ * legacy singular `gm-icon` key when writing — once a note has been
+ * touched by the new model, we standardise on the new key.
+ */
+export async function setGmIconsInFile(
+  app: App,
+  path: string,
+  icons: string[],
+): Promise<boolean> {
   const file = app.vault.getAbstractFileByPath(path);
   if (!(file instanceof TFile)) return false;
   await app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
-    if (icon === null) {
-      delete fm["gm-icon"];
+    // Always clean up the legacy key
+    delete fm["gm-icon"];
+    if (icons.length === 0) {
+      delete fm["gm-icons"];
     } else {
-      fm["gm-icon"] = icon;
+      fm["gm-icons"] = icons;
     }
   });
   return true;

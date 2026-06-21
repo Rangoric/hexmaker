@@ -2228,6 +2228,38 @@ tr.duckmage-row-hidden {
     opacity: 0.9;
 }
 
+/* Multi-GM-icon count badge (hexmaker#28). Sits at the lower-right
+   of a stacked icon when the same icon was added 2+ times. */
+.duckmage-svg-gm-icon-count {
+    font-family: system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    fill: #fff;
+    stroke: rgba(0, 0, 0, 0.85);
+    stroke-width: 3;
+    paint-order: stroke fill;
+    pointer-events: none;
+}
+
+/* Picker tile count badge — small chip in the top-right of an icon tile
+   in the GM icon picker (HexEditorModal multi-add UX). */
+.duckmage-icon-count-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    border-radius: 9px;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    font-size: 0.7em;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+    pointer-events: none;
+}
+
 /* Help modal content */
 .duckmage-help-modal {
     max-width: 560px;

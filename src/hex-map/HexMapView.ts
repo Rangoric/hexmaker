@@ -4,7 +4,7 @@ import { normalizeFolder, getIconUrl, createIconEl } from "../utils";
 import {
   getTerrainFromFile,
   getIconOverrideFromFile,
-  getGmIconFromFile,
+  getGmIconsFromFile,
   setGmIconInFile,
   setTerrainInFile,
   setIconOverrideInFile,
@@ -2670,8 +2670,12 @@ export class HexMapView extends ItemView {
       }
 
       // Tag hex for GM icon overlay (rendered in path SVG when GM layer is active)
-      const gmIcon = getGmIconFromFile(this.app, path);
-      if (gmIcon) hexEl.dataset.gmIcon = gmIcon;
+      // GM icons stored as a JSON-encoded array on the dataset; allows
+      // multiple icons per hex (with duplicates representing a count).
+      // Empty list → no attribute at all so the overlay query still
+      // matches only hexes that have GM content.
+      const gmIcons = getGmIconsFromFile(this.app, path);
+      if (gmIcons.length > 0) hexEl.dataset.gmIcons = JSON.stringify(gmIcons);
 
       if (this.selectedHex?.x === x && this.selectedHex?.y === y)
         hexEl.addClass("is-selected");
@@ -3077,11 +3081,18 @@ export class HexMapView extends ItemView {
     );
 
     if (this.paintIconGmOnly) {
-      // ── GM icon — additive badge, terrain icon untouched ────────────────
+      // ── GM icon — paint mode SETS the list to [icon] (overwrites
+      // whatever was there). The multi-icon model (added per #28)
+      // lives in HexEditorModal where the user can left-click-to-add /
+      // right-click-to-remove individual icons. NB: undo for a
+      // multi-icon hex painted over only restores the FIRST icon (the
+      // one in `oldIcon`); we accept that small fidelity loss for the
+      // painter to stay simple.
+      const priorList = this.parseGmIconsDataset(hexEl?.dataset.gmIcons);
       if (this.currentIconStroke && !this.currentIconStroke.has(path)) {
         this.currentIconStroke.set(path, {
           x, y, path,
-          oldIcon: hexEl?.dataset.gmIcon ?? null,
+          oldIcon: priorList[0] ?? null,
           newIcon: icon,
           isGm: true,
         });
@@ -3091,9 +3102,9 @@ export class HexMapView extends ItemView {
       }
       if (hexEl) {
         if (icon) {
-          hexEl.dataset.gmIcon = icon;
+          hexEl.dataset.gmIcons = JSON.stringify([icon]);
         } else {
-          delete hexEl.dataset.gmIcon;
+          delete hexEl.dataset.gmIcons;
         }
         if (icon !== null) hexEl.addClass("duckmage-hex-exists");
       }
@@ -3470,8 +3481,8 @@ export class HexMapView extends ItemView {
       );
       if (entry.isGm) {
         if (hexEl) {
-          if (icon) hexEl.dataset.gmIcon = icon;
-          else delete hexEl.dataset.gmIcon;
+          if (icon) hexEl.dataset.gmIcons = JSON.stringify([icon]);
+          else delete hexEl.dataset.gmIcons;
         }
         this.scheduleGmIconWrite(entry.x, entry.y, entry.path, icon);
       } else {
@@ -3926,7 +3937,7 @@ export class HexMapView extends ItemView {
     const hasContent =
       region.pathChains.some((c) => c.hexes.length > 0) ||
       this.activePathEnd !== null ||
-      (gmLayerActive && gridContainer.querySelector("[data-gm-icon]") !== null);
+      (gmLayerActive && gridContainer.querySelector("[data-gm-icons]") !== null);
     if (!hasContent) return;
 
     // Build hex center map — offsetLeft/offsetTop are unaffected by CSS transform
@@ -4107,26 +4118,70 @@ export class HexMapView extends ItemView {
         svg.appendChild(textEl);
       });
 
-    // GM layer icons — small badge in the top-right quadrant of the hex.
-    // Rendered above coord labels so they're always visible.
-    // The terrain icon is NOT hidden — gm-icon is purely additive.
+    // GM layer icons — additive badges, terrain icon untouched.
+    // hexmaker#28: a hex can carry MULTIPLE GM icons (with duplicates
+    // representing a count of that icon). Each unique icon gets a slot
+    // in a hex-subgrid arrangement (reuses tokenGroupOffsets, the same
+    // function tokens use, so multi-icon layout stays visually
+    // consistent across the two systems). A "×N" badge appears when
+    // count > 1. Icons beyond the 5th unique icon overflow into an even
+    // radial ring; storage isn't capped, the layout just degrades
+    // gracefully.
     if (gmLayerActive) {
       gridContainer
-        .querySelectorAll<HTMLElement>("[data-gm-icon]")
+        .querySelectorAll<HTMLElement>("[data-gm-icons]")
         .forEach((hexEl) => {
-          const gmIconName = hexEl.dataset.gmIcon!;
+          const list = this.parseGmIconsDataset(hexEl.dataset.gmIcons);
+          if (list.length === 0) return;
           const key = `${hexEl.dataset.x!}_${hexEl.dataset.y!}`;
           const pos = centerMap.get(key);
           if (!pos) return;
-          const size = Math.round(hexEl.offsetWidth * 0.38);
-          const imgEl = activeDocument.createElementNS(svgNS, "image");
-          imgEl.setAttribute("x", String(pos.cx + hexEl.offsetWidth * 0.12));
-          imgEl.setAttribute("y", String(pos.cy - hexEl.offsetHeight * 0.46));
-          imgEl.setAttribute("width", String(size));
-          imgEl.setAttribute("height", String(size));
-          imgEl.setAttribute("href", getIconUrl(this.plugin, gmIconName));
-          imgEl.setAttribute("class", "duckmage-svg-gm-icon");
-          svg.appendChild(imgEl);
+
+          // Count occurrences per icon, preserving first-seen order.
+          const counts = new Map<string, number>();
+          for (const ic of list) counts.set(ic, (counts.get(ic) ?? 0) + 1);
+          const slots = Array.from(counts.entries());
+          const slotCount = slots.length;
+
+          const w = hexEl.offsetWidth;
+          const h = hexEl.offsetHeight;
+          // Spread radius: fraction of the hex's short dimension. Matches
+          // the token-layer constant for visual consistency.
+          const spread = Math.min(w, h) * 0.28;
+          // Icon size shrinks with slot count so multiple icons share a
+          // hex without overlapping. Single-icon hexes keep ~legacy size.
+          const sizeFactor = slotCount === 1 ? 0.38
+            : slotCount === 2 ? 0.32
+            : slotCount === 3 ? 0.28
+            : slotCount === 4 ? 0.26
+            : 0.22;
+          const size = Math.round(w * sizeFactor);
+          const offsets = tokenGroupOffsets(slotCount);
+
+          slots.forEach(([iconName, count], slotIdx) => {
+            const [odx, ody] = offsets[slotIdx];
+            // Icons are positioned by top-left corner; subtract half the
+            // size so the icon CENTER lands on the sub-grid slot.
+            const ix = pos.cx + odx * spread - size / 2;
+            const iy = pos.cy + ody * spread - size / 2;
+            const imgEl = activeDocument.createElementNS(svgNS, "image");
+            imgEl.setAttribute("x", String(ix));
+            imgEl.setAttribute("y", String(iy));
+            imgEl.setAttribute("width", String(size));
+            imgEl.setAttribute("height", String(size));
+            imgEl.setAttribute("href", getIconUrl(this.plugin, iconName));
+            imgEl.setAttribute("class", "duckmage-svg-gm-icon");
+            svg.appendChild(imgEl);
+
+            if (count > 1) {
+              const badgeEl = activeDocument.createElementNS(svgNS, "text");
+              badgeEl.setAttribute("x", String(ix + size * 0.9));
+              badgeEl.setAttribute("y", String(iy + size * 1.02));
+              badgeEl.setAttribute("class", "duckmage-svg-gm-icon-count");
+              badgeEl.textContent = `×${count}`;
+              svg.appendChild(badgeEl);
+            }
+          });
         });
     }
 
@@ -4148,6 +4203,20 @@ export class HexMapView extends ItemView {
   // GM icons live inside the path SVG. Re-render that SVG only if the grid
   // already exists — never fall back to renderGrid (would cause infinite loop
   // when called from syncToRegion inside an in-progress renderGrid).
+  /**
+   * Decode the JSON-encoded list stored on `data-gm-icons`. Returns []
+   * for missing / malformed values so callers can safely iterate.
+   */
+  private parseGmIconsDataset(raw: string | undefined): string[] {
+    if (!raw) return [];
+    try {
+      const arr = JSON.parse(raw) as unknown;
+      return Array.isArray(arr) ? arr.filter((v): v is string => typeof v === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+
   private updateGmIcons(): void {
     const gridContainer = this.viewportEl?.querySelector<HTMLElement>(
       ".duckmage-hex-map-grid",
