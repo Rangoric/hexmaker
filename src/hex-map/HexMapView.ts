@@ -1,4 +1,4 @@
-import { ItemView, Menu, Notice, TFile, WorkspaceLeaf } from "obsidian";
+import { ItemView, Menu, Notice, TFile, TFolder, WorkspaceLeaf } from "obsidian";
 import type HexmakerPlugin from "../HexmakerPlugin";
 import { normalizeFolder, getIconUrl, createIconEl } from "../utils";
 import {
@@ -2588,6 +2588,10 @@ export class HexMapView extends ItemView {
       ? `${hexBase}/${this.activeMapName}`
       : this.activeMapName;
     const palette = this.plugin.getMapPalette(this.activeMapName);
+    // Index the palette by name once so `addHex` doesn't do a linear
+    // `palette.find` per hex. Output identical; on a 30×20 map this is
+    // ~600 fewer linear scans per renderGrid.
+    const paletteByName = new Map(palette.map((p) => [p.name, p]));
     const isFlat = this.plugin.settings.hexOrientation === "flat";
     const gridContainer = this.viewportEl.createDiv({
       cls: `duckmage-hex-map-grid${isFlat ? " duckmage-grid-flat" : ""}`,
@@ -2601,17 +2605,27 @@ export class HexMapView extends ItemView {
 
     if (this.bgCalibrating) this.attachGridCalibrationHandlers(gridContainer, region);
 
+    // Pre-compute the set of existing hex notes for this map by walking the
+    // hex folder's TFolder.children directly. Lets `addHex` check existence
+    // via O(1) Set.has(path) instead of the per-hex
+    // `vault.getAbstractFileByPath` round-trip. Output identical.
+    const existingHexPaths = new Set<string>();
+    const hexFolderObj = folder ? this.app.vault.getAbstractFileByPath(folder) : null;
+    if (hexFolderObj instanceof TFolder) {
+      for (const child of hexFolderObj.children) {
+        if (child instanceof TFile && child.extension === "md") {
+          existingHexPaths.add(child.path);
+        }
+      }
+    }
+
     const addHex = (parent: HTMLElement, x: number, y: number) => {
       const path = folder ? `${folder}/${x}_${y}.md` : `${x}_${y}.md`;
-      const exists =
-        this.app.vault.getAbstractFileByPath(path) instanceof TFile;
+      const exists = existingHexPaths.has(path);
       const terrainKey = terrainOverrides?.has(path)
         ? terrainOverrides.get(path)!
         : getTerrainFromFile(this.app, path);
-      const terrainEntry =
-        terrainKey != null
-          ? palette.find((p) => p.name === terrainKey)
-          : undefined;
+      const terrainEntry = terrainKey != null ? paletteByName.get(terrainKey) : undefined;
 
       const hexEl = parent.createDiv({
         cls: `duckmage-hex${exists ? " duckmage-hex-exists" : ""}`,
@@ -4824,7 +4838,15 @@ export class HexMapView extends ItemView {
     if (this.tokenEntries.length === 0) return;
 
     const centerMap = this.buildTokenCenterMap(gridContainer);
-    const layer = this.viewportEl!.createDiv({ cls: "duckmage-token-layer" });
+    // Token layer is a child of gridContainer (not viewportEl) so its
+    // absolute-positioned tokens use the same coordinate space as
+    // `buildTokenCenterMap` returns (which walks up to gridContainer).
+    // Previously the layer was a viewportEl child, which made every token
+    // off by exactly the viewport's `padding: 1em` — visible as
+    // "tokens not centered on hexes". Matches the path / faction / region
+    // overlay pattern (1.4.0 fix). Covered by
+    // examples/hex-token-alignment/ in the frontend-testing suite.
+    const layer = gridContainer.createDiv({ cls: "duckmage-token-layer" });
 
     // Spread radius: fraction of the hex's short dimension so offsets scale with zoom.
     const firstHexEl = gridContainer.querySelector<HTMLElement>(".duckmage-hex");
