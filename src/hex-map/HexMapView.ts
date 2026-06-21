@@ -589,6 +589,11 @@ export class HexMapView extends ItemView {
     );
 
     // When any tool is active, right-click shows the painter context menu.
+    // EXCEPTION: in GM-only paint mode, right-click on a hex REMOVES one
+    // of the currently-selected icon from that hex's GM stack (inverse
+    // of the additive left-click) — that's the symmetric multi-icon UX
+    // requested in hexmaker#28. Right-click off-hex still shows the
+    // painter menu so the user can change tools etc.
     this.registerDomEvent(
       contentEl,
       "contextmenu",
@@ -605,6 +610,16 @@ export class HexMapView extends ItemView {
         const hexEl = (e.target as HTMLElement).closest<HTMLElement>(".duckmage-hex");
         const hexX = hexEl ? Number(hexEl.dataset.x) : null;
         const hexY = hexEl ? Number(hexEl.dataset.y) : null;
+        if (
+          this.drawingMode === "icon" &&
+          this.paintIconGmOnly &&
+          !this.isErasingMode &&
+          this.paintIconName &&
+          hexEl && hexX !== null && hexY !== null
+        ) {
+          this.removeOneGmIconFromHex(hexEl, hexX, hexY, this.paintIconName);
+          return;
+        }
         this.showPainterContextMenu(e.clientX, e.clientY, hexX, hexY);
       },
       { capture: true } as AddEventListenerOptions,
@@ -3128,6 +3143,48 @@ export class HexMapView extends ItemView {
     }
   }
 
+  /**
+   * Remove one occurrence of `icon` from this hex's GM-icon stack.
+   * No-op if the icon isn't present. Records an undo entry so the
+   * removal can be reversed. Used by the GM-paint right-click handler
+   * — the inverse of the additive left-click paint.
+   */
+  private removeOneGmIconFromHex(
+    hexEl: HTMLElement,
+    x: number,
+    y: number,
+    icon: string,
+  ): void {
+    const path = this.plugin.hexPath(x, y, this.activeMapName);
+    const priorList = this.parseGmIconsDataset(hexEl.dataset.gmIcons);
+    const idx = priorList.lastIndexOf(icon);
+    if (idx === -1) return; // nothing to remove
+    const newList = [...priorList];
+    newList.splice(idx, 1);
+
+    // Record undo as a one-hex stroke. Same shape the painter uses.
+    const undoEntry: IconUndoEntry = {
+      x, y, path,
+      oldIcon: priorList[0] ?? null,
+      newIcon: newList[0] ?? null,
+      isGm: true,
+      oldGmList: priorList,
+      newGmList: newList,
+    };
+    this.undoStack.push({ kind: "icon", entries: [undoEntry] });
+    if (this.undoStack.length > this.UNDO_DEPTH) this.undoStack.shift();
+    this.redoStack = [];
+    this.updateUndoButton();
+
+    if (newList.length > 0) {
+      hexEl.dataset.gmIcons = JSON.stringify(newList);
+    } else {
+      delete hexEl.dataset.gmIcons;
+    }
+    this.updateGmIcons();
+    this.scheduleGmIconsListWrite(x, y, path, newList);
+  }
+
   private onHexIconClick(x: number, y: number): void {
     if (this.drawingMode !== "icon") return;
     const icon = this.isErasingMode ? null : this.paintIconName;
@@ -4252,9 +4309,16 @@ export class HexMapView extends ItemView {
             svg.appendChild(imgEl);
 
             if (count > 1) {
+              // Badge sits at the bottom-right corner of the icon glyph,
+              // tucked inside the icon's bounding box so it tracks the
+              // icon even at small sizes (was drifting away with the old
+              // `* 0.9 / * 1.02` offset which scaled badge-to-icon
+              // distance independent of the actual icon position).
               const badgeEl = activeDocument.createElementNS(svgNS, "text");
-              badgeEl.setAttribute("x", String(ix + size * 0.9));
-              badgeEl.setAttribute("y", String(iy + size * 1.02));
+              badgeEl.setAttribute("x", String(ix + size));
+              badgeEl.setAttribute("y", String(iy + size));
+              badgeEl.setAttribute("text-anchor", "end");
+              badgeEl.setAttribute("dominant-baseline", "alphabetic");
               badgeEl.setAttribute("class", "duckmage-svg-gm-icon-count");
               badgeEl.textContent = `×${count}`;
               svg.appendChild(badgeEl);
