@@ -429,17 +429,51 @@ div.duckmage-hex-icon {
    `duckmage-coord-{top,middle,bottom}` class on the viewport — see
    the rules below. Horizontal is always centered via translate(-50%). */
 .duckmage-hex-label {
+    /* Kept in DOM as an insertBefore anchor for hex-icon ordering, but
+       NOT visible. The actual coord labels render in
+       .duckmage-coord-labels-layer (a gridContainer-level sibling of the
+       path/faction SVGs) so they stack above paths, GM icons, faction
+       and region overlays. */
+    visibility: hidden;
+}
+
+/* Coord labels — gridContainer-level sibling above path SVG (z:5),
+   faction SVG (z:4), region SVG (z:3). Positioned per-hex by percentage
+   of gridContainer dimensions so the labels auto-rescale through
+   bake-zoom font-size mutations (same approach as region labels). */
+.duckmage-coord-labels-layer {
     position: absolute;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    top: 78%; /* default: bottom — matches the previous SVG-label offset */
-    font-size: 0.6em;
-    font-weight: 600;
-    color: var(--text-muted);
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+}
+.duckmage-coord-label-html {
+    position: absolute;
+    left: var(--duckmage-coord-x, 50%);
+    top: var(--duckmage-coord-y, 50%);
+    /* Center on (x,y) then apply the placement em-offset.
+       Default font-size and family come from the viewport-level CSS vars
+       set in HexMapView.renderGrid(). */
+    transform: translate(-50%, calc(-50% + var(--duckmage-coord-y-offset, 0em)));
+    font-size: var(--duckmage-coord-font-size, 0.8em);
+    font-family: var(--duckmage-coord-font-family, inherit);
+    font-weight: 700;
+    color: var(--duckmage-coord-color, #ffffff);
     pointer-events: none;
     user-select: none;
-    z-index: 1;
     white-space: nowrap;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    /* Outline keeps labels readable over any underlying terrain color
+       or path stroke. */
+    text-shadow:
+        -1px -1px 0 var(--background-primary),
+        1px -1px 0 var(--background-primary),
+        -1px 1px 0 var(--background-primary),
+        1px 1px 0 var(--background-primary);
 }
 
 /* Coord placement (settings → "Coordinate placement"). The %s are tuned
@@ -447,25 +481,21 @@ div.duckmage-hex-icon {
    25%/75% on the vertical axis for pointy-top hexes and at 0/100% for
    flat-top — but the label needs to stay readable in both, so we use a
    conservative margin from the edge). */
-.duckmage-hex-map-viewport.duckmage-coord-top .duckmage-hex-label {
-    top: 22%;
+/* Placement — em offsets relative to the hex height. With the default
+   --hex-size of 2.2em the hex is 4.4em tall; ±1.2em matches the previous
+   22%/78% within-hex positioning. */
+.duckmage-hex-map-viewport.duckmage-coord-top .duckmage-coord-label-html {
+    --duckmage-coord-y-offset: -1.2em;
 }
-.duckmage-hex-map-viewport.duckmage-coord-middle .duckmage-hex-label {
-    top: 50%;
+.duckmage-hex-map-viewport.duckmage-coord-middle .duckmage-coord-label-html {
+    --duckmage-coord-y-offset: 0em;
 }
-.duckmage-hex-map-viewport.duckmage-coord-bottom .duckmage-hex-label {
-    top: 78%;
+.duckmage-hex-map-viewport.duckmage-coord-bottom .duckmage-coord-label-html {
+    --duckmage-coord-y-offset: 1.2em;
 }
 
-/* Outline keeps coordinates readable over any terrain color */
-.duckmage-hex[style*="background-color"] .duckmage-hex-label {
-    color: #ffffff;
-    text-shadow:
-        -1px -1px 0 rgba(0, 0, 0, 0.85),
-        1px -1px 0 rgba(0, 0, 0, 0.85),
-        -1px 1px 0 rgba(0, 0, 0, 0.85),
-        1px 1px 0 rgba(0, 0, 0, 0.85);
-}
+/* (Coord text-shadow + color now live on .duckmage-coord-label-html since
+   the labels are no longer rendered inside the hex DOM.) */
 
 .duckmage-hex-dot {
     position: absolute;
@@ -4988,3 +5018,13 @@ tr:hover .duckmage-rt-entry-copy-btn:hover {
 .duckmage-rt-new-wf-link { font-style: italic; }
 .duckmage-wf-template-validation { margin-top: 4px; font-size: 0.85em; }
 .duckmage-wf-editor-results-row { margin-top: 8px; }
+
+/* Inline numeric readout shown beside a settings slider. */
+.duckmage-slider-value {
+    display: inline-block;
+    min-width: 2.5em;
+    margin-right: 8px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+}

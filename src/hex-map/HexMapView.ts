@@ -159,6 +159,22 @@ export class HexMapView extends ItemView {
   private panX = 0;
   private panY = 0;
   private zoomSettleTimer: number | null = null;
+  // Wheel-zoom rAF coalescing. Wheel events fire faster than the browser
+  // paints (esp. trackpads). We sum the log-zoom delta of all events that
+  // arrive in one frame and apply them as ONE transform update on the next
+  // rAF tick. This is the entire smoothing mechanism — no easing tail,
+  // no inertia. The visual lands EXACTLY where the cumulative wheel deltas
+  // placed it; when the user stops scrolling, the visual stops moving.
+  //
+  // Smoothness during a fast scroll comes naturally from trackpad event
+  // deltas being small (deltaY≈2-10 per event) so visual motion between
+  // events is sub-pixel. For mouse wheels (deltaY≈100 per notch) each
+  // notch is one visible step — that's what the user wants ("stop where
+  // I stopped scrolling") and it's not actually clunky because the rAF
+  // batching keeps the paint cadence tight.
+  private pendingZoomLog = 0;
+  private pendingZoomPivot: { cx: number; cy: number } | null = null;
+  private zoomFrameId: number | null = null;
   private viewportEl: HTMLElement | null = null;
   private drawingMode:
     | "path"
@@ -404,6 +420,12 @@ export class HexMapView extends ItemView {
     });
 
     // ── Zoom (scroll wheel, no modifier required) ──────────────────────────
+    // Delta-aware + rAF-batched. Mouse notch (deltaY=100) → ~1.33× per event.
+    // Trackpads (deltaY≈2-10) → tiny per-event factors that look smooth
+    // because many events fire per frame and the rAF tick applies them as
+    // one update. NO easing tail — the visual lands exactly at the
+    // cumulative wheel delta and stops the frame after the last event.
+    const ZOOM_SENSITIVITY = 0.0028;
     this.registerDomEvent(
       contentEl,
       "wheel",
@@ -414,15 +436,25 @@ export class HexMapView extends ItemView {
         // both layers. Treat both as a viewport zoom.
         e.preventDefault();
         const rect = contentEl.getBoundingClientRect();
-        const cx = e.clientX - rect.left;
-        const cy = e.clientY - rect.top;
-        const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-        const newZoom = Math.min(5, Math.max(0.2, this.zoom * factor));
-        this.panX = cx - (cx - this.panX) * (newZoom / this.zoom);
-        this.panY = cy - (cy - this.panY) * (newZoom / this.zoom);
-        this.zoom = newZoom;
-        this.applyTransform();
-        this.scheduleZoomBake();
+        // Normalize deltaY across deltaMode (LINE: ~33px/line, PAGE: ~400px).
+        const PX_PER_LINE = 33;
+        const PX_PER_PAGE = 400;
+        const dyPx =
+          e.deltaMode === WheelEvent.DOM_DELTA_LINE
+            ? e.deltaY * PX_PER_LINE
+            : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? e.deltaY * PX_PER_PAGE
+            : e.deltaY;
+        this.pendingZoomLog += -dyPx * ZOOM_SENSITIVITY;
+        this.pendingZoomPivot = {
+          cx: e.clientX - rect.left,
+          cy: e.clientY - rect.top,
+        };
+        if (this.zoomFrameId !== null) return;
+        this.zoomFrameId = window.requestAnimationFrame(() => {
+          this.zoomFrameId = null;
+          this.flushPendingZoom();
+        });
       },
       { passive: false },
     );
@@ -2277,6 +2309,12 @@ export class HexMapView extends ItemView {
       window.clearTimeout(this.zoomSettleTimer);
       this.zoomSettleTimer = null;
     }
+    if (this.zoomFrameId !== null) {
+      window.cancelAnimationFrame(this.zoomFrameId);
+      this.zoomFrameId = null;
+      this.pendingZoomLog = 0;
+      this.pendingZoomPivot = null;
+    }
     this.registerDomEvent(activeDocument, "keydown", (e: KeyboardEvent) => {
       if (!this.bgCalibrating) return;
       if (e.key === "Escape") {
@@ -2503,16 +2541,42 @@ export class HexMapView extends ItemView {
     this.applyTransform();
   }
 
+  private flushPendingZoom(): void {
+    if (this.pendingZoomLog === 0 || !this.pendingZoomPivot) {
+      this.pendingZoomLog = 0;
+      this.pendingZoomPivot = null;
+      return;
+    }
+    const factor = Math.exp(this.pendingZoomLog);
+    const { cx, cy } = this.pendingZoomPivot;
+    const newZoom = Math.min(5, Math.max(0.2, this.zoom * factor));
+    const realFactor = newZoom / this.zoom;
+    this.panX = cx - (cx - this.panX) * realFactor;
+    this.panY = cy - (cy - this.panY) * realFactor;
+    this.zoom = newZoom;
+    this.pendingZoomLog = 0;
+    this.pendingZoomPivot = null;
+    this.applyTransform();
+    // Bake after a short debounce. With no easing tail, we can be aggressive
+    // — 80ms ≈ 5 frames of quiet — short enough that coords un-blur fast,
+    // long enough that a continuous scroll never bakes mid-stream.
+    this.scheduleZoomBake();
+  }
+
   private scheduleZoomBake(): void {
     // During calibration we keep zoom as a CSS transform on the viewport
     // (instead of baking it into font-size) so the SVG outline overlay,
     // the hex grid, and the bg image all scale together as a single unit.
     if (this.bgCalibrating) return;
     if (this.zoomSettleTimer !== null) window.clearTimeout(this.zoomSettleTimer);
+    // 80ms ≈ 5 frames of quiet — short enough that coords un-blur quickly
+    // after a scroll stops, long enough that a continuous wheel stream
+    // never triggers a mid-stream bake (which would tear down/rebuild SVGs
+    // and cost a noticeable hitch).
     this.zoomSettleTimer = window.setTimeout(() => {
       this.zoomSettleTimer = null;
       this.bakeZoom();
-    }, 250);
+    }, 80);
   }
 
   private setViewportFontSize(fs: string): void {
@@ -2672,6 +2736,24 @@ export class HexMapView extends ItemView {
       "duckmage-coord-bottom",
     );
     this.viewportEl.addClass(`duckmage-coord-${placement}`);
+
+    // Coord label size + font (settings → "Coordinate label"). Both flow
+    // into CSS vars consumed by `.duckmage-hex-label`. Size is in em so it
+    // scales with the hex; font family is one of Obsidian's CSS font vars.
+    const coordFontSize = this.plugin.settings.coordFontSize ?? 0.8;
+    const coordFontFamilyKey = this.plugin.settings.coordFontFamily ?? "interface";
+    const coordFontFamily =
+      coordFontFamilyKey === "monospace"
+        ? "var(--font-monospace)"
+        : coordFontFamilyKey === "serif"
+          ? 'Georgia, Cambria, "Times New Roman", Times, serif'
+          : "var(--font-interface)";
+    const coordFontColor = this.plugin.settings.coordFontColor ?? "#ffffff";
+    this.viewportEl.setCssProps({
+      "--duckmage-coord-font-size": `${coordFontSize}em`,
+      "--duckmage-coord-font-family": coordFontFamily,
+      "--duckmage-coord-color": coordFontColor,
+    });
 
     const region = this.getActiveMap();
 
@@ -2853,6 +2935,10 @@ export class HexMapView extends ItemView {
     this.renderPathOverlay(gridContainer);
     this.renderRegionOverlay(gridContainer);
     this.renderFactionOverlay(gridContainer);
+    // Coord labels go LAST (and at z:10 in CSS) so they sit above the path
+    // SVG, GM-icon overlay, faction overlay, and region overlay — paths
+    // and icons can no longer cover up the hex coordinates.
+    this.renderCoordLabelsLayer(gridContainer);
     if (this.bgCalibrating) {
       this.renderCalibrationOutlines(gridContainer);
       this.applyCalibrationFocusStyles();
@@ -4333,6 +4419,47 @@ export class HexMapView extends ItemView {
 
     this.viewportEl?.addClass("duckmage-svg-labels-active");
     gridContainer.appendChild(svg);
+  }
+
+  // Coord labels render in a sibling layer of the path/faction SVGs
+  // (CSS z-index: 10 vs path z:5, faction z:4, region z:3) so they sit
+  // above every overlay — paths, GM icons, faction tint, region tint.
+  // Each label is positioned by percentage of gridContainer dimensions
+  // so it auto-rescales through bake-zoom font-size mutations without
+  // needing rebuild. Same pattern used for region labels.
+  private renderCoordLabelsLayer(gridContainer: HTMLElement): void {
+    gridContainer
+      .querySelector(".duckmage-coord-labels-layer")
+      ?.remove();
+    const gw = gridContainer.offsetWidth || 1;
+    const gh = gridContainer.offsetHeight || 1;
+    const layer = gridContainer.createDiv({
+      cls: "duckmage-coord-labels-layer",
+    });
+    gridContainer
+      .querySelectorAll<HTMLElement>(".duckmage-hex")
+      .forEach((hexEl) => {
+        const x = Number(hexEl.dataset.x);
+        const y = Number(hexEl.dataset.y);
+        // Hex center in gridContainer-local pixel coords (unaffected by
+        // CSS transform; offsetParent walks stop at gridContainer).
+        let ox = hexEl.offsetWidth / 2;
+        let oy = hexEl.offsetHeight / 2;
+        let cur: HTMLElement | null = hexEl;
+        while (cur && cur !== gridContainer) {
+          ox += cur.offsetLeft;
+          oy += cur.offsetTop;
+          cur = cur.offsetParent as HTMLElement | null;
+        }
+        const label = layer.createDiv({
+          cls: "duckmage-coord-label-html",
+          text: `${x},${y}`,
+        });
+        label.setCssProps({
+          "--duckmage-coord-x": `${((ox / gw) * 100).toFixed(3)}%`,
+          "--duckmage-coord-y": `${((oy / gh) * 100).toFixed(3)}%`,
+        });
+      });
   }
 
   private updatePathOverlay(): void {

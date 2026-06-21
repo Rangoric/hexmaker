@@ -192,18 +192,76 @@ export class HexmakerSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
-      .setName("Hex cell spacing")
-      .setDesc("Gap between hex cells (0 – 0.5 em).")
-      .addSlider((slider) =>
+    {
+      const coordSetting = new Setting(containerEl)
+        .setName("Coordinate label")
+        .setDesc(
+          "Size (relative to the hex) and font for the coordinate label.",
+        );
+      const valueEl = coordSetting.controlEl.createSpan({
+        cls: "duckmage-slider-value",
+        text: (this.plugin.settings.coordFontSize ?? 0.8).toFixed(2),
+      });
+      coordSetting
+        .addSlider((slider) =>
+          slider
+            .setLimits(0.5, 1.5, 0.05)
+            .setValue(this.plugin.settings.coordFontSize ?? 0.8)
+            .onChange(async (value) => {
+              valueEl.setText(value.toFixed(2));
+              this.plugin.settings.coordFontSize = value;
+              await this.plugin.saveSettings();
+              this.plugin.refreshHexMap();
+            }),
+        )
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption("interface", "Interface")
+            .addOption("serif", "Serif")
+            .addOption("monospace", "Monospace")
+            .setValue(this.plugin.settings.coordFontFamily ?? "interface")
+            .onChange(async (value) => {
+              this.plugin.settings.coordFontFamily = value as
+                | "interface"
+                | "serif"
+                | "monospace";
+              await this.plugin.saveSettings();
+              this.plugin.refreshHexMap();
+            }),
+        )
+        .addColorPicker((picker) =>
+          picker
+            .setValue(this.plugin.settings.coordFontColor ?? "#ffffff")
+            .onChange(async (value) => {
+              this.plugin.settings.coordFontColor = value;
+              await this.plugin.saveSettings();
+              this.plugin.refreshHexMap();
+            }),
+        );
+    }
+
+    {
+      const gapSetting = new Setting(containerEl)
+        .setName("Hex cell spacing")
+        .setDesc("Gap between hex cells (0 – 0.5 em).");
+      const currentGap =
+        parseFloat(this.plugin.settings.hexGap ?? "0.15") || 0.15;
+      const valueEl = gapSetting.controlEl.createSpan({
+        cls: "duckmage-slider-value",
+        text: currentGap.toFixed(2),
+      });
+      gapSetting.addSlider((slider) =>
         slider
           .setLimits(0, 0.5, 0.01)
-          .setValue(parseFloat(this.plugin.settings.hexGap ?? "0.15") || 0.15)
+          .setValue(currentGap)
           .onChange(async (value) => {
+            valueEl.setText(value.toFixed(2));
             this.plugin.settings.hexGap = String(value);
             await this.plugin.saveSettings();
+            this.plugin.refreshHexMap();
           }),
       );
+    }
 
     new Setting(containerEl)
       .setName("Default new map size")

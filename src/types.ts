@@ -134,6 +134,12 @@ export interface HexmakerPluginSettings {
 	workflowsFolder: string;
 	exportFolder: string;
 	coordPlacement: "top" | "middle" | "bottom";
+	/** Size of the hex coordinate label, in em units relative to the hex. */
+	coordFontSize: number;
+	/** Which font the coord label uses. */
+	coordFontFamily: "interface" | "monospace" | "serif";
+	/** Coord label text color (CSS hex). */
+	coordFontColor: string;
 	hiddenIcons: string[];
 	iconOrder: string[];
 	setupComplete: boolean;
