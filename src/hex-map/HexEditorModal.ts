@@ -51,6 +51,7 @@ export class HexEditorModal extends HexmakerModal {
     private onChanged: (
       terrainOverrides?: Map<string, string | null>,
       iconOverrides?: Map<string, string | null>,
+      gmIconsOverrides?: Map<string, string[]>,
     ) => void,
     private options: HexEditorOptions = {},
   ) {
@@ -537,7 +538,12 @@ export class HexEditorModal extends HexmakerModal {
     const persist = async (): Promise<void> => {
       await this.ensureHexNote();
       await setGmIconsInFile(this.app, path, list);
-      this.onChanged();
+      // Pass the new list directly via the overrides arg so the view
+      // can update the hex's data-gm-icons attribute immediately
+      // without round-tripping through the metadata cache (which lags
+      // file writes by a tick — that race meant rapid multi-add
+      // clicks could silently lose icons in the on-map render).
+      this.onChanged(undefined, undefined, new Map([[path, [...list]]]));
     };
 
     const makeTile = (icon: string | null): HTMLElement => {

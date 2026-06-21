@@ -104,6 +104,32 @@ function nullOverrides(paths: string[]): Map<string, null> {
   return new Map(paths.map((p) => [p, null]));
 }
 
+/**
+ * GM icon sub-grid positions inside a hex. 7 slots arranged as a small
+ * honeycomb (top-row of 2, middle-row of 3, bottom-row of 2), filled
+ * in reading order — first icon lands top-left, second top-right, etc.
+ * Values are unit offsets in [-1, +1]; multiply by the hex's
+ * half-width/half-height (`spread`) to get pixel offsets.
+ *
+ * Layout:
+ *      0   1
+ *    2   3   4
+ *      5   6
+ *
+ * Used by `renderPathOverlay`'s GM-icon section so multiple icons on
+ * the same hex form a hex-shaped cluster (matches the user's request
+ * in hexmaker#28 for "a sort of grid, a hex-subgrid").
+ */
+const GM_ICON_HEX_SUBGRID: [number, number][] = [
+  [-0.34, -0.55], // NW
+  [+0.34, -0.55], // NE
+  [-0.62,  0.00], // W
+  [ 0.00,  0.00], // C
+  [+0.62,  0.00], // E
+  [-0.34, +0.55], // SW
+  [+0.34, +0.55], // SE
+];
+
 // Returns [dx, dy] unit offsets (multiply by spread radius) for N tokens on one hex.
 // Presets keep 1-5 tokens visually distinct; 6+ use an even radial ring.
 function tokenGroupOffsets(n: number): [number, number][] {
@@ -1297,6 +1323,19 @@ export class HexMapView extends ItemView {
         this.paintIconGmOnly = gmOnly;
         this.paintTerrainName = null;
         this.paintBrushSize = 1;
+        // Auto-enable the GM layer when the user picks a GM-only paint —
+        // otherwise their painted icons are silently invisible because the
+        // layer is hidden. Mirrors the showFactionOverlay-on-paint
+        // auto-enable in onHexFactionPaintClick.
+        if (gmOnly) {
+          const map = this.getActiveMap();
+          if (!(map.showGmLayer ?? true)) {
+            map.showGmLayer = true;
+            void this.plugin.saveSettings();
+            this.overlayPanel?.syncToRegion();
+            this.updateGmIcons();
+          }
+        }
         this.updateToolbarButtonStates();
       },
       this.paintIconGmOnly,
@@ -2561,6 +2600,7 @@ export class HexMapView extends ItemView {
   renderGrid(
     terrainOverrides?: Map<string, string | null>,
     iconOverrides?: Map<string, string | null>,
+    gmIconsOverrides?: Map<string, string[]>,
   ): void {
     if (!this.viewportEl) return;
     this.factionTooltipEl?.hide();
@@ -2673,8 +2713,12 @@ export class HexMapView extends ItemView {
       // GM icons stored as a JSON-encoded array on the dataset; allows
       // multiple icons per hex (with duplicates representing a count).
       // Empty list → no attribute at all so the overlay query still
-      // matches only hexes that have GM content.
-      const gmIcons = getGmIconsFromFile(this.app, path);
+      // matches only hexes that have GM content. The override path
+      // bypasses the metadata-cache read so the editor's just-written
+      // list lands on the dataset immediately, no race.
+      const gmIcons = gmIconsOverrides?.has(path)
+        ? gmIconsOverrides.get(path)!
+        : getGmIconsFromFile(this.app, path);
       if (gmIcons.length > 0) hexEl.dataset.gmIcons = JSON.stringify(gmIcons);
 
       if (this.selectedHex?.x === x && this.selectedHex?.y === y)
@@ -2763,9 +2807,9 @@ export class HexMapView extends ItemView {
       x,
       y,
       this.activeMapName,
-      (t, i) => {
-        if (t !== undefined || i !== undefined) {
-          this.renderGrid(t, i);
+      (t, i, gmIcons) => {
+        if (t !== undefined || i !== undefined || gmIcons !== undefined) {
+          this.renderGrid(t, i, gmIcons);
         } else {
           window.setTimeout(() => this.renderGrid(), 300);
         }
@@ -4120,13 +4164,12 @@ export class HexMapView extends ItemView {
 
     // GM layer icons — additive badges, terrain icon untouched.
     // hexmaker#28: a hex can carry MULTIPLE GM icons (with duplicates
-    // representing a count of that icon). Each unique icon gets a slot
-    // in a hex-subgrid arrangement (reuses tokenGroupOffsets, the same
-    // function tokens use, so multi-icon layout stays visually
-    // consistent across the two systems). A "×N" badge appears when
-    // count > 1. Icons beyond the 5th unique icon overflow into an even
-    // radial ring; storage isn't capped, the layout just degrades
-    // gracefully.
+    // representing a count of that icon). Each unique icon takes one
+    // slot from the GM_ICON_HEX_SUBGRID, filled in reading order so the
+    // FIRST added icon lands top-left and additions flow right then
+    // down. Up to 7 unique icons display; further additions are kept
+    // in frontmatter but don't render. A "×N" badge appears on a slot
+    // when its icon was added 2+ times.
     if (gmLayerActive) {
       gridContainer
         .querySelectorAll<HTMLElement>("[data-gm-icons]")
@@ -4140,26 +4183,24 @@ export class HexMapView extends ItemView {
           // Count occurrences per icon, preserving first-seen order.
           const counts = new Map<string, number>();
           for (const ic of list) counts.set(ic, (counts.get(ic) ?? 0) + 1);
-          const slots = Array.from(counts.entries());
+          const slots = Array.from(counts.entries()).slice(0, GM_ICON_HEX_SUBGRID.length);
           const slotCount = slots.length;
 
           const w = hexEl.offsetWidth;
           const h = hexEl.offsetHeight;
-          // Spread radius: fraction of the hex's short dimension. Matches
-          // the token-layer constant for visual consistency.
-          const spread = Math.min(w, h) * 0.28;
-          // Icon size shrinks with slot count so multiple icons share a
-          // hex without overlapping. Single-icon hexes keep ~legacy size.
-          const sizeFactor = slotCount === 1 ? 0.38
-            : slotCount === 2 ? 0.32
-            : slotCount === 3 ? 0.28
-            : slotCount === 4 ? 0.26
+          // Spread = half the hex's short dimension so the sub-grid fits
+          // comfortably inside the parent hex's bounds.
+          const spread = Math.min(w, h) * 0.42;
+          // Icon size shrinks as the sub-grid fills so neighbouring icons
+          // don't overlap. Single-icon hexes keep ~legacy size.
+          const sizeFactor = slotCount === 1 ? 0.40
+            : slotCount <= 2 ? 0.30
+            : slotCount <= 4 ? 0.26
             : 0.22;
           const size = Math.round(w * sizeFactor);
-          const offsets = tokenGroupOffsets(slotCount);
 
           slots.forEach(([iconName, count], slotIdx) => {
-            const [odx, ody] = offsets[slotIdx];
+            const [odx, ody] = GM_ICON_HEX_SUBGRID[slotIdx];
             // Icons are positioned by top-left corner; subtract half the
             // size so the icon CENTER lands on the sub-grid slot.
             const ix = pos.cx + odx * spread - size / 2;
