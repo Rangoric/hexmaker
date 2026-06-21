@@ -2533,6 +2533,27 @@ export class HexMapView extends ItemView {
     if (this.bgCalibrating) return;
     const F = this.zoom;
     const currentFs = parseFloat(getComputedStyle(this.viewportEl).fontSize);
+
+    // Tear down the path SVG FIRST, before the font-size mutation below.
+    // The path SVG holds coord labels at pixel positions computed against
+    // the pre-bake hex sizes. After font-size grows the hexes, those
+    // pixel positions point to where the hexes USED to be, so any paint
+    // frame between the font-size change and the SVG rebuild shows
+    // labels visibly shifted up-left from the hexes. By removing the
+    // SVG (and its `duckmage-svg-labels-active` class) here, the
+    // intermediate frame falls back to the HTML `.duckmage-hex-label`
+    // spans — those live inside the hex DOM and track the hex layout
+    // perfectly across font-size changes. The new path SVG is rebuilt
+    // via `updatePathOverlay()` further down. Sandbox repro of the
+    // pre-fix slip: dev/coord-slip-sandbox.html.
+    this.viewportEl.querySelector("svg.duckmage-path-svg")?.remove();
+    this.viewportEl.removeClass("duckmage-svg-labels-active");
+    // Same for the faction/region overlays — they also hold pre-bake
+    // pixel positions and would visibly mis-align during the transition.
+    this.viewportEl.querySelector("svg.duckmage-faction-svg")?.remove();
+    this.viewportEl.querySelector(".duckmage-faction-legend")?.remove();
+    this.viewportEl.querySelector("svg.duckmage-region-svg")?.remove();
+
     this.viewportEl.style.fontSize = `${currentFs * F}px`;
     this.zoom = 1;
     this.applyTransform();

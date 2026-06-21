@@ -1,0 +1,197 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Coord-slip during bakeZoom — repro</title>
+<style>
+:root { --background-secondary: #2a2a2a; }
+body { background: #1e1e1e; color: #ddd; font-family: system-ui, sans-serif; margin: 0; padding: 8px; }
+h1 { font-size: 0.95em; margin: 0 0 8px; }
+.controls { display: flex; gap: 8px; margin: 0 0 8px; }
+.controls button { background: #3b82f6; color: white; border: none; border-radius: 4px; padding: 6px 14px; cursor: pointer; }
+#log { font-family: monospace; font-size: 0.85em; color: #999; padding: 6px; background: #0c111a; border-radius: 3px; margin: 0 0 8px; min-height: 36px; white-space: pre; }
+
+.viewport {
+    position: relative;
+    width: 700px;
+    height: 480px;
+    background: #0c111a;
+    overflow: hidden;
+}
+.grid-wrap {
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 1em;
+    transform-origin: 0 0;
+    transform: scale(var(--vp-scale, 1));
+}
+.grid {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+.row { display: flex; flex-wrap: nowrap; margin-bottom: calc(var(--hex-size, 2.2em) * -0.5); }
+.row.odd { margin-left: calc(var(--hex-size, 2.2em) * 1.732 / 2); }
+.hex {
+    --hex-size: 2.2em;
+    width: calc(var(--hex-size) * 1.732);
+    height: calc(var(--hex-size) * 2);
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    background: rgba(120, 200, 80, 0.5);
+    margin: 0.15em;
+    position: relative;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: #1a1a1a;
+}
+.hex-label {
+    pointer-events: none;
+    font-weight: 600;
+    /* Hidden when SVG labels are active (path SVG present) — same rule
+       as the plugin uses. */
+}
+.grid-wrap.svg-active .hex-label { visibility: hidden; }
+.path-svg {
+    position: absolute;
+    top: 0; left: 0;
+    pointer-events: none;
+    z-index: 5;
+}
+.svg-coord {
+    fill: #fff;
+    stroke: rgba(0,0,0,0.85);
+    stroke-width: 2;
+    paint-order: stroke;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: system-ui, sans-serif;
+}
+</style>
+</head>
+<body>
+<h1>Coord-slip during bakeZoom — buggy vs fixed order</h1>
+<div class="controls">
+    <button id="buggy-bake">Bake (buggy: SVG torn down LAST)</button>
+    <button id="fixed-bake">Bake (fixed: SVG torn down FIRST)</button>
+    <button id="reset">Reset</button>
+</div>
+<div id="log">click "Bake" then look at the screenshot for the half-baked frame</div>
+
+<div class="viewport" id="viewport">
+    <div class="grid-wrap svg-active" id="gridWrap">
+        <div class="grid" id="grid"></div>
+    </div>
+</div>
+
+<script>
+const ROWS = 4, COLS = 5;
+let zoom = 2;       // start "zoomed in"
+let fontSize = 16;  // pre-bake font-size
+const grid = document.getElementById("grid");
+const gridWrap = document.getElementById("gridWrap");
+const viewport = document.getElementById("viewport");
+const log = document.getElementById("log");
+
+function buildGrid() {
+    grid.replaceChildren();
+    for (let r = 0; r < ROWS; r++) {
+        const row = document.createElement("div");
+        row.className = "row" + (r % 2 === 1 ? " odd" : "");
+        for (let c = 0; c < COLS; c++) {
+            const hex = document.createElement("div");
+            hex.className = "hex";
+            hex.dataset.x = c; hex.dataset.y = r;
+            const label = document.createElement("span");
+            label.className = "hex-label";
+            label.textContent = `${c},${r}`;
+            hex.appendChild(label);
+            row.appendChild(hex);
+        }
+        grid.appendChild(row);
+    }
+}
+
+function applyTransform() {
+    gridWrap.style.setProperty("--vp-scale", String(zoom));
+    gridWrap.style.fontSize = `${fontSize}px`;
+}
+
+function renderPathSvg() {
+    grid.querySelector(".path-svg")?.remove();
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.classList.add("path-svg");
+    svg.setAttribute("width", String(grid.offsetWidth));
+    svg.setAttribute("height", String(grid.offsetHeight));
+    grid.querySelectorAll(".hex").forEach((hex) => {
+        let ox = hex.offsetWidth / 2, oy = hex.offsetHeight / 2;
+        let cur = hex;
+        while (cur && cur !== grid) {
+            ox += cur.offsetLeft; oy += cur.offsetTop;
+            cur = cur.offsetParent;
+        }
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("x", String(ox));
+        t.setAttribute("y", String(oy + hex.offsetHeight * 0.28));
+        t.setAttribute("text-anchor", "middle");
+        t.setAttribute("class", "svg-coord");
+        t.textContent = `${hex.dataset.x},${hex.dataset.y}`;
+        svg.appendChild(t);
+    });
+    grid.appendChild(svg);
+    gridWrap.classList.add("svg-active");
+}
+
+function reset() {
+    zoom = 2; fontSize = 16;
+    applyTransform();
+    buildGrid();
+    renderPathSvg();
+    log.textContent = "reset — zoomed in 2× via CSS transform, SVG labels active";
+}
+
+// BUGGY bake: change font-size first, rebuild SVG at the end.
+document.getElementById("buggy-bake").addEventListener("click", () => {
+    const F = zoom;
+    // 1. font-size mutated (hexes grow in layout)
+    fontSize *= F;
+    gridWrap.style.fontSize = `${fontSize}px`;
+    // 2. transform reset to scale 1
+    zoom = 1;
+    gridWrap.style.setProperty("--vp-scale", "1");
+    // Force a paint here to simulate the worst case
+    void grid.offsetWidth;
+    // 3. SVG rebuilt (now with new sizes)
+    setTimeout(() => {
+        renderPathSvg();
+        log.textContent = "buggy bake done. Between font-size change and SVG rebuild, OLD SVG labels were at OLD positions → slip visible.";
+    }, 300);
+});
+
+// FIXED bake: tear down SVG FIRST so HTML labels take over during the transition.
+document.getElementById("fixed-bake").addEventListener("click", () => {
+    const F = zoom;
+    // 1. TEAR DOWN old SVG + remove the class so HTML labels become visible.
+    grid.querySelector(".path-svg")?.remove();
+    gridWrap.classList.remove("svg-active");
+    // 2. font-size mutated (hexes grow). HTML labels are inside hexes — they
+    //    track perfectly. User sees correctly-placed HTML labels during the
+    //    in-between frame.
+    fontSize *= F;
+    gridWrap.style.fontSize = `${fontSize}px`;
+    // 3. transform reset to scale 1.
+    zoom = 1;
+    gridWrap.style.setProperty("--vp-scale", "1");
+    void grid.offsetWidth;
+    // 4. SVG rebuilt with new positions.
+    setTimeout(() => {
+        renderPathSvg();
+        log.textContent = "fixed bake done. SVG was torn down before font-size change → HTML labels took over for the transition → no slip.";
+    }, 300);
+});
+
+document.getElementById("reset").addEventListener("click", reset);
+reset();
+</script>
+</body>
+</html>
