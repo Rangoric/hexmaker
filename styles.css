@@ -663,9 +663,6 @@ div.duckmage-hex-icon {
     display: flex;
     flex-direction: column;
 }
-.duckmage-editor-modal-drag .modal-content.duckmage-combo-open {
-    overflow-y: visible;
-}
 .duckmage-editor-title-drag {
     cursor: move;
     user-select: none;
@@ -1082,10 +1079,11 @@ input.duckmage-input-error {
 }
 
 .duckmage-link-combo-dropdown {
-    position: absolute;
-    top: calc(100% + 2px);
-    left: 0;
-    right: 0;
+    /* position: fixed (anchored from JS via anchorDropdown) so the dropdown
+       escapes the modal's scroll container without that container needing
+       `overflow: visible` — which would reset its scrollTop and jump the
+       modal to the top (issue #31). left/top/width are set inline. */
+    position: fixed;
     z-index: 100;
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);

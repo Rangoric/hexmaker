@@ -85,26 +85,32 @@ export class MapLinkModal extends HexmakerModal {
       }
     };
 
-    const scrollPane = comboWrap.closest<HTMLElement>(".modal-content");
+    let anchor: { reposition: () => void; detach: () => void } | null = null;
 
     const openDropdown = (query: string) => {
       isOpen = true;
       populateDropdown(query);
-      scrollPane?.addClass("duckmage-combo-open");
       dropdown.show();
+      // Anchor AFTER show so offsetHeight is measurable for above/below flip.
+      anchor?.detach();
+      anchor = this.anchorDropdown(comboWrap, dropdown);
     };
 
     const closeDropdown = () => {
       isOpen = false;
       dropdown.hide();
-      scrollPane?.removeClass("duckmage-combo-open");
+      anchor?.detach();
+      anchor = null;
     };
 
     mapInput.addEventListener("focus", () => openDropdown(""));
     mapInput.addEventListener("blur", () => window.setTimeout(() => closeDropdown(), 150));
     mapInput.addEventListener("input", () => {
       if (!isOpen) openDropdown(mapInput.value);
-      else populateDropdown(mapInput.value);
+      else {
+        populateDropdown(mapInput.value);
+        anchor?.reposition();
+      }
     });
     mapInput.addEventListener("keydown", (e: KeyboardEvent) => {
       if (e.key === "Escape") closeDropdown();

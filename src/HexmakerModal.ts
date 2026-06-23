@@ -58,4 +58,57 @@ export class HexmakerModal extends Modal {
 			doc.addEventListener("mouseup", onUp);
 		});
 	}
+
+	/**
+	 * Anchor a combo dropdown to its trigger as a viewport-`fixed` element.
+	 *
+	 * The dropdown markup lives inside the modal's scrolling `.modal-content`.
+	 * Positioning it `absolute` there means an `overflow` ancestor clips it, so
+	 * the old code switched `.modal-content` to `overflow: visible` while open —
+	 * which forces a scrolled container's `scrollTop` back to 0 and snaps the
+	 * whole modal to the top on the first interaction (issue #31). A `fixed`
+	 * dropdown resolves its containing block to the viewport (no modal ancestor
+	 * has a transform), so it escapes every `overflow` clip WITHOUT touching the
+	 * scroll container — the scroll position is never disturbed.
+	 *
+	 * Returns `{ reposition, detach }`: call `reposition()` after the dropdown's
+	 * contents change (filter typing flips its height), and `detach()` from the
+	 * close path to remove the scroll/resize listeners.
+	 */
+	protected anchorDropdown(
+		anchorEl: HTMLElement,
+		dropdownEl: HTMLElement,
+	): { reposition: () => void; detach: () => void } {
+		const win = anchorEl.ownerDocument.defaultView ?? window;
+		const GAP = 2;
+		const PADDING = 8;
+		const reposition = () => {
+			const r = anchorEl.getBoundingClientRect();
+			const below = win.innerHeight - r.bottom;
+			const above = r.top;
+			const dh = dropdownEl.offsetHeight;
+			// Prefer dropping below; flip above only when there isn't room below
+			// AND there's more room above.
+			const flip = dh > below && above > below;
+			const top = flip
+				? Math.max(PADDING, r.top - GAP - dh)
+				: r.bottom + GAP;
+			dropdownEl.setCssProps({
+				left: `${r.left}px`,
+				top: `${top}px`,
+				width: `${r.width}px`,
+			});
+		};
+		reposition();
+		const scrollPane = anchorEl.closest<HTMLElement>(".modal-content");
+		scrollPane?.addEventListener("scroll", reposition, { passive: true });
+		win.addEventListener("resize", reposition);
+		return {
+			reposition,
+			detach: () => {
+				scrollPane?.removeEventListener("scroll", reposition);
+				win.removeEventListener("resize", reposition);
+			},
+		};
+	}
 }

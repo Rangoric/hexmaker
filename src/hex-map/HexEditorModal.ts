@@ -18,12 +18,10 @@ import {
 import {
   addLinkToSection,
   removeLinkFromSection,
-  getLinksInSection,
   getAllSectionData,
   setSectionContent,
   addBacklinkToFile,
 } from "../sections";
-import { FileLinkSuggestModal } from "./FileLinkSuggestModal";
 import { TEXT_SECTIONS } from "../types";
 import type { LinkSection, HexEditorOptions, TerrainColor } from "../types";
 import { RandomTableModal } from "../random-tables/RandomTableModal";
@@ -833,19 +831,22 @@ export class HexEditorModal extends HexmakerModal {
       }
     };
 
-    const scrollPane = comboWrap.closest<HTMLElement>(".modal-content");
+    let anchor: { reposition: () => void; detach: () => void } | null = null;
 
     const openDropdown = () => {
       isOpen = true;
       populateDropdown(input.value);
-      scrollPane?.addClass("duckmage-combo-open");
       dropdown.show();
+      // Anchor AFTER show so offsetHeight is measurable for above/below flip.
+      anchor?.detach();
+      anchor = this.anchorDropdown(comboWrap, dropdown);
     };
 
     const closeDropdown = () => {
       isOpen = false;
       dropdown.hide();
-      scrollPane?.removeClass("duckmage-combo-open");
+      anchor?.detach();
+      anchor = null;
     };
 
     const selectFile = async (file: TFile) => {
@@ -906,7 +907,10 @@ export class HexEditorModal extends HexmakerModal {
     );
     input.addEventListener("input", () => {
       if (!isOpen) openDropdown();
-      else populateDropdown(input.value);
+      else {
+        populateDropdown(input.value);
+        anchor?.reposition();
+      }
     });
     input.addEventListener("keydown", (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -934,49 +938,6 @@ export class HexEditorModal extends HexmakerModal {
         input.focus();
         openDropdown();
       }
-    });
-  }
-
-  private renderLinkSection(
-    container: HTMLElement,
-    path: string,
-    section: LinkSection,
-    hexExists: boolean,
-    initialLinks: string[],
-  ): void {
-    const sectionEl = container.createDiv({
-      cls: "duckmage-editor-link-section",
-    });
-    const header = sectionEl.createDiv({ cls: "duckmage-link-section-header" });
-    header.createEl("h4", { text: section });
-    const addBtn = header.createEl("button", {
-      text: "+ add",
-      cls: "duckmage-add-btn",
-    });
-    const linksEl = sectionEl.createDiv({ cls: "duckmage-link-list" });
-
-    if (hexExists) {
-      this.renderLinkList(linksEl, initialLinks, path);
-    } else {
-      linksEl.createSpan({ text: "—", cls: "duckmage-link-empty" });
-    }
-
-    addBtn.addEventListener("click", () => {
-      new FileLinkSuggestModal(this.app, this.plugin, (file) => {
-        void (async () => {
-          const hexFile = await this.ensureHexNote();
-          if (!hexFile) {
-            new Notice("Could not create hex note.");
-            return;
-          }
-          const linkText = `[[${this.app.metadataCache.fileToLinktext(file, path)}]]`;
-          await addLinkToSection(this.app, path, section, linkText);
-          this.onChanged();
-          const links = await getLinksInSection(this.app, path, section);
-          linksEl.empty();
-          this.renderLinkList(linksEl, links, path);
-        })();
-      }).open();
     });
   }
 
