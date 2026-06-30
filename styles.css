@@ -216,6 +216,31 @@
     z-index: 10;
 }
 
+/* During an active calibration drag/resize, replace the 3843 individually-
+   painted hex cells with ONE pre-drawn <canvas> "colour snapshot" (built in JS
+   at drag start — see buildCalibrationSnapshot). Moving/scaling 3843 clip-path
+   cells re-rasterises them every frame (a translate alone measured ~373ms);
+   moving one canvas is a single composite op. The cells are kept in the layout
+   with `visibility: hidden` (NOT `display: none`) so the grid keeps its size —
+   the resize handles are positioned against the grid box and would jump to the
+   origin if it collapsed. Icons/labels/coord-labels and the SVG outline are
+   redundant with the snapshot and dropped entirely. All restored on release. */
+.duckmage-hex-map-viewport.duckmage-calibrating-drag .duckmage-hex {
+    visibility: hidden;
+}
+.duckmage-hex-map-viewport.duckmage-calibrating-drag .duckmage-coord-labels-layer,
+.duckmage-hex-map-viewport.duckmage-calibrating-drag .duckmage-calibration-outlines-svg {
+    display: none;
+}
+
+.duckmage-calibration-snapshot {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 1;
+}
+
 /* Floating commit chip during calibration — single ✓ button */
 .duckmage-calibration-help {
     position: fixed;

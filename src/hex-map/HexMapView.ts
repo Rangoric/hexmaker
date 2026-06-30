@@ -185,6 +185,9 @@ export class HexMapView extends ItemView {
   // renderGrid()'s viewportEl.empty() doesn't force an image re-decode each time.
   private bgLayerEl: HTMLElement | null = null;
   private bgLayerSrc: string | null = null;
+  // Single-canvas terrain-colour snapshot shown during a calibration drag in
+  // place of the 3843 hex cells (see buildCalibrationSnapshot).
+  private calSnapshotEl: HTMLCanvasElement | null = null;
   private drawingMode:
     | "path"
     | "terrain"
@@ -1930,6 +1933,122 @@ export class HexMapView extends ItemView {
         "--duckmage-cal-scale": String(1 / Math.max(0.01, this.zoom)),
       });
     }
+    this.updateCalHandleScale();
+  }
+
+  /**
+   * Keep the calibration resize handles a constant on-screen size. A handle is
+   * a child of the element it resizes (the bg image layer or the grid), so its
+   * rendered size is `handleCss × parentScale × viewportZoom`. The global
+   * `--duckmage-cal-scale` on the viewport only cancels the zoom; the parent's
+   * own scale (bg image ~4.8×, grid ~0.35×) is left in — which is why image
+   * handles looked huge and grid handles tiny. We override the var on each
+   * parent with `1 / (zoom × parentScale)` so the chain cancels to 1.
+   */
+  private updateCalHandleScale(): void {
+    if (!this.bgCalibrating || !this.viewportEl) return;
+    const z = Math.max(0.01, this.zoom);
+    const map = this.getActiveMap();
+    const bgLayer = this.viewportEl.querySelector<HTMLElement>(
+      ".duckmage-bg-image-layer",
+    );
+    if (bgLayer && map.backgroundImage) {
+      const s = Math.max(0.01, map.backgroundImage.scale);
+      bgLayer.setCssProps({ "--duckmage-cal-scale": String(1 / (z * s)) });
+    }
+    const grid = this.viewportEl.querySelector<HTMLElement>(
+      ".duckmage-hex-map-grid",
+    );
+    if (grid) {
+      const legacy = map.gridDisplayScale ?? 1;
+      // Average the two axes — handles are uniform squares, so per-axis
+      // anisotropy is invisible at handle size.
+      const sx = map.gridDisplayScaleX ?? legacy;
+      const sy = map.gridDisplayScaleY ?? legacy;
+      const gs = Math.max(0.01, (sx + sy) / 2);
+      grid.setCssProps({ "--duckmage-cal-scale": String(1 / (z * gs)) });
+    }
+  }
+
+  /**
+   * Coalesce a drag's mousemove to at most once per animation frame (latest
+   * event wins) so calibration drag/resize don't issue redundant CSS-var
+   * writes — and the style recalcs they trigger — several times per painted
+   * frame. `stop()` flushes the final position and cancels any pending frame;
+   * call it from mouseup so the release lands exactly under the cursor.
+   *
+   * When `window.DUCKMAGE_PERF` is truthy it records, for the drag's lifetime:
+   * mousemove count, frames run, mean synchronous work() time per frame, and
+   * the median inter-frame gap — logged on stop(). A cheap work() paired with a
+   * large frame gap means the drag is paint/composite-bound (the scene, not our
+   * JS) — the expected signature when resizing over a big background image.
+   */
+  private coalesceDragMove(
+    label: string,
+    work: (ev: MouseEvent) => void,
+  ): { onMove: (ev: MouseEvent) => void; stop: () => void } {
+    // Swap the 3843 hex cells for a single-canvas colour snapshot for the
+    // drag's duration: build the snapshot, then add the class that hides the
+    // real cells. Transforming one canvas per frame is a single composite op vs
+    // re-rasterising every cell (a translate alone measured ~373ms/frame).
+    this.buildCalibrationSnapshot();
+    this.viewportEl?.addClass("duckmage-calibrating-drag");
+    let latest: MouseEvent | null = null;
+    let frameId: number | null = null;
+    const perf = !!(window as unknown as { DUCKMAGE_PERF?: unknown })
+      .DUCKMAGE_PERF;
+    let moves = 0,
+      frames = 0,
+      workMs = 0,
+      lastTickAt = 0;
+    const gaps: number[] = [];
+    const run = (ev: MouseEvent) => {
+      if (!perf) {
+        work(ev);
+        return;
+      }
+      const now = performance.now();
+      if (lastTickAt) gaps.push(now - lastTickAt);
+      lastTickAt = now;
+      work(ev);
+      workMs += performance.now() - now;
+      frames++;
+    };
+    const tick = () => {
+      frameId = null;
+      if (latest) {
+        run(latest);
+        latest = null;
+      }
+    };
+    return {
+      onMove: (ev: MouseEvent) => {
+        if (perf) moves++;
+        latest = ev;
+        if (frameId === null) frameId = window.requestAnimationFrame(tick);
+      },
+      stop: () => {
+        if (frameId !== null) {
+          window.cancelAnimationFrame(frameId);
+          frameId = null;
+        }
+        if (latest) {
+          run(latest);
+          latest = null;
+        }
+        this.viewportEl?.removeClass("duckmage-calibrating-drag");
+        this.removeCalibrationSnapshot();
+        if (perf) {
+          const sorted = gaps.slice().sort((a, b) => a - b);
+          const med = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+          console.warn(
+            `[duckmage perf] ${label}: moves=${moves} frames=${frames} ` +
+              `workMs/frame=${(workMs / Math.max(1, frames)).toFixed(2)} ` +
+              `medianFrameGapMs=${med.toFixed(1)}`,
+          );
+        }
+      },
+    };
   }
 
   private bgCalibrating = false;
@@ -1941,6 +2060,9 @@ export class HexMapView extends ItemView {
   /** Coalesce a stream of arrow-key nudges into a single undo entry. */
   private nudgeUndoTimer: number | null = null;
   private nudgeUndoBefore: CalibrateSnapshot | null = null;
+  /** Bake-on-quiet timer that tears down the calibration snapshot after a burst
+   *  of arrow-key nudges goes quiet (arrow keys have no mouseup to end on). */
+  private calActivityTimer: number | null = null;
   /** Snapshot the bg image + grid display transforms for the active map. */
   private captureCalibration(map: MapData): CalibrateSnapshot {
     const bg = map.backgroundImage;
@@ -2105,14 +2227,15 @@ export class HexMapView extends ItemView {
       const startOX = bg.offsetX, startOY = bg.offsetY;
       const zoom = this.zoom;
       const before = this.captureCalibration(map);
-      const onMove = (ev: MouseEvent) => {
+      const { onMove, stop } = this.coalesceDragMove("bg-move", (ev) => {
         bg.offsetX = startOX + (ev.clientX - startX) / zoom;
         bg.offsetY = startOY + (ev.clientY - startY) / zoom;
         this.applyBgLayerVars(layer, bg);
-      };
+      });
       const onUp = () => {
         activeDocument.removeEventListener("mousemove", onMove);
         activeDocument.removeEventListener("mouseup", onUp);
+        stop();
         this.pushCalibrationUndo(this.activeMapName, before, this.captureCalibration(map));
       };
       activeDocument.addEventListener("mousemove", onMove);
@@ -2138,6 +2261,7 @@ export class HexMapView extends ItemView {
         bg.offsetY = ty;
         bg.scale = Math.max(0.05, Math.min(20, sx));
         this.applyBgLayerVars(layer, bg);
+        this.updateCalHandleScale();
       },
       onDragStart: () => { bgResizeBefore = this.captureCalibration(map); },
       onDragEnd: () => {
@@ -2176,14 +2300,15 @@ export class HexMapView extends ItemView {
       const startOY = map.gridDisplayOffsetY ?? 0;
       const zoom = this.zoom;
       const before = this.captureCalibration(map);
-      const onMove = (ev: MouseEvent) => {
+      const { onMove, stop } = this.coalesceDragMove("grid-move", (ev) => {
         map.gridDisplayOffsetX = startOX + (ev.clientX - startX) / zoom;
         map.gridDisplayOffsetY = startOY + (ev.clientY - startY) / zoom;
         applyGridTransform();
-      };
+      });
       const onUp = () => {
         activeDocument.removeEventListener("mousemove", onMove);
         activeDocument.removeEventListener("mouseup", onUp);
+        stop();
         this.pushCalibrationUndo(this.activeMapName, before, this.captureCalibration(map));
       };
       activeDocument.addEventListener("mousemove", onMove);
@@ -2213,6 +2338,7 @@ export class HexMapView extends ItemView {
         map.gridDisplayScaleY = Math.max(0.1, Math.min(20, sy));
         if (Math.abs(sx - sy) < 0.001) map.gridDisplayScale = sx;
         applyGridTransform();
+        this.updateCalHandleScale();
       },
       onDragStart: () => { gridResizeBefore = this.captureCalibration(map); },
       onDragEnd: () => {
@@ -2288,7 +2414,7 @@ export class HexMapView extends ItemView {
         const ay = h.includes("s") ? 0 : h.includes("n") ? H0 : H0 / 2;
 
         const startX = e.clientX, startY = e.clientY;
-        const onMove = (ev: MouseEvent) => {
+        const { onMove, stop } = this.coalesceDragMove(`resize-${h}`, (ev) => {
           // Cursor delta in screen pixels → pre-transform pixels (undo viewport zoom)
           const dx = (ev.clientX - startX) / viewportZoom;
           const dy = (ev.clientY - startY) / viewportZoom;
@@ -2313,10 +2439,11 @@ export class HexMapView extends ItemView {
           const tyNew = start.ty + ay * (start.sy - syNew);
 
           opts.onResize({ tx: txNew, ty: tyNew, sx: sxNew, sy: syNew });
-        };
+        });
         const onUp = () => {
           activeDocument.removeEventListener("mousemove", onMove);
           activeDocument.removeEventListener("mouseup", onUp);
+          stop();
           opts.onDragEnd?.();
         };
         activeDocument.addEventListener("mousemove", onMove);
@@ -2360,6 +2487,9 @@ export class HexMapView extends ItemView {
       this.handleCalibrationArrowKey(e);
     });
     this.renderGrid();
+    // Handles are created during renderGrid; size them to the current zoom +
+    // per-layer scale now that they exist.
+    this.updateCalHandleScale();
     this.showCalibrationHelp();
   }
 
@@ -2406,6 +2536,9 @@ export class HexMapView extends ItemView {
       const grid = this.viewportEl?.querySelector<HTMLElement>(".duckmage-hex-map-grid");
       if (grid) this.applyGridLayerVars(grid, map);
     }
+    // Swap in the cheap colour snapshot for the nudge burst (same lever as the
+    // mouse drag) so held/repeated arrows don't re-rasterise every hex cell.
+    this.markCalibrationActivity();
     if (this.nudgeUndoTimer !== null) window.clearTimeout(this.nudgeUndoTimer);
     this.nudgeUndoTimer = window.setTimeout(() => {
       const after = this.captureCalibration(map);
@@ -2422,6 +2555,15 @@ export class HexMapView extends ItemView {
     if (!this.bgCalibrating) return;
     this.bgCalibrating = false;
     this.bgCalibrationFocus = null;
+    // Tear down any active snapshot/drag state (renderGrid below rebuilds the
+    // grid, but the class lives on the persistent viewportEl and the settle
+    // timer could otherwise fire after exit).
+    if (this.calActivityTimer !== null) {
+      window.clearTimeout(this.calActivityTimer);
+      this.calActivityTimer = null;
+    }
+    this.viewportEl?.removeClass("duckmage-calibrating-drag");
+    this.removeCalibrationSnapshot();
     // Flush any pending arrow-nudge undo entry so the final state is recorded
     if (this.nudgeUndoTimer !== null) {
       window.clearTimeout(this.nudgeUndoTimer);
@@ -2556,6 +2698,99 @@ export class HexMapView extends ItemView {
     }
 
     gridContainer.appendChild(svg);
+  }
+
+  /**
+   * Draw the current terrain colours as filled hexagons onto a single <canvas>
+   * laid over the grid, then (via the `duckmage-calibrating-drag` CSS class)
+   * hide the real hex cells. During a calibration drag the grid's transform is
+   * mutated every frame; transforming this one canvas is a single composite op,
+   * versus re-rasterising 3843 clip-path cells (~373ms/frame). Synchronous and
+   * one-shot at drag start (~tens of ms); torn down on release. Geometry mirrors
+   * renderCalibrationOutlines so the snapshot lines up exactly with the cells.
+   */
+  private buildCalibrationSnapshot(): void {
+    if (!this.viewportEl || this.calSnapshotEl) return;
+    const gridContainer = this.viewportEl.querySelector<HTMLElement>(
+      ".duckmage-hex-map-grid",
+    );
+    if (!gridContainer) return;
+    const W = gridContainer.offsetWidth;
+    const H = gridContainer.offsetHeight;
+    if (W === 0 || H === 0) return;
+    const canvas = activeDocument.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    canvas.addClass("duckmage-calibration-snapshot");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const isFlat = this.plugin.settings.hexOrientation === "flat";
+    // Read phase only — no DOM writes, so offset reads cost a single layout.
+    gridContainer
+      .querySelectorAll<HTMLElement>(".duckmage-hex")
+      .forEach((hex) => {
+        const color = hex.style.backgroundColor;
+        if (!color) return; // empty hex → transparent, nothing to draw
+        let x = 0,
+          y = 0;
+        let cur: HTMLElement | null = hex;
+        while (cur && cur !== gridContainer) {
+          x += cur.offsetLeft;
+          y += cur.offsetTop;
+          cur = cur.offsetParent as HTMLElement | null;
+        }
+        const w = hex.offsetWidth,
+          h = hex.offsetHeight;
+        const pts: [number, number][] = isFlat
+          ? [
+              [w * 0.25, 0], [w * 0.75, 0], [w, h * 0.5],
+              [w * 0.75, h], [w * 0.25, h], [0, h * 0.5],
+            ]
+          : [
+              [w * 0.5, 0], [w, h * 0.25], [w, h * 0.75],
+              [w * 0.5, h], [0, h * 0.75], [0, h * 0.25],
+            ];
+        ctx.beginPath();
+        pts.forEach((p, i) => {
+          const px = p[0] + x,
+            py = p[1] + y;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+      });
+
+    gridContainer.prepend(canvas);
+    this.calSnapshotEl = canvas;
+  }
+
+  private removeCalibrationSnapshot(): void {
+    this.calSnapshotEl?.remove();
+    this.calSnapshotEl = null;
+  }
+
+  /**
+   * Show the colour snapshot during a burst of arrow-key nudges and tear it
+   * down once the keys go quiet. Arrow keys have no mouseup to end on, so —
+   * like zoom's bake-on-quiet — we (re)arm a short settle timer on each nudge;
+   * when it finally fires, the real hex cells come back. Without this, every
+   * nudge (and every key-repeat while held) re-rasterised all 3843 cells.
+   */
+  private markCalibrationActivity(): void {
+    if (!this.calSnapshotEl) {
+      this.buildCalibrationSnapshot();
+      this.viewportEl?.addClass("duckmage-calibrating-drag");
+    }
+    if (this.calActivityTimer !== null)
+      window.clearTimeout(this.calActivityTimer);
+    this.calActivityTimer = window.setTimeout(() => {
+      this.calActivityTimer = null;
+      this.viewportEl?.removeClass("duckmage-calibrating-drag");
+      this.removeCalibrationSnapshot();
+    }, 200);
   }
 
   private fitGridToView(): void {

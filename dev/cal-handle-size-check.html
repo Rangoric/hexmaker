@@ -1,0 +1,46 @@
+<!doctype html>
+<html><head><meta charset="utf-8"/><style>
+  .viewport { position: absolute; top: 100px; left: 100px; transform-origin: 0 0;
+    transform: scale(var(--vp, 1)); }
+  .layer { position: absolute; width: 200px; height: 150px; transform-origin: 0 0;
+    transform: scale(var(--ls, 1)); background: #357; }
+  /* Mirror of styles.css handle rule (size + counter-scale). */
+  .handle { position: absolute; width: 18px; height: 18px; background: red;
+    transform-origin: center; }
+  .handle.nw { top: -9px; left: -9px; transform: scale(var(--cal, 1)); }
+</style></head>
+<body>
+<div id="root"></div>
+<script>
+  const root = document.getElementById("root");
+  // OLD behaviour: cal = 1/zoom (ignores layer scale). NEW: cal = 1/(zoom*layerScale).
+  function build(zoom, layerScale, mode) {
+    root.replaceChildren();
+    const vp = document.createElement("div"); vp.className = "viewport";
+    vp.style.setProperty("--vp", zoom);
+    const layer = document.createElement("div"); layer.className = "layer";
+    layer.style.setProperty("--ls", layerScale);
+    const cal = mode === "new" ? 1 / (zoom * layerScale) : 1 / zoom;
+    layer.style.setProperty("--cal", cal);
+    const handle = document.createElement("div"); handle.className = "handle nw";
+    layer.appendChild(handle); vp.appendChild(layer); root.appendChild(vp);
+    void document.body.offsetHeight;
+    return handle.getBoundingClientRect().width; // on-screen px
+  }
+  window.__check = () => {
+    const cases = [
+      ["bg image zoomed out", 0.3, 4.84],
+      ["bg image zoom 1",     1.0, 4.84],
+      ["bg image zoomed in",  2.5, 4.84],
+      ["grid zoomed out",     0.3, 0.35],
+      ["grid zoom 1",         1.0, 0.35],
+      ["grid zoomed in",      2.5, 0.35],
+    ];
+    return cases.map(([name, z, ls]) => ({
+      name, zoom: z, layerScale: ls,
+      oldPx: +build(z, ls, "old").toFixed(1),
+      newPx: +build(z, ls, "new").toFixed(1),
+    }));
+  };
+  document.title = "ready";
+</script></body></html>
