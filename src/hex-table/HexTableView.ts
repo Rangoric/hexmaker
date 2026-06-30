@@ -5,6 +5,7 @@ import {
   VIEW_TYPE_HEX_TABLE,
   VIEW_TYPE_RANDOM_TABLES,
 } from "../constants";
+import type { TerrainColor } from "../types";
 import { getAllSectionData } from "../sections";
 import { getTerrainFromFile } from "../frontmatter";
 import { normalizeFolder, makeTableTemplate } from "../utils";
@@ -39,6 +40,11 @@ export class HexTableView extends ItemView {
   private scrollEl: HTMLElement | null = null;
   private updateTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private loadGeneration = 0;
+  // Memoised name→entry palette maps, keyed by region. fillRow runs once per
+  // hex per load (skeleton + fill batch) so rebuilding this Map inline cost
+  // O(rows × palette) Map insertions; memoising makes it O(palette) per region.
+  // Cleared at the start of every loadTable so palette edits take effect.
+  private paletteMapCache = new Map<string, Map<string, TerrainColor>>();
 
   // Sort state
   private sortPrimary: "x" | "y" = "x";
@@ -361,6 +367,7 @@ export class HexTableView extends ItemView {
   async loadTable(): Promise<void> {
     if (!this.scrollEl) return;
     const gen = ++this.loadGeneration;
+    this.paletteMapCache.clear();
 
     this.scrollEl.empty();
     this.scrollEl.createSpan({
@@ -477,12 +484,15 @@ export class HexTableView extends ItemView {
         slice.map((f) => getAllSectionData(this.app, f.path)),
       );
       if (gen !== this.loadGeneration) return false;
+      const batchRows: HTMLTableRowElement[] = [];
       for (let j = 0; j < slice.length; j++) {
         const { path, x, y, region } = slice[j];
         const { text, links } = sectionData[j];
         this.fillRow(rows[start + j], path, x, y, region, text, links);
+        batchRows.push(rows[start + j]);
       }
-      this.applyFilters();
+      // Only the rows we just filled gained data — re-filter just those.
+      this.applyFilters(batchRows);
       return true;
     };
 
@@ -555,12 +565,19 @@ export class HexTableView extends ItemView {
     this.applyFilters();
   }
 
-  private applyFilters(): void {
+  /**
+   * Re-evaluate row visibility against the current filters. Each row's
+   * visibility depends only on its own dataset, so a `rows` subset can be
+   * passed to filter just newly-filled rows — `loadTable` does this after each
+   * fill batch so Phase 2 stays O(rows) total instead of O(rows × batches).
+   * Called with no argument (all rows) when the filter state itself changes.
+   */
+  private applyFilters(rows?: Iterable<HTMLTableRowElement>): void {
     if (!this.scrollEl) return;
     const tbody = this.scrollEl.querySelector("tbody");
     if (!tbody) return;
 
-    for (const tr of Array.from(tbody.rows)) {
+    for (const tr of rows ?? Array.from(tbody.rows)) {
       const x = Number(tr.dataset.hexX);
       const y = Number(tr.dataset.hexY);
       const terrain = tr.dataset.terrain ?? "";
@@ -594,6 +611,22 @@ export class HexTableView extends ItemView {
 
   // ── Row rendering ─────────────────────────────────────────────────────────
 
+  /**
+   * Name→entry palette map for a region, memoised for the current load.
+   * First-wins on duplicate names — matches HexMapView's `.find()` behaviour.
+   */
+  private getPaletteMap(region: string): Map<string, TerrainColor> {
+    let m = this.paletteMapCache.get(region);
+    if (!m) {
+      m = new Map<string, TerrainColor>();
+      for (const p of this.plugin.getMapPalette(region)) {
+        if (!m.has(p.name)) m.set(p.name, p);
+      }
+      this.paletteMapCache.set(region, m);
+    }
+    return m;
+  }
+
   private fillRow(
     tr: HTMLTableRowElement,
     path: string,
@@ -605,13 +638,7 @@ export class HexTableView extends ItemView {
   ): void {
     tr.empty();
 
-    const palette = this.plugin.getMapPalette(region);
-    // First-wins on duplicate-named palette entries — matches HexMapView's
-    // .find() behaviour.
-    const paletteMap = new Map<string, typeof palette[number]>();
-    for (const p of palette) {
-      if (!paletteMap.has(p.name)) paletteMap.set(p.name, p);
-    }
+    const paletteMap = this.getPaletteMap(region);
     const terrainName = getTerrainFromFile(this.app, path);
 
     const hasTown = (links.get("towns") ?? []).length > 0;

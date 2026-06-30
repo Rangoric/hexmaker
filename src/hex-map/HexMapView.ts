@@ -4,7 +4,10 @@ import { normalizeFolder, getIconUrl, createIconEl } from "../utils";
 import {
   getTerrainFromFile,
   getIconOverrideFromFile,
-  getGmIconsFromFile,
+  getFrontMatter,
+  terrainFromFm,
+  iconOverrideFromFm,
+  gmIconsFromFm,
   setGmIconsInFile,
   setTerrainInFile,
   setIconOverrideInFile,
@@ -178,6 +181,10 @@ export class HexMapView extends ItemView {
   private pendingZoomPivot: { cx: number; cy: number } | null = null;
   private zoomFrameId: number | null = null;
   private viewportEl: HTMLElement | null = null;
+  // Cached bg-image layer reused across renders (see renderBackgroundImage) so
+  // renderGrid()'s viewportEl.empty() doesn't force an image re-decode each time.
+  private bgLayerEl: HTMLElement | null = null;
+  private bgLayerSrc: string | null = null;
   private drawingMode:
     | "path"
     | "terrain"
@@ -2037,16 +2044,42 @@ export class HexMapView extends ItemView {
     const bg = map.backgroundImage;
     viewportEl.toggleClass("has-bg-image", !!bg?.path);
     viewportEl.toggleClass("is-bg-calibrating", this.bgCalibrating && !!bg?.path);
-    if (!bg?.path) return;
+    if (!bg?.path) {
+      this.bgLayerEl = null;
+      this.bgLayerSrc = null;
+      return;
+    }
     const file = this.app.vault.getAbstractFileByPath(bg.path);
-    if (!(file instanceof TFile)) return;
+    if (!(file instanceof TFile)) {
+      this.bgLayerEl = null;
+      this.bgLayerSrc = null;
+      return;
+    }
+
+    const src = this.app.vault.adapter.getResourcePath(bg.path);
+
+    // Reuse the cached layer+img across renders when the image is unchanged.
+    // renderGrid() calls viewportEl.empty() every render, which detaches the
+    // layer but leaves our JS reference (and its already-decoded bitmap) alive.
+    // Re-attaching it avoids recreating the <img> and forcing the browser to
+    // re-decode + re-rasterise the (large, scaled) image on every single
+    // render — the churn that makes editing a bg-image map sluggish. We skip
+    // reuse during calibration so its drag/wheel handlers are wired exactly as
+    // before (fresh layer each render, as the old code did).
+    if (this.bgLayerEl && this.bgLayerSrc === src && !this.bgCalibrating) {
+      viewportEl.prepend(this.bgLayerEl);
+      this.applyBgLayerVars(this.bgLayerEl, bg);
+      return;
+    }
 
     const layer = viewportEl.createDiv({ cls: "duckmage-bg-image-layer" });
     this.applyBgLayerVars(layer, bg);
     const img = layer.createEl("img", { cls: "duckmage-bg-image" });
-    img.src = this.app.vault.adapter.getResourcePath(bg.path);
+    img.src = src;
     img.alt = "";
     img.draggable = false;
+    this.bgLayerEl = layer;
+    this.bgLayerSrc = src;
 
     if (this.bgCalibrating) this.attachCalibrationHandlers(layer, map);
   }
@@ -2818,9 +2851,15 @@ export class HexMapView extends ItemView {
     const addHex = (parent: HTMLElement, x: number, y: number) => {
       const path = folder ? `${folder}/${x}_${y}.md` : `${x}_${y}.md`;
       const exists = existingHexPaths.has(path);
+      // Fetch this hex's frontmatter ONCE; terrain/icon/gm-icons all derive
+      // from it. Calling getTerrainFromFile + getIconOverrideFromFile +
+      // getGmIconsFromFile separately would re-run getAbstractFileByPath +
+      // getFileCache three times per hex (~11.5k redundant lookups on a
+      // 3843-hex map).
+      const fm = getFrontMatter(this.app, path);
       const terrainKey = terrainOverrides?.has(path)
         ? terrainOverrides.get(path)!
-        : getTerrainFromFile(this.app, path);
+        : terrainFromFm(fm);
       const terrainEntry = terrainKey != null ? paletteByName.get(terrainKey) : undefined;
 
       const hexEl = parent.createDiv({
@@ -2829,11 +2868,11 @@ export class HexMapView extends ItemView {
       });
       hexEl.tabIndex = -1;
 
-      if (terrainEntry?.color) hexEl.style.backgroundColor = terrainEntry.color;
+      this.setHexColor(hexEl, terrainEntry?.color);
 
       const iconOverride = iconOverrides?.has(path)
         ? iconOverrides.get(path)!
-        : getIconOverrideFromFile(this.app, path);
+        : iconOverrideFromFm(fm);
       if (iconOverride) {
         // Render terrain icon as hidden fallback — shown by CSS when overrides are off
         if (terrainEntry?.icon) {
@@ -2874,7 +2913,7 @@ export class HexMapView extends ItemView {
       // list lands on the dataset immediately, no race.
       const gmIcons = gmIconsOverrides?.has(path)
         ? gmIconsOverrides.get(path)!
-        : getGmIconsFromFile(this.app, path);
+        : gmIconsFromFm(fm);
       if (gmIcons.length > 0) hexEl.dataset.gmIcons = JSON.stringify(gmIcons);
 
       if (this.selectedHex?.x === x && this.selectedHex?.y === y)
@@ -3232,7 +3271,7 @@ export class HexMapView extends ItemView {
         `[data-x="${hx}"][data-y="${hy}"]`,
       );
       if (hexEl) {
-        hexEl.style.backgroundColor = entry?.color ?? "";
+        this.setHexColor(hexEl, entry?.color);
         hexEl.querySelector(".duckmage-hex-icon")?.remove();
         hexEl.querySelector(".duckmage-hex-dot")?.remove();
         if (entry?.icon) {
@@ -3567,6 +3606,24 @@ export class HexMapView extends ItemView {
   // writes: the in-flight one and then the final value. No writes are lost; no
   // stale intermediate value can overwrite a newer one.
 
+  /**
+   * Set (or clear) a hex cell's terrain background color, keeping the
+   * `duckmage-hex-painted` marker class in sync. The bg-image stylesheet uses
+   * that class — rather than a `:not([style*="background-color"])`
+   * attribute-substring selector, which is measurably slower for the engine to
+   * match across the thousands of hexes on a large map — to decide which empty
+   * hexes fall transparent over the image.
+   */
+  private setHexColor(hexEl: HTMLElement, color: string | undefined | null): void {
+    if (color) {
+      hexEl.style.backgroundColor = color;
+      hexEl.addClass("duckmage-hex-painted");
+    } else {
+      hexEl.style.removeProperty("background-color");
+      hexEl.removeClass("duckmage-hex-painted");
+    }
+  }
+
   private applyTerrainToHexEl(
     hexEl: HTMLElement,
     terrain: string | null,
@@ -3574,7 +3631,7 @@ export class HexMapView extends ItemView {
     const palette = this.plugin.getMapPalette(this.activeMapName);
     const entry =
       terrain != null ? palette.find((p) => p.name === terrain) : undefined;
-    hexEl.style.backgroundColor = entry?.color ?? "";
+    this.setHexColor(hexEl, entry?.color);
     hexEl.querySelector(".duckmage-hex-icon")?.remove();
     hexEl.querySelector(".duckmage-hex-dot")?.remove();
     if (entry?.icon) {

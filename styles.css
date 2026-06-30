@@ -268,9 +268,12 @@
 .duckmage-calibration-handle-se { bottom: -9px; right: -9px; cursor: nwse-resize; transform: scale(var(--duckmage-cal-scale, 1)); }
 
 /* When a background image is present, hexes without a terrain become visually
-   transparent so the underlying image shows through. Hexes with a terrain
-   color set inline (via style="background-color: …") render normally. */
-.duckmage-hex-map-viewport.has-bg-image .duckmage-hex:not([style*="background-color"]) {
+   transparent so the underlying image shows through. Hexes with a terrain are
+   tagged `.duckmage-hex-painted` (see setHexColor) and render normally. A class
+   selector is used here rather than a `:not([style*="background-color"])`
+   attribute-substring match because the engine matches it far more cheaply
+   across the thousands of hexes on a large map. */
+.duckmage-hex-map-viewport.has-bg-image .duckmage-hex:not(.duckmage-hex-painted) {
     background-color: transparent;
 }
 

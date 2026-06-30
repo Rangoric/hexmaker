@@ -1,7 +1,7 @@
 import { describe, it, mock } from "node:test";
 import expect from "expect";
 import { TFile } from "obsidian";
-import { getTerrainFromFile, setTerrainInFile, getIconOverrideFromFile, setIconOverrideInFile, getSubmapFromFile, setSubmapInFile } from "../src/frontmatter";
+import { getTerrainFromFile, setTerrainInFile, getIconOverrideFromFile, setIconOverrideInFile, getSubmapFromFile, setSubmapInFile, terrainFromFm, iconOverrideFromFm, gmIconsFromFm } from "../src/frontmatter";
 
 /** Build a minimal mock App backed by an in-memory string. */
 function makeApp(filePath: string, initialContent: string) {
@@ -357,5 +357,49 @@ describe("updateSubmapReferences", () => {
 		}
 
 		expect(getContent("world/hexes/map-a/1_1.md")).toContain("duckmage-submap: other-map");
+	});
+});
+
+// ── Pure frontmatter extractors (used by the hex-grid render loop, which
+//    fetches frontmatter once per hex and feeds it to all three) ──────────────
+
+describe("terrainFromFm", () => {
+	it("returns the terrain string", () => {
+		expect(terrainFromFm({ terrain: "forest" } as any)).toBe("forest");
+	});
+	it("returns null for missing/non-string/nullish frontmatter", () => {
+		expect(terrainFromFm({ icon: "x.png" } as any)).toBeNull();
+		expect(terrainFromFm({ terrain: 3 } as any)).toBeNull();
+		expect(terrainFromFm(null)).toBeNull();
+		expect(terrainFromFm(undefined)).toBeNull();
+	});
+});
+
+describe("iconOverrideFromFm", () => {
+	it("returns the icon string", () => {
+		expect(iconOverrideFromFm({ icon: "castle.png" } as any)).toBe("castle.png");
+	});
+	it("returns null for missing/non-string/nullish frontmatter", () => {
+		expect(iconOverrideFromFm({ terrain: "forest" } as any)).toBeNull();
+		expect(iconOverrideFromFm({ icon: true } as any)).toBeNull();
+		expect(iconOverrideFromFm(null)).toBeNull();
+	});
+});
+
+describe("gmIconsFromFm", () => {
+	it("returns the gm-icons array, filtered to strings", () => {
+		expect(gmIconsFromFm({ "gm-icons": ["a.png", "b.png"] } as any)).toEqual(["a.png", "b.png"]);
+		expect(gmIconsFromFm({ "gm-icons": ["a.png", 2, null, "b.png"] } as any)).toEqual(["a.png", "b.png"]);
+	});
+	it("falls back to legacy single gm-icon", () => {
+		expect(gmIconsFromFm({ "gm-icon": "legacy.png" } as any)).toEqual(["legacy.png"]);
+	});
+	it("prefers gm-icons array over legacy gm-icon", () => {
+		expect(gmIconsFromFm({ "gm-icons": ["a.png"], "gm-icon": "legacy.png" } as any)).toEqual(["a.png"]);
+	});
+	it("returns [] for missing/nullish frontmatter", () => {
+		expect(gmIconsFromFm({} as any)).toEqual([]);
+		expect(gmIconsFromFm(null)).toEqual([]);
+		expect(gmIconsFromFm(undefined)).toEqual([]);
 	});
 });

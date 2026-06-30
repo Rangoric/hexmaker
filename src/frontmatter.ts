@@ -59,9 +59,33 @@ export function getFrontMatter(app: App, path: string) {
   return frontmatter;
 }
 
+/**
+ * Pure extractors that read already-fetched frontmatter. The hex-grid render
+ * loop fetches frontmatter ONCE per hex (getAbstractFileByPath + getFileCache)
+ * and feeds it to all three — instead of calling the three `*FromFile` helpers
+ * below, which each re-fetch the same cache (3× the lookups per hex, ~11.5k
+ * redundant ops on a 3843-hex map).
+ */
+export function terrainFromFm(fm: Frontmatter | null | undefined): string | null {
+  return typeof fm?.terrain === "string" ? fm.terrain : null;
+}
+
+export function iconOverrideFromFm(fm: Frontmatter | null | undefined): string | null {
+  return typeof fm?.icon === "string" ? fm.icon : null;
+}
+
+export function gmIconsFromFm(fm: Frontmatter | null | undefined): string[] {
+  if (!fm) return [];
+  const arr = fm["gm-icons"];
+  if (Array.isArray(arr)) {
+    return arr.filter((v): v is string => typeof v === "string");
+  }
+  const legacy = fm["gm-icon"];
+  return typeof legacy === "string" ? [legacy] : [];
+}
+
 export function getTerrainFromFile(app: App, path: string): string | null {
-  const terrain = getFrontMatter(app, path)?.terrain;
-  return typeof terrain === "string" ? terrain : null;
+  return terrainFromFm(getFrontMatter(app, path));
 }
 
 export async function setTerrainInFile(
@@ -224,8 +248,7 @@ export async function setRegionStyleInFile(
 }
 
 export function getIconOverrideFromFile(app: App, path: string): string | null {
-  const icon = getFrontMatter(app, path)?.icon;
-  return typeof icon === "string" ? icon : null;
+  return iconOverrideFromFm(getFrontMatter(app, path));
 }
 
 export async function setIconOverrideInFile(
@@ -263,14 +286,7 @@ export function getGmIconFromFile(app: App, path: string): string | null {
  * singular key `gm-icon` if present so existing notes Just Work.
  */
 export function getGmIconsFromFile(app: App, path: string): string[] {
-  const fm = getFrontMatter(app, path);
-  if (!fm) return [];
-  const arr = fm["gm-icons"];
-  if (Array.isArray(arr)) {
-    return arr.filter((v): v is string => typeof v === "string");
-  }
-  const legacy = fm["gm-icon"];
-  return typeof legacy === "string" ? [legacy] : [];
+  return gmIconsFromFm(getFrontMatter(app, path));
 }
 
 /**
