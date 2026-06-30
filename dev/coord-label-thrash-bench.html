@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; font-family: monospace; }
+  .viewport { position: relative; will-change: transform; }
+  .bg-layer { position: absolute; top: 0; left: 0; transform-origin: 0 0; transform: scale(4.84); z-index: 0; pointer-events: none; }
+  .bg-layer img { display: block; max-width: none; max-height: none; }
+  .grid { position: relative; display: flex; flex-direction: row; align-items: flex-start; }
+  .col { display: flex; flex-direction: column; margin-right: -1.1em; }
+  .col-offset { margin-top: 1.9em; }
+  .hex {
+    width: 4.4em; height: 3.81em; font-size: 8px;
+    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+    background-color: #2a4d3a; position: relative;
+  }
+  .coord-labels-layer { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
+  .coord-label-html {
+    position: absolute;
+    left: var(--duckmage-coord-x, 0%); top: var(--duckmage-coord-y, 0%);
+    transform: translate(-50%, -50%);
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  const COLS = 63, ROWS = 61;          // chult map dimensions
+  const HEX_COUNT = COLS * ROWS;
+  const root = document.getElementById("root");
+
+  const c = document.createElement("canvas");
+  c.width = 1107; c.height = 1499;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#357"; ctx.fillRect(0, 0, 1107, 1499);
+  const IMG_URL = c.toDataURL("image/png");
+
+  let grid, viewport;
+  function buildGrid(withBg) {
+    root.replaceChildren();
+    viewport = document.createElement("div");
+    viewport.className = "viewport";
+    if (withBg) {
+      const bg = document.createElement("div");
+      bg.className = "bg-layer";
+      const img = document.createElement("img");
+      img.src = IMG_URL;
+      bg.appendChild(img);
+      viewport.appendChild(bg);
+    }
+    grid = document.createElement("div");
+    grid.className = "grid";
+    for (let x = 0; x < COLS; x++) {
+      const col = document.createElement("div");
+      col.className = "col" + (x % 2 ? " col-offset" : "");
+      for (let y = 0; y < ROWS; y++) {
+        const hex = document.createElement("div");
+        hex.className = "hex";
+        hex.dataset.x = x; hex.dataset.y = y;
+        col.appendChild(hex);
+      }
+      grid.appendChild(col);
+    }
+    viewport.appendChild(grid);
+    root.appendChild(viewport);
+    void document.body.offsetHeight; // ensure laid out before we measure
+  }
+
+  // ── CURRENT code: read offset* then write a label, interleaved per hex ──
+  function thrashing() {
+    grid.querySelector(".coord-labels-layer")?.remove();
+    const gw = grid.offsetWidth || 1, gh = grid.offsetHeight || 1;
+    const layer = grid.appendChild(document.createElement("div"));
+    layer.className = "coord-labels-layer";
+    grid.querySelectorAll(".hex").forEach((hexEl) => {
+      let ox = hexEl.offsetWidth / 2, oy = hexEl.offsetHeight / 2;   // READ
+      let cur = hexEl;
+      while (cur && cur !== grid) { ox += cur.offsetLeft; oy += cur.offsetTop; cur = cur.offsetParent; }
+      const label = layer.appendChild(document.createElement("div")); // WRITE
+      label.className = "coord-label-html";
+      label.textContent = hexEl.dataset.x + "," + hexEl.dataset.y;
+      label.style.setProperty("--duckmage-coord-x", ((ox / gw) * 100).toFixed(3) + "%");
+      label.style.setProperty("--duckmage-coord-y", ((oy / gh) * 100).toFixed(3) + "%");
+    });
+  }
+
+  // ── FIXED code: read ALL positions first, then write ALL labels ──
+  function batched() {
+    grid.querySelector(".coord-labels-layer")?.remove();
+    const gw = grid.offsetWidth || 1, gh = grid.offsetHeight || 1;
+    const pos = [];
+    grid.querySelectorAll(".hex").forEach((hexEl) => {                // READ phase
+      let ox = hexEl.offsetWidth / 2, oy = hexEl.offsetHeight / 2;
+      let cur = hexEl;
+      while (cur && cur !== grid) { ox += cur.offsetLeft; oy += cur.offsetTop; cur = cur.offsetParent; }
+      pos.push({ t: hexEl.dataset.x + "," + hexEl.dataset.y, ox, oy });
+    });
+    const layer = grid.appendChild(document.createElement("div"));    // WRITE phase
+    layer.className = "coord-labels-layer";
+    for (const p of pos) {
+      const label = layer.appendChild(document.createElement("div"));
+      label.className = "coord-label-html";
+      label.textContent = p.t;
+      label.style.setProperty("--duckmage-coord-x", ((p.ox / gw) * 100).toFixed(3) + "%");
+      label.style.setProperty("--duckmage-coord-y", ((p.oy / gh) * 100).toFixed(3) + "%");
+    }
+  }
+
+  function time(fn, withBg, iters) {
+    const samples = [];
+    for (let i = 0; i < iters; i++) {
+      buildGrid(withBg);
+      const t0 = performance.now();
+      fn();
+      void document.body.offsetHeight; // force the final flush
+      samples.push(performance.now() - t0);
+    }
+    samples.sort((a, b) => a - b);
+    return samples[Math.floor(samples.length / 2)];
+  }
+
+  window.__hexCount = HEX_COUNT;
+  // One config per call so each puppeteer evaluate stays short (the thrash
+  // path on a bg map can take seconds per iteration).
+  window.__measure = (which, withBg, iters) =>
+    time(which === "thrash" ? thrashing : batched, withBg, iters);
+  document.title = "ready";
+</script>
+</body>
+</html>

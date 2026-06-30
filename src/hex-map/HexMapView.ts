@@ -4462,14 +4462,17 @@ export class HexMapView extends ItemView {
       ?.remove();
     const gw = gridContainer.offsetWidth || 1;
     const gh = gridContainer.offsetHeight || 1;
-    const layer = gridContainer.createDiv({
-      cls: "duckmage-coord-labels-layer",
-    });
+
+    // CRITICAL: read every hex's offset geometry FIRST, into a plain array,
+    // before creating any label DOM. Interleaving offset reads with DOM writes
+    // forces a full synchronous layout per hex — O(n²) layout thrash that
+    // stalled opening large maps for ~20s at chult's 3843 hexes (see
+    // dev/coord-label-thrash-bench). With reads batched ahead of writes the
+    // browser flushes layout once, dropping this to ~100ms.
+    const placements: { x: number; y: number; ox: number; oy: number }[] = [];
     gridContainer
       .querySelectorAll<HTMLElement>(".duckmage-hex")
       .forEach((hexEl) => {
-        const x = Number(hexEl.dataset.x);
-        const y = Number(hexEl.dataset.y);
         // Hex center in gridContainer-local pixel coords (unaffected by
         // CSS transform; offsetParent walks stop at gridContainer).
         let ox = hexEl.offsetWidth / 2;
@@ -4480,15 +4483,28 @@ export class HexMapView extends ItemView {
           oy += cur.offsetTop;
           cur = cur.offsetParent as HTMLElement | null;
         }
-        const label = layer.createDiv({
-          cls: "duckmage-coord-label-html",
-          text: `${x},${y}`,
-        });
-        label.setCssProps({
-          "--duckmage-coord-x": `${((ox / gw) * 100).toFixed(3)}%`,
-          "--duckmage-coord-y": `${((oy / gh) * 100).toFixed(3)}%`,
+        placements.push({
+          x: Number(hexEl.dataset.x),
+          y: Number(hexEl.dataset.y),
+          ox,
+          oy,
         });
       });
+
+    // Write phase: no offset reads here, so layout stays clean throughout.
+    const layer = gridContainer.createDiv({
+      cls: "duckmage-coord-labels-layer",
+    });
+    for (const { x, y, ox, oy } of placements) {
+      const label = layer.createDiv({
+        cls: "duckmage-coord-label-html",
+        text: `${x},${y}`,
+      });
+      label.setCssProps({
+        "--duckmage-coord-x": `${((ox / gw) * 100).toFixed(3)}%`,
+        "--duckmage-coord-y": `${((oy / gh) * 100).toFixed(3)}%`,
+      });
+    }
   }
 
   private updatePathOverlay(): void {
