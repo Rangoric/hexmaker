@@ -20,6 +20,8 @@ import {
   buildMeanderPts,
   smoothPath,
   sharpPath,
+  offsetPolyline,
+  computeLaneOffsets,
 } from "../hex-map/hexGeometry";
 import { ensureExportFolder } from "./exportFolder";
 import {
@@ -356,30 +358,42 @@ export async function renderMapToPngBlob(
     );
   }
 
-  // Paths
+  // Paths — flatten in draw order, then offset chains that share a route into
+  // parallel lanes so a road and a river on the same hexes render side by side
+  // (issue #30), matching HexMapView's on-screen behaviour.
   if (showPaths) {
-    for (const pt of plugin.settings.pathTypes) {
+    const renderables = plugin.settings.pathTypes.flatMap((pt) =>
+      map.pathChains
+        .filter((c) => c.typeName === pt.name)
+        .map((chain) => ({ chain, pt })),
+    );
+    const laneOffset = computeLaneOffsets(
+      renderables.map((r) => ({
+        hexes: r.chain.hexes,
+        width: r.pt.width,
+        typeName: r.pt.name,
+      })),
+    );
+    renderables.forEach(({ chain, pt }, idx) => {
       const dash = dashFor(pt.lineStyle);
-      const chains = map.pathChains.filter((c) => c.typeName === pt.name);
-      for (const chain of chains) {
-        let pts;
-        let smooth: boolean;
-        if (pt.routing === "edge") {
-          pts = buildEdgePts(chain.hexes, shifted, isFlat, R);
-          smooth = false;
-        } else if (pt.routing === "meander") {
-          pts = buildMeanderPts(chain.hexes, shifted);
-          smooth = true;
-        } else {
-          pts = chain.hexes
-            .map((k) => shifted.get(k))
-            .filter((p): p is { cx: number; cy: number } => !!p);
-          smooth = true;
-        }
-        if (pts.length < 2) continue;
-        drawPath(ctx, pts, pt.color, pt.width, dash, smooth);
+      let pts;
+      let smooth: boolean;
+      if (pt.routing === "edge") {
+        pts = buildEdgePts(chain.hexes, shifted, isFlat, R);
+        smooth = false;
+      } else if (pt.routing === "meander") {
+        pts = buildMeanderPts(chain.hexes, shifted);
+        smooth = true;
+      } else {
+        pts = chain.hexes
+          .map((k) => shifted.get(k))
+          .filter((p): p is { cx: number; cy: number } => !!p);
+        smooth = true;
       }
-    }
+      if (pts.length < 2) return;
+      pts = offsetPolyline(pts, laneOffset[idx]);
+      drawPath(ctx, pts, pt.color, pt.width, dash, smooth);
+    });
   }
 
   return canvas.convertToBlob({ type: "image/png" });

@@ -29,6 +29,8 @@ import {
   hexNeighbors,
   smoothPath,
   sharpPath,
+  offsetPolyline,
+  computeLaneOffsets,
   buildMeanderPts,
   buildEdgePts,
 } from "./hexGeometry";
@@ -2568,6 +2570,17 @@ export class HexMapView extends ItemView {
     // (instead of baking it into font-size) so the SVG outline overlay,
     // the hex grid, and the bg image all scale together as a single unit.
     if (this.bgCalibrating) return;
+    // Same reasoning whenever a background image is present, but permanently:
+    // baking grows the em-based hex grid via font-size while the px-based bg
+    // image is grown through a separate `* F` multiply (see bakeZoom). Those
+    // two paths only match under exact arithmetic — device-pixel snapping of
+    // the em layout on fractional/Retina DPR (e.g. macOS) rounds differently
+    // than the smoothly-scaled bg transform, so the grid visibly jumps off the
+    // image the instant zoom settles. Keeping zoom as a single composited
+    // viewport scale() makes grid + bg scale as one unit → no drift on any DPR.
+    // Trade-off: hexes upscale via the compositor (slightly soft) at high zoom
+    // over a bg, which is acceptable and matches calibration-mode behaviour.
+    if (this.getActiveMap().backgroundImage) return;
     if (this.zoomSettleTimer !== null) window.clearTimeout(this.zoomSettleTimer);
     // 80ms ≈ 5 frames of quiet — short enough that coords un-blur quickly
     // after a scroll stops, long enough that a continuous wheel stream
@@ -4261,30 +4274,46 @@ export class HexMapView extends ItemView {
     const isFlat = this.plugin.settings.hexOrientation === "flat";
     const hexRadius = isFlat ? hexW / 2 : hexH / 2;
 
-    // Draw all path types in definition order
-    for (const pt of this.plugin.settings.pathTypes) {
-      const typeChains = region.pathChains.filter(
-        (c) => c.typeName === pt.name,
-      );
+    // Flatten every chain into a render list in path-type definition order,
+    // pairing each chain with its resolved type. Stable order = draw order.
+    const renderables = this.plugin.settings.pathTypes.flatMap((pt) =>
+      region.pathChains
+        .filter((c) => c.typeName === pt.name)
+        .map((chain) => ({ chain, pt })),
+    );
+
+    // Assign each chain a perpendicular "lane" offset so chains that share a
+    // route (e.g. a road and a river on the same hexes) render side by side
+    // instead of one stroke covering the other (issue #30). Chains that don't
+    // share any segment with another keep offset 0 → pixel-identical output.
+    const laneOffset = computeLaneOffsets(
+      renderables.map((r) => ({
+        hexes: r.chain.hexes,
+        width: r.pt.width,
+        typeName: r.pt.name,
+      })),
+    );
+
+    renderables.forEach(({ chain, pt }, idx) => {
       const dash = DASH_ARRAYS[pt.lineStyle] ?? "";
-      for (const chain of typeChains) {
-        let pts: { cx: number; cy: number }[];
-        let smooth: boolean;
-        if (pt.routing === "meander") {
-          pts = buildMeanderPts(chain.hexes, centerMap);
-          smooth = true;
-        } else if (pt.routing === "edge") {
-          pts = buildEdgePts(chain.hexes, centerMap, isFlat, hexRadius);
-          smooth = false;
-        } else {
-          pts = chain.hexes
-            .map((k) => centerMap.get(k))
-            .filter((p): p is { cx: number; cy: number } => !!p);
-          smooth = true;
-        }
-        if (pts.length >= 2) appendPath(pts, pt.color, pt.width, dash, smooth);
+      let pts: { cx: number; cy: number }[];
+      let smooth: boolean;
+      if (pt.routing === "meander") {
+        pts = buildMeanderPts(chain.hexes, centerMap);
+        smooth = true;
+      } else if (pt.routing === "edge") {
+        pts = buildEdgePts(chain.hexes, centerMap, isFlat, hexRadius);
+        smooth = false;
+      } else {
+        pts = chain.hexes
+          .map((k) => centerMap.get(k))
+          .filter((p): p is { cx: number; cy: number } => !!p);
+        smooth = true;
       }
-    }
+      if (pts.length < 2) return;
+      pts = offsetPolyline(pts, laneOffset[idx]);
+      appendPath(pts, pt.color, pt.width, dash, smooth);
+    });
 
     // Small circle to mark the active endpoint (only visible in path mode)
     if (this.drawingMode === "path" && this.activePathEnd) {

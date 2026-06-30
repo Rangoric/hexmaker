@@ -5,6 +5,8 @@ import {
   hexCenter,
   hexPolygonPoints,
   gridBoundingBox,
+  offsetPolyline,
+  computeLaneOffsets,
 } from "../src/hex-map/hexGeometry";
 
 const SQRT3 = Math.sqrt(3);
@@ -134,5 +136,127 @@ describe("gridBoundingBox", () => {
     // Height should be roughly 10 * (√3·R) + h/2 stagger = 10 * 34.64 + 17.3 ≈ 364
     expect(height).toBeGreaterThan(330);
     expect(height).toBeLessThan(400);
+  });
+});
+
+describe("offsetPolyline", () => {
+  it("returns the input unchanged when offset is 0", () => {
+    const pts = [
+      { cx: 0, cy: 0 },
+      { cx: 10, cy: 0 },
+    ];
+    expect(offsetPolyline(pts, 0)).toBe(pts);
+  });
+
+  it("returns the input unchanged for fewer than 2 points", () => {
+    const pts = [{ cx: 5, cy: 5 }];
+    expect(offsetPolyline(pts, 4)).toBe(pts);
+  });
+
+  it("shifts a horizontal line perpendicular (downward in screen coords)", () => {
+    // Tangent +x → perpendicular (-ty, tx) = (0, +1) → shifts +y.
+    const out = offsetPolyline(
+      [
+        { cx: 0, cy: 0 },
+        { cx: 10, cy: 0 },
+        { cx: 20, cy: 0 },
+      ],
+      3,
+    );
+    out.forEach((p) => expect(close(p.cy, 3)).toBe(true));
+    expect(close(out[0].cx, 0)).toBe(true);
+    expect(close(out[2].cx, 20)).toBe(true);
+  });
+
+  it("puts opposite-direction chains on opposite sides for matching offsets", () => {
+    const forward = [
+      { cx: 0, cy: 0 },
+      { cx: 10, cy: 0 },
+    ];
+    const backward = [
+      { cx: 10, cy: 0 },
+      { cx: 0, cy: 0 },
+    ];
+    // Same geometric route, stored reversed. With the SAME offset value the
+    // canonicalised perpendicular must land them on the same physical side.
+    const a = offsetPolyline(forward, 3);
+    const b = offsetPolyline(backward, 3);
+    a.forEach((p) => expect(close(p.cy, 3)).toBe(true));
+    b.forEach((p) => expect(close(p.cy, 3)).toBe(true));
+  });
+});
+
+describe("computeLaneOffsets", () => {
+  it("returns all-zero for fewer than 2 chains", () => {
+    expect(computeLaneOffsets([])).toEqual([]);
+    expect(
+      computeLaneOffsets([
+        { hexes: ["0_0", "1_0"], width: 4, typeName: "river" },
+      ]),
+    ).toEqual([0]);
+  });
+
+  it("leaves non-overlapping chains at offset 0", () => {
+    const out = computeLaneOffsets([
+      { hexes: ["0_0", "1_0"], width: 4, typeName: "road" },
+      { hexes: ["5_5", "6_5"], width: 4, typeName: "river" },
+    ]);
+    expect(out).toEqual([0, 0]);
+  });
+
+  it("splits two DIFFERENT-type chains sharing a segment into symmetric lanes", () => {
+    const out = computeLaneOffsets([
+      { hexes: ["0_0", "1_0", "2_0"], width: 4, typeName: "road" },
+      { hexes: ["0_0", "1_0", "2_0"], width: 4, typeName: "river" },
+    ]);
+    // 2 distinct types, gap = maxWidth(4) + 2 = 6, mid = 0.5 → offsets -3, +3.
+    expect(out).toEqual([-3, 3]);
+  });
+
+  it("MERGES same-type chains on the same route (no offset)", () => {
+    const out = computeLaneOffsets([
+      { hexes: ["0_0", "1_0", "2_0"], width: 4, typeName: "river" },
+      { hexes: ["0_0", "1_0", "2_0"], width: 4, typeName: "river" },
+    ]);
+    // Single distinct type in the group → both stay centred so they overlap.
+    expect(out).toEqual([0, 0]);
+  });
+
+  it("merges same-type but still offsets a different type sharing the route", () => {
+    const out = computeLaneOffsets([
+      { hexes: ["0_0", "1_0", "2_0"], width: 4, typeName: "river" },
+      { hexes: ["0_0", "1_0", "2_0"], width: 4, typeName: "river" },
+      { hexes: ["0_0", "1_0", "2_0"], width: 4, typeName: "road" },
+    ]);
+    // 2 distinct types (river lane 0, road lane 1), mid = 0.5, gap = 6.
+    // Both rivers share the river lane → -3; the road → +3.
+    expect(out).toEqual([-3, -3, 3]);
+  });
+
+  it("treats reversed hex order as the same route (shared segment)", () => {
+    const out = computeLaneOffsets([
+      { hexes: ["0_0", "1_0", "2_0"], width: 4, typeName: "road" },
+      { hexes: ["2_0", "1_0", "0_0"], width: 4, typeName: "river" },
+    ]);
+    expect(out).toEqual([-3, 3]);
+  });
+
+  it("does not split chains that merely cross at a single hex", () => {
+    const out = computeLaneOffsets([
+      { hexes: ["0_0", "1_1"], width: 4, typeName: "road" },
+      { hexes: ["1_1", "2_2"], width: 4, typeName: "river" },
+    ]);
+    // They share hex 1_1 but no common segment → no offset.
+    expect(out).toEqual([0, 0]);
+  });
+
+  it("fans three distinct types sharing a route into three centred lanes", () => {
+    const out = computeLaneOffsets([
+      { hexes: ["0_0", "1_0", "2_0"], width: 4, typeName: "road" },
+      { hexes: ["0_0", "1_0", "2_0"], width: 4, typeName: "river" },
+      { hexes: ["0_0", "1_0", "2_0"], width: 4, typeName: "trail" },
+    ]);
+    // 3 distinct types, gap = 6, mid = 1 → lanes -6, 0, +6.
+    expect(out).toEqual([-6, 0, 6]);
   });
 });
