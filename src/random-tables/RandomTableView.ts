@@ -648,11 +648,9 @@ export class RandomTableView extends ItemView {
     // Rebuild linked folder map
     this.linkedFolderMap.clear();
     for (const file of files) {
-      const lf = (
-        this.app.metadataCache.getFileCache(file)?.frontmatter as
-          | Frontmatter
-          | undefined
-      )?.["linkedFolder"];
+      const fm: Frontmatter | undefined =
+        this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const lf = fm?.["linkedFolder"];
       if (lf && typeof lf === "string") {
         const wikiLinkMatch = /^\[\[(.+?)\]\]$/.exec(lf);
         const lfClean = wikiLinkMatch ? wikiLinkMatch[1].trim() : lf;
@@ -1196,9 +1194,8 @@ export class RandomTableView extends ItemView {
   }
 
   private showFileContextMenu(e: MouseEvent, file: TFile): void {
-    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as
-      | Frontmatter
-      | undefined;
+    const fm: Frontmatter | undefined =
+      this.app.metadataCache.getFileCache(file)?.frontmatter;
     const rollExcluded = fm?.["roll-filter"] === false;
     const encExcluded = fm?.["encounter-filter"] === false;
     const isDefaultTable = fm?.["table-type"] != null;

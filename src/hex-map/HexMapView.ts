@@ -678,7 +678,7 @@ export class HexMapView extends ItemView {
           hasDragged = false;
         }
       },
-      { capture: true } as AddEventListenerOptions,
+      { capture: true },
     );
 
     // When any tool is active, right-click shows the painter context menu.
@@ -715,7 +715,7 @@ export class HexMapView extends ItemView {
         }
         this.showPainterContextMenu(e.clientX, e.clientY, hexX, hexY);
       },
-      { capture: true } as AddEventListenerOptions,
+      { capture: true },
     );
 
     // Double-clicking off the hex grid (but inside the viewport) exits terrain/icon mode
@@ -3630,12 +3630,9 @@ export class HexMapView extends ItemView {
       const path = this.plugin.hexPath(hx, hy, this.activeMapName);
       if (this.currentTerrainStroke) {
         if (!this.currentTerrainStroke.has(path)) {
-          const oldTerrain =
-            (
-              this.app.metadataCache.getCache(path)?.frontmatter as
-                | Frontmatter
-                | undefined
-            )?.terrain ?? null;
+          const fmCache: Frontmatter | undefined =
+            this.app.metadataCache.getCache(path)?.frontmatter;
+          const oldTerrain = fmCache?.terrain ?? null;
           this.currentTerrainStroke.set(path, {
             x: hx,
             y: hy,

@@ -662,19 +662,20 @@ export class HexmakerSettingTab extends PluginSettingTab {
    */
   getControlValue(key: string): unknown {
     const s = this.plugin.settings as unknown as Record<string, unknown>;
+    const raw = s[key];
     switch (key) {
       case "defaultTableDice":
-        return String((s[key] as number | undefined) ?? 100);
+        return String(typeof raw === "number" ? raw : 100);
       case "hexGap":
-        return parseFloat((s[key] as string | undefined) ?? "0.15") || 0.15;
+        return (typeof raw === "string" ? parseFloat(raw) : NaN) || 0.15;
       case "defaultMap":
         return (
-          (s[key] as string | undefined) ??
+          (typeof raw === "string" ? raw : undefined) ??
           this.plugin.settings.maps[0]?.name ??
           ""
         );
       default:
-        return s[key];
+        return raw;
     }
   }
 

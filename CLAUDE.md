@@ -194,11 +194,13 @@ The obsidianmd reviewer flags patterns the locally-installed
 `eslint-plugin-obsidianmd` doesn't have rules for. Watch for these
 in any new code; failing these means another bump-and-fix cycle.
 
-- **Keep `eslint-plugin-obsidianmd` current.** The reviewer bot runs the
-  LATEST plugin; a stale pin (0.1.9 vs 0.4.1, caught 2026-08-09) let 22
-  `prefer-create-el` sites through local lint. When reviewer warnings
-  arrive that local lint missed, first check `npm view
-  eslint-plugin-obsidianmd version` vs `npm ls` and upgrade.
+- **Keep `eslint-plugin-obsidianmd` AND `typescript-eslint` current.** The
+  reviewer bot runs the LATEST versions; stale pins let findings through
+  local lint twice on 2026-08-09 (obsidianmd 0.1.9 → 22 `prefer-create-el`
+  sites; typescript-eslint 8.58 → 6 unnecessary-assertion sites its newer
+  "receiver accepts the original type" check catches). When reviewer
+  warnings arrive that local lint missed, first `npm view <pkg> version`
+  vs `npm ls <pkg>` for both packages and upgrade.
 - **`prefer-create-el` + `@typescript-eslint/no-unnecessary-type-assertion`
   are now enforced locally** (plugin 0.4.1 + type-aware rule in
   eslint.config.mjs). Use `parent.createEl/createDiv/createSpan` (or the
