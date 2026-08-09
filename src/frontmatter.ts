@@ -335,7 +335,7 @@ const VALID_SIZES:  TokenSize[]  = ["sm", "md", "lg"];
 
 export function getTokenDataFromCache(app: App, file: TFile): TokenEntry | null {
   const cache = app.metadataCache.getFileCache(file);
-  const fm = cache?.frontmatter as Frontmatter | undefined;
+  const fm = cache?.frontmatter;
   if (!fm?.["token"]) return null;
   const rawShape = fm["token-shape"] as string | undefined;
   const rawSize  = fm["token-size"]  as string | undefined;

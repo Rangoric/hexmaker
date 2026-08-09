@@ -37,7 +37,6 @@ import {
   getLinksInSection,
   removeLinkFromSection,
 } from "./sections";
-import { Frontmatter } from "./frontmatter";
 export default class HexmakerPlugin extends Plugin {
   settings: HexmakerPluginSettings;
   availableIcons: string[] = [];
@@ -305,11 +304,10 @@ export default class HexmakerPlugin extends Plugin {
           );
 
         for (const tableFile of tableFiles) {
-          const lf = (
-            this.app.metadataCache.getFileCache(tableFile)?.frontmatter as
-              | Frontmatter
-              | undefined
-          )?.["linkedFolder"];
+          const lf: unknown =
+            this.app.metadataCache.getFileCache(tableFile)?.frontmatter?.[
+              "linkedFolder"
+            ];
           if (!lf || typeof lf !== "string") continue;
           const wikiLinkMatch = /^\[\[(.+?)\]\]$/.exec(lf);
           const lfClean = wikiLinkMatch ? wikiLinkMatch[1].trim() : lf;
@@ -475,11 +473,9 @@ export default class HexmakerPlugin extends Plugin {
     const folder = normalizeFolder(this.settings.tablesFolder);
     const prefix = folder ? folder + "/" : "";
     return files.filter((f) => {
-      const fm = this.app.metadataCache.getFileCache(f)?.frontmatter as
-        | Frontmatter
-        | undefined;
+      const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
       if (fm != null) {
-        const val = fm[filterKey];
+        const val: unknown = fm[filterKey];
         if (val === false) return false;
         if (val === true) return true;
       }
@@ -613,7 +609,7 @@ export default class HexmakerPlugin extends Plugin {
       (f) => !hexFolder || f.path.startsWith(hexFolder + "/"),
     );
     for (const file of files) {
-      const submap = (this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined)?.["duckmage-submap"];
+      const submap: unknown = this.app.metadataCache.getFileCache(file)?.frontmatter?.["duckmage-submap"];
       if (submap !== oldName) continue;
       await setSubmapInFile(this.app, file.path, newName);
     }

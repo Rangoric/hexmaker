@@ -306,8 +306,8 @@ function makeMapStep(plugin: HexmakerPlugin): WizardStep {
 				const btn = orientBtns.createDiv({
 					cls: "duckmage-wizard-orient-btn" + (ctx.hexOrientation === value ? " is-active" : ""),
 				});
-				btn.createEl("span", { text: label, cls: "duckmage-wizard-orient-label" });
-				btn.createEl("span", { text: desc,  cls: "duckmage-wizard-orient-desc" });
+				btn.createSpan({ text: label, cls: "duckmage-wizard-orient-label" });
+				btn.createSpan({ text: desc,  cls: "duckmage-wizard-orient-desc" });
 				btn.addEventListener("click", () => {
 					ctx.hexOrientation = value;
 					orientBtns
@@ -547,7 +547,7 @@ export class SetupWizardView extends ItemView {
 				}
 			});
 
-			navRow.createEl("span", { cls: "duckmage-wizard-nav-progress" });
+			navRow.createSpan({ cls: "duckmage-wizard-nav-progress" });
 
 			const nextBtn = navRow.createEl("button", {
 				text: "Next →",

@@ -237,8 +237,7 @@ export class IconPickerModal extends HexmakerModal {
     };
 
     // Hidden file input
-    const fileInput = activeDocument.createElement("input");
-    fileInput.type = "file";
+    const fileInput = createEl("input", { type: "file" });
     fileInput.accept = ".png,.jpg,.jpeg,.gif,.svg,.webp";
     fileInput.multiple = true;
     fileInput.addEventListener("change", () => {

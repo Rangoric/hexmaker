@@ -447,8 +447,7 @@ export class HexTableView extends ItemView {
     if (this.filterYMaxInput) this.filterYMaxInput.placeholder = String(yMax);
 
     // ── Phase 1: skeleton render (sync — coords + terrain from metadata cache) ──
-    const table = activeDocument.createElement("table");
-    table.className = "duckmage-hex-table";
+    const table = createEl("table", { cls: "duckmage-hex-table" });
 
     const thead = table.createEl("thead");
     const headerRow = thead.createEl("tr");
@@ -925,14 +924,13 @@ export class HexTableView extends ItemView {
 
     // <col> elements + explicit table width is the only reliable way to drive
     // table-layout:fixed column widths across browsers.
-    const colgroup = activeDocument.createElement("colgroup");
+    const colgroup = createEl("colgroup");
     const cols: HTMLTableColElement[] = [];
     let totalWidth = 0;
     for (let i = 0; i < ths.length; i++) {
       const w = defaultWidths[i] ?? 160;
-      const col = activeDocument.createElement("col");
+      const col = colgroup.createEl("col");
       col.style.width = `${w}px`;
-      colgroup.appendChild(col);
       cols.push(col);
       totalWidth += w;
     }

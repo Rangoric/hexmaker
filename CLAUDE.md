@@ -194,6 +194,27 @@ The obsidianmd reviewer flags patterns the locally-installed
 `eslint-plugin-obsidianmd` doesn't have rules for. Watch for these
 in any new code; failing these means another bump-and-fix cycle.
 
+- **Keep `eslint-plugin-obsidianmd` current.** The reviewer bot runs the
+  LATEST plugin; a stale pin (0.1.9 vs 0.4.1, caught 2026-08-09) let 22
+  `prefer-create-el` sites through local lint. When reviewer warnings
+  arrive that local lint missed, first check `npm view
+  eslint-plugin-obsidianmd version` vs `npm ls` and upgrade.
+- **`prefer-create-el` + `@typescript-eslint/no-unnecessary-type-assertion`
+  are now enforced locally** (plugin 0.4.1 + type-aware rule in
+  eslint.config.mjs). Use `parent.createEl/createDiv/createSpan` (or the
+  global `createEl` for genuinely detached elements), never
+  `document.createElement`/`activeDocument.createElement`.
+- **Settings tab is declarative (Obsidian ≥1.13).** `HexmakerSettingTab`
+  implements `getSettingDefinitions()`; on 1.13+ the tab renders FROM THE
+  DEFINITIONS and `display()` is never called (it remains only as the
+  pre-1.13 fallback). Any new setting must be added to BOTH paths until
+  minAppVersion reaches 1.13. Local `obsidian` typings are 1.12 — the
+  1.13 shapes are mirrored as local interfaces in HexmakerSettingTab.ts;
+  delete them when the package is bumped.
+- **CSS lint "css-clip-path partially supported" warnings are accepted** —
+  our clip-paths are basic `polygon()` hex shapes, fully supported in
+  desktop Electron, and the plugin is `isDesktopOnly`. Don't churn on them.
+
 - **`document` / `window` → `activeDocument` / `activeWindow`.** Required
   for popout-window compatibility. Globals are listed in `eslint.config.mjs`.
   Use `activeDocument.createElementNS(...)`, `activeDocument.body.createDiv(...)`,

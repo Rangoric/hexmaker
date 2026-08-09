@@ -380,7 +380,7 @@ export class MapModal extends HexmakerModal {
     // ── Background image ───────────────────────────────────────────────────
     el.createEl("h4", { text: "Background image" });
     const bgRow = el.createDiv({ cls: "duckmage-region-row duckmage-bg-image-row" });
-    bgRow.createEl("span", {
+    bgRow.createSpan({
       text: currentMap?.backgroundImage?.path ?? "(none) — drop an image here",
       cls: "duckmage-bg-image-path",
     });
@@ -586,7 +586,7 @@ export class MapModal extends HexmakerModal {
     let pendingBgPath: string | null = null;
     let pendingBgFile: File | null = null;
     const bgRow = el.createDiv({ cls: "duckmage-region-row duckmage-bg-image-row" });
-    const bgPathLabel = bgRow.createEl("span", {
+    const bgPathLabel = bgRow.createSpan({
       text: "(none) — drop an image here",
       cls: "duckmage-bg-image-path",
     });
@@ -610,7 +610,7 @@ export class MapModal extends HexmakerModal {
     bgClearBtn.addEventListener("click", () => {
       pendingBgPath = null;
       pendingBgFile = null;
-      bgPathLabel.setText("(none) — drop an image here");
+      bgPathLabel.setText("(None) — drop an image here");
       bgClearBtn.disabled = true;
     });
     this.attachImageDropZone(bgRow, async (file) => {

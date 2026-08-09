@@ -2,6 +2,123 @@ import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type HexmakerPlugin from "./HexmakerPlugin";
 import { normalizeFolder } from "./utils";
 
+// ---------------------------------------------------------------------------
+// Obsidian 1.13 declarative settings API — local structural types.
+//
+// The installed `obsidian` typings (1.12.0) predate getSettingDefinitions().
+// These minimal interfaces mirror the documented shapes in
+// obsidianmd/obsidian-api master `obsidian.d.ts` (SettingDefinitionItem,
+// SettingDefinition*, SettingControl*, all tagged `@since 1.13.0`). They are
+// structural stand-ins only: on Obsidian >= 1.13 the app consumes the
+// returned objects and renders the tab declaratively (display() is then never
+// called); on older versions the method is simply never invoked and the
+// imperative display() fallback is used instead. Delete these when the
+// `obsidian` package is bumped to >= 1.13.0.
+// ---------------------------------------------------------------------------
+
+type LocalSettingControl =
+  | { type: "toggle"; key: string; defaultValue?: boolean }
+  | {
+      type: "dropdown";
+      key: string;
+      options: Record<string, string>;
+      defaultValue?: string;
+    }
+  | { type: "text"; key: string; placeholder?: string; defaultValue?: string }
+  | {
+      type: "number";
+      key: string;
+      placeholder?: string;
+      min?: number;
+      max?: number;
+      step?: number | "any";
+      defaultValue?: number;
+    }
+  | {
+      type: "slider";
+      key: string;
+      min: number;
+      max: number;
+      step: number;
+      /** @since 1.13.1 — formats the inline value next to the slider. */
+      displayFormat?: (value: number) => string;
+      defaultValue?: number;
+    }
+  | { type: "color"; key: string; defaultValue?: string };
+
+interface LocalSettingDefinition {
+  /** Display name — used for rendering and search. */
+  name: string;
+  /** Description text. Used for rendering and search. */
+  desc?: string | DocumentFragment;
+  /** Additional search terms. */
+  aliases?: string[];
+  /** `false` excludes the item from settings search. Default: true. */
+  searchable?: boolean | (() => boolean);
+  /** `false` hides the item (and excludes it from search). Default: true. */
+  visible?: boolean | (() => boolean);
+  /** Bound control; value flows through get/setControlValue(key). */
+  control?: LocalSettingControl;
+  /** Imperative escape hatch — renders the row onto the provided Setting. */
+  render?: (setting: Setting, group?: unknown) => void | (() => void);
+  /** Clickable action row. */
+  action?: (el: HTMLElement, index: number) => void;
+}
+
+interface LocalSettingGroup {
+  type: "group" | "list";
+  heading?: string;
+  cls?: string;
+  items?: LocalSettingDefinition[];
+  visible?: boolean | (() => boolean);
+}
+
+interface LocalSettingList extends LocalSettingGroup {
+  type: "list";
+  emptyState?: string | DocumentFragment;
+  onReorder?: (oldIndex: number, newIndex: number) => void;
+  onDelete?: (index: number) => void;
+  addItem?: { name: string; action: (el: HTMLElement) => void };
+}
+
+type LocalSettingDefinitionItem =
+  | LocalSettingDefinition
+  | LocalSettingGroup
+  | LocalSettingList;
+
+/** Settings keys holding vault paths that must be run through normalizeFolder. */
+const FOLDER_PATH_KEYS = new Set<string>([
+  "templatePath",
+  "iconsFolder",
+  "worldFolder",
+  "hexFolder",
+  "townsFolder",
+  "dungeonsFolder",
+  "questsFolder",
+  "featuresFolder",
+  "factionsFolder",
+  "regionsFolder",
+  "tablesFolder",
+  "workflowsFolder",
+]);
+
+/** Settings keys whose change should re-render open hex map views. */
+const MAP_REFRESH_KEYS = new Set<string>([
+  "coordPlacement",
+  "coordFontSize",
+  "coordFontFamily",
+  "coordFontColor",
+  "hexGap",
+]);
+
+/** Settings keys that must be persisted as positive integers. */
+const POSITIVE_INT_KEYS = new Set<string>([
+  "defaultNewMapCols",
+  "defaultNewMapRows",
+  "defaultSubmapCols",
+  "defaultSubmapRows",
+]);
+
 export class HexmakerSettingTab extends PluginSettingTab {
   plugin: HexmakerPlugin;
 
@@ -10,8 +127,638 @@ export class HexmakerSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
+  // Pre-1.13 fallback. On Obsidian >= 1.13 this is never called, because
+  // getSettingDefinitions() below returns a non-empty array and the tab is
+  // rendered declaratively from those definitions instead.
   display(): void {
     this.renderSettings();
+  }
+
+  /**
+   * Obsidian 1.13+ declarative settings API. Returning a non-empty array
+   * makes the tab render from these definitions and — crucially — makes
+   * every setting appear in Obsidian's settings search.
+   *
+   * Mirrors renderSettings() below (which remains the pre-1.13 fallback):
+   * simple controls are declared as bound controls (value routed through
+   * getControlValue / setControlValue), button rows and custom widgets use
+   * `render` callbacks with the same handlers.
+   */
+  getSettingDefinitions(): LocalSettingDefinitionItem[] {
+    const folderText = (
+      name: string,
+      key: string,
+      placeholder: string,
+      desc: string,
+    ): LocalSettingDefinition => ({
+      name,
+      desc,
+      control: { type: "text", key, placeholder },
+    });
+
+    const mapOptions: Record<string, string> = {};
+    for (const r of this.plugin.settings.maps) {
+      mapOptions[r.name] = r.name;
+    }
+
+    const palettes = this.plugin.settings.terrainPalettes;
+    const paletteItems: LocalSettingDefinition[] = palettes.map((pal, i) => {
+      const usedBy = this.plugin.settings.maps.filter(
+        (r) => r.paletteName === pal.name,
+      ).length;
+      return {
+        name: pal.name,
+        desc: `${usedBy} region${usedBy !== 1 ? "s" : ""}`,
+        render: (setting: Setting) => {
+          const nameInput = setting.controlEl.createEl("input", {
+            type: "text",
+            value: pal.name,
+          });
+          nameInput.addClass("duckmage-palette-mgmt-name");
+          nameInput.addEventListener("blur", () => {
+            void (async () => {
+              const trimmed = nameInput.value.trim();
+              if (!trimmed || trimmed === pal.name) {
+                nameInput.value = pal.name;
+                return;
+              }
+              const isDupe = palettes.some(
+                (p, j) =>
+                  j !== i && p.name.toLowerCase() === trimmed.toLowerCase(),
+              );
+              if (isDupe) {
+                new Notice(`Palette "${trimmed}" already exists.`);
+                nameInput.value = pal.name;
+                return;
+              }
+              // Update any maps using this palette
+              for (const r of this.plugin.settings.maps) {
+                if (r.paletteName === pal.name) r.paletteName = trimmed;
+              }
+              pal.name = trimmed;
+              await this.plugin.saveSettings();
+              this.requestDeclarativeRerender();
+            })();
+          });
+        },
+      };
+    });
+
+    return [
+      {
+        name: "Setup wizard",
+        desc: "Re-open the setup wizard to reconfigure folders or create a new map.",
+        render: (setting: Setting) => {
+          setting.addButton((btn) =>
+            btn.setButtonText("Re-run setup wizard").onClick(() => {
+              this.plugin.settings.setupDismissed = false;
+              void this.plugin
+                .saveSettings()
+                .then(() => this.plugin.openSetupWizard());
+            }),
+          );
+        },
+      },
+      {
+        name: "Default die for new tables",
+        desc: "Die size used when creating new random table notes (d6, d20, d100, etc.).",
+        aliases: ["dice"],
+        control: {
+          type: "dropdown",
+          key: "defaultTableDice",
+          options: {
+            "4": "D4",
+            "6": "D6",
+            "8": "D8",
+            "10": "D10",
+            "12": "D12",
+            "20": "D20",
+            "100": "D100",
+            "200": "D200",
+            "500": "D500",
+            "1000": "D1000",
+          },
+          defaultValue: "100",
+        },
+      },
+      {
+        name: "Hex editor: terrain section starts collapsed",
+        desc: "Open the terrain section collapsed by default in the right-click hex editor.",
+        control: {
+          type: "toggle",
+          key: "hexEditorTerrainCollapsed",
+          defaultValue: false,
+        },
+      },
+      {
+        name: "Hex editor: features section starts collapsed",
+        desc: "Open the features section collapsed by default in the right-click hex editor.",
+        control: {
+          type: "toggle",
+          key: "hexEditorFeaturesCollapsed",
+          defaultValue: false,
+        },
+      },
+      {
+        name: "Hex editor: notes section starts collapsed",
+        desc: "Open the notes section collapsed by default in the right-click hex editor.",
+        control: {
+          type: "toggle",
+          key: "hexEditorNotesCollapsed",
+          defaultValue: false,
+        },
+      },
+      folderText(
+        "Template path",
+        "templatePath",
+        "templates/hex.md",
+        "Vault-relative path to a hex note template. Supports {{x}}, {{y}}, {{title}}. Include ## Towns, ## Dungeons, and ## Features headings for the link sections.",
+      ),
+      {
+        name: "Default map",
+        desc: "The map opened when the hex map is launched.",
+        control: {
+          type: "dropdown",
+          key: "defaultMap",
+          options: mapOptions,
+          defaultValue: this.plugin.settings.maps[0]?.name ?? "",
+        },
+      },
+      {
+        name: "Hex orientation",
+        desc: "Pointy-top: points face north/south, flat sides east/west. Flat-top: flat sides face north/south, points east/west.",
+        control: {
+          type: "dropdown",
+          key: "hexOrientation",
+          options: { pointy: "Pointy-top", flat: "Flat-top" },
+          defaultValue: "pointy",
+        },
+      },
+      {
+        name: "Stagger offset",
+        desc: "Which set of columns (flat-top) or rows (pointy-top) is offset by half a hex. Affects how new maps render unless overridden per-map.",
+        render: (setting: Setting) => {
+          let val: "odd" | "even" = this.plugin.settings.staggerOffset ?? "odd";
+          const btn = setting.controlEl.createEl("button", {
+            cls: "duckmage-stagger-toggle",
+          });
+          btn.setText(val === "odd" ? "Odd" : "Even");
+          btn.toggleClass("is-even", val === "even");
+          btn.addEventListener("click", () => {
+            val = val === "odd" ? "even" : "odd";
+            btn.setText(val === "odd" ? "Odd" : "Even");
+            btn.toggleClass("is-even", val === "even");
+            this.plugin.settings.staggerOffset = val;
+            void this.plugin.saveSettings();
+          });
+        },
+      },
+      {
+        name: "Coordinate placement",
+        desc: "Where the coordinate label sits inside each hex. Move to top or bottom to keep it from clashing with a centered terrain icon.",
+        control: {
+          type: "dropdown",
+          key: "coordPlacement",
+          options: { top: "Top", middle: "Middle", bottom: "Bottom" },
+          defaultValue: "bottom",
+        },
+      },
+      {
+        name: "Coordinate label size",
+        desc: "Size of the coordinate label, relative to the hex.",
+        control: {
+          type: "slider",
+          key: "coordFontSize",
+          min: 0.5,
+          max: 1.5,
+          step: 0.05,
+          displayFormat: (value) => value.toFixed(2),
+          defaultValue: 0.8,
+        },
+      },
+      {
+        name: "Coordinate label font",
+        desc: "Font used for the coordinate label.",
+        control: {
+          type: "dropdown",
+          key: "coordFontFamily",
+          options: {
+            interface: "Interface",
+            serif: "Serif",
+            monospace: "Monospace",
+          },
+          defaultValue: "interface",
+        },
+      },
+      {
+        name: "Coordinate label color",
+        desc: "Color of the coordinate label.",
+        control: {
+          type: "color",
+          key: "coordFontColor",
+          defaultValue: "#ffffff",
+        },
+      },
+      {
+        name: "Hex cell spacing",
+        desc: "Gap between hex cells (0 – 0.5 em).",
+        control: {
+          type: "slider",
+          key: "hexGap",
+          min: 0,
+          max: 0.5,
+          step: 0.01,
+          displayFormat: (value) => value.toFixed(2),
+          defaultValue: 0.15,
+        },
+      },
+      {
+        name: "Default new map columns",
+        desc: "Default number of columns when creating a new top-level map.",
+        control: {
+          type: "number",
+          key: "defaultNewMapCols",
+          placeholder: "Cols",
+          min: 1,
+          step: 1,
+          defaultValue: 20,
+        },
+      },
+      {
+        name: "Default new map rows",
+        desc: "Default number of rows when creating a new top-level map.",
+        control: {
+          type: "number",
+          key: "defaultNewMapRows",
+          placeholder: "Rows",
+          min: 1,
+          step: 1,
+          defaultValue: 16,
+        },
+      },
+      {
+        name: "Default submap columns",
+        desc: "Default number of columns when creating a new submap.",
+        control: {
+          type: "number",
+          key: "defaultSubmapCols",
+          placeholder: "Cols",
+          min: 1,
+          step: 1,
+          defaultValue: 10,
+        },
+      },
+      {
+        name: "Default submap rows",
+        desc: "Default number of rows when creating a new submap.",
+        control: {
+          type: "number",
+          key: "defaultSubmapRows",
+          placeholder: "Rows",
+          min: 1,
+          step: 1,
+          defaultValue: 10,
+        },
+      },
+      folderText(
+        "Custom icons folder",
+        "iconsFolder",
+        "Icons",
+        "Vault-relative folder containing additional icon images (PNG, JPG, SVG, etc.) for the terrain palette and hex icon override. These are merged with the built-in icons.",
+      ),
+      {
+        type: "group",
+        heading: "Generate world data",
+        items: [
+          {
+            name: "",
+            desc: "⚠️ configure all folder settings before selecting generate. This will create terrain table notes, add roller links to all table notes, and link each hex note to its terrain's encounters table. Safe to run multiple times — existing notes and links are not overwritten.",
+            searchable: false,
+          },
+          {
+            name: "Generate terrain tables & hex links",
+            desc: "Creates missing terrain table notes, adds roller links to all table notes (so they can be opened in the hexmaker roller from within Obsidian), and links each hex note's terrain encounters table into its encounters table section.",
+            render: (setting: Setting) => {
+              setting.addButton((btn) =>
+                btn
+                  .setButtonText("Generate")
+                  .setCta()
+                  .onClick(async () => {
+                    btn.setDisabled(true);
+                    btn.setButtonText("Generating…");
+                    try {
+                      await this.plugin.ensureTerrainTables();
+                      await this.plugin.ensureAllRollerLinks();
+                      await this.plugin.backfillTerrainLinks();
+                      await this.plugin.backfillRegionLinks();
+                    } finally {
+                      btn.setDisabled(false);
+                      btn.setButtonText("Generate");
+                    }
+                  }),
+              );
+            },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Path types",
+        items: [
+          {
+            name: "",
+            desc: "Path types define the available drawing tools (roads, rivers, etc.). Edit them from the path tool on the hex map.",
+            searchable: false,
+          },
+          ...this.plugin.settings.pathTypes.map(
+            (pt): LocalSettingDefinition => ({
+              name: pt.name,
+              desc: `${pt.width}px, ${pt.lineStyle}, ${pt.routing}`,
+              render: (setting: Setting) => {
+                const swatch = setting.controlEl.createSpan({
+                  cls: "duckmage-path-type-swatch",
+                });
+                swatch.style.backgroundColor = pt.color;
+              },
+            }),
+          ),
+        ],
+      },
+      folderText(
+        "World notes folder",
+        "worldFolder",
+        "World.",
+        "Vault-relative path. Scopes the file search when adding links to hexes.",
+      ),
+      {
+        name: "Set up folders",
+        desc: "Populates any blank folder settings below with defaults under the world folder, then creates those folders in your vault. Only blank fields are affected — manually set values are left untouched.",
+        render: (setting: Setting) => {
+          setting.addButton((btn) =>
+            btn
+              .setButtonText("Generate folders")
+              .setCta()
+              .onClick(async () => {
+                const world =
+                  normalizeFolder(this.plugin.settings.worldFolder) || "world";
+                const defaults: [keyof typeof this.plugin.settings, string][] =
+                  [
+                    ["hexFolder", `${world}/hexes`],
+                    ["townsFolder", `${world}/towns`],
+                    ["dungeonsFolder", `${world}/dungeons`],
+                    ["questsFolder", `${world}/quests`],
+                    ["featuresFolder", `${world}/features`],
+                    ["factionsFolder", `${world}/factions`],
+                    ["regionsFolder", `${world}/regions`],
+                    ["tablesFolder", `${world}/tables`],
+                    ["workflowsFolder", `${world}/workflows`],
+                  ];
+                for (const [key, path] of defaults) {
+                  if (!this.plugin.settings[key]) {
+                    (
+                      this.plugin.settings as unknown as Record<string, unknown>
+                    )[key] = path;
+                    try {
+                      if (!this.app.vault.getAbstractFileByPath(path)) {
+                        await this.app.vault.createFolder(path);
+                      }
+                    } catch {
+                      /* folder already exists */
+                    }
+                  }
+                }
+                await this.plugin.saveSettings();
+                // Ensure all map subfolders exist and generate hex notes
+                const hexF = normalizeFolder(this.plugin.settings.hexFolder);
+                if (hexF) {
+                  let totalCreated = 0;
+                  for (const map of this.plugin.settings.maps) {
+                    const mapFolder = `${hexF}/${map.name}`;
+                    if (!this.app.vault.getAbstractFileByPath(mapFolder)) {
+                      try {
+                        await this.app.vault.createFolder(mapFolder);
+                      } catch {
+                        /* exists */
+                      }
+                    }
+                    const { cols, rows } = map.gridSize;
+                    const { x: ox, y: oy } = map.gridOffset;
+                    const xs = Array.from({ length: cols }, (_, i) => ox + i);
+                    const ys = Array.from({ length: rows }, (_, i) => oy + i);
+                    totalCreated += await this.plugin.generateHexNotes(
+                      map.name,
+                      xs,
+                      ys,
+                    );
+                  }
+                  if (totalCreated > 0)
+                    new Notice(
+                      `Hexmaker: generated ${totalCreated} hex note${totalCreated !== 1 ? "s" : ""}.`,
+                    );
+                }
+                new Notice("Folders generated.");
+                this.requestDeclarativeRerender();
+              }),
+          );
+        },
+      },
+      folderText(
+        "Hex notes folder",
+        "hexFolder",
+        "World/hexes",
+        "Vault-relative path where hex notes (X_y.md) are stored.",
+      ),
+      folderText(
+        "Towns folder",
+        "townsFolder",
+        "World/towns",
+        "Vault-relative folder to populate the towns dropdown in the hex editor. Files starting with _ are excluded.",
+      ),
+      folderText(
+        "Dungeons folder",
+        "dungeonsFolder",
+        "World/dungeons",
+        "Vault-relative folder to populate the dungeons dropdown in the hex editor. Files starting with _ are excluded.",
+      ),
+      folderText(
+        "Quests folder",
+        "questsFolder",
+        "World/quests",
+        "Vault-relative folder to populate the quests dropdown in the hex editor. Files starting with _ are excluded.",
+      ),
+      folderText(
+        "Features folder",
+        "featuresFolder",
+        "World/features",
+        "Vault-relative folder to populate the features dropdown in the hex editor. Files starting with _ are excluded.",
+      ),
+      folderText(
+        "Factions folder",
+        "factionsFolder",
+        "World/factions",
+        "Vault-relative folder to populate the factions dropdown in the hex editor. Files starting with _ are excluded.",
+      ),
+      folderText(
+        "Regions folder",
+        "regionsFolder",
+        "World/regions",
+        "Vault-relative folder for geographic region notes (used by the region overlay paint tool). Files starting with _ are excluded.",
+      ),
+      folderText(
+        "Tables folder",
+        "tablesFolder",
+        "World/tables",
+        "Vault-relative folder for random table notes. Used by the encounters table section and the random tables view.",
+      ),
+      folderText(
+        "Workflows folder",
+        "workflowsFolder",
+        "World/workflows",
+        "Vault-relative folder for workflow notes. Browsable from the random tables view via the workflows tab.",
+      ),
+      // Terrain palettes LAST, deliberately: on update() the declarative
+      // renderer reuses unchanged rows but re-creates a changed list and
+      // appends it at the END of the page — a mid-page list visibly "drops
+      // to the bottom" every time a palette is added/renamed/deleted. As
+      // the final section its re-append lands where it already is.
+      {
+        type: "group",
+        heading: "Terrain palettes",
+        items: [
+          {
+            name: "",
+            desc: "Each region uses one palette. Assign a palette when creating a region — it cannot be changed after. Edit palette contents from the terrain tool on the hex map.",
+            searchable: false,
+          },
+        ],
+      },
+      {
+        type: "list",
+        items: paletteItems,
+        emptyState: "No terrain palettes defined.",
+        onDelete: (index: number) => {
+          const pal = palettes[index];
+          if (!pal) return;
+          const usedBy = this.plugin.settings.maps.filter(
+            (r) => r.paletteName === pal.name,
+          ).length;
+          if (usedBy > 0) {
+            new Notice("Cannot delete — in use by a region.");
+            return;
+          }
+          if (palettes.length <= 1) {
+            new Notice("Cannot delete the last palette.");
+            return;
+          }
+          palettes.splice(index, 1);
+          void this.plugin
+            .saveSettings()
+            .then(() => this.requestDeclarativeRerender());
+        },
+        addItem: {
+          name: "Add palette",
+          action: () => {
+            palettes.push({
+              name: "New palette",
+              terrains:
+                this.plugin.settings.terrainPalettes[0]?.terrains.map((t) => ({
+                  ...t,
+                })) ?? [],
+            });
+            void this.plugin
+              .saveSettings()
+              .then(() => this.requestDeclarativeRerender());
+          },
+        },
+      },
+    ];
+  }
+
+  /**
+   * Obsidian 1.13+ hook — reads the current value for a declarative control
+   * key. Handles the two keys whose stored type differs from the control's
+   * value type (defaultTableDice: number stored, string dropdown; hexGap:
+   * string stored, number slider). Everything else reads straight from
+   * settings; undefined falls back to the control's defaultValue.
+   */
+  getControlValue(key: string): unknown {
+    const s = this.plugin.settings as unknown as Record<string, unknown>;
+    switch (key) {
+      case "defaultTableDice":
+        return String((s[key] as number | undefined) ?? 100);
+      case "hexGap":
+        return parseFloat((s[key] as string | undefined) ?? "0.15") || 0.15;
+      case "defaultMap":
+        return (
+          (s[key] as string | undefined) ??
+          this.plugin.settings.maps[0]?.name ??
+          ""
+        );
+      default:
+        return s[key];
+    }
+  }
+
+  /**
+   * Obsidian 1.13+ hook — persists a declarative control value, applying the
+   * same coercions and side effects as the imperative onChange handlers in
+   * renderSettings(): folder-path normalisation, positive-int guards for map
+   * sizes, hex map refresh for display keys, and icon reload for iconsFolder.
+   */
+  setControlValue(key: string, value: unknown): void | Promise<void> {
+    const s = this.plugin.settings as unknown as Record<string, unknown>;
+    if (key === "defaultTableDice") {
+      s[key] = parseInt(String(value), 10);
+    } else if (key === "hexGap") {
+      s[key] = String(value);
+    } else if (POSITIVE_INT_KEYS.has(key)) {
+      const n = Math.floor(Number(value));
+      if (!Number.isFinite(n) || n <= 0) return;
+      s[key] = n;
+    } else if (FOLDER_PATH_KEYS.has(key)) {
+      s[key] = normalizeFolder(typeof value === "string" ? value : "");
+    } else {
+      s[key] = value;
+    }
+    return this.plugin.saveSettings().then(() => {
+      if (MAP_REFRESH_KEYS.has(key)) this.plugin.refreshHexMap();
+      if (key === "iconsFolder") this.plugin.loadAvailableIcons();
+    });
+  }
+
+  /**
+   * Calls SettingTab.update() (Obsidian >= 1.13) to rebuild the declarative
+   * definitions after a structural change (palette added/removed, folders
+   * generated). Typed dynamically because the installed 1.12 typings predate
+   * the method; declaring it on this class would shadow the real one.
+   */
+  private requestDeclarativeRerender(): void {
+    const tab = this as unknown as { update?: () => void };
+    if (typeof tab.update !== "function") return;
+    // update() → refreshCurrentPage() rebuilds the tab's children, which
+    // resets the scroll position — actions mid-page (e.g. "Add palette")
+    // jump the settings pane back to the top. The actual scroller varies
+    // (containerEl or an ancestor in the settings modal), and Obsidian's
+    // own node-insertion scroll keepers can re-zero it asynchronously
+    // AFTER the rebuild — so capture every scrolled element in the chain
+    // and re-assert the positions over several frames until they stick.
+    const scrolled: { el: HTMLElement; top: number }[] = [];
+    let el: HTMLElement | null = this.containerEl;
+    while (el) {
+      if (el.scrollTop > 0) scrolled.push({ el, top: el.scrollTop });
+      el = el.parentElement;
+    }
+    tab.update();
+    if (scrolled.length === 0) return;
+    const restore = () => {
+      for (const s of scrolled) {
+        if (s.el.isConnected) s.el.scrollTop = s.top;
+      }
+    };
+    restore();
+    window.requestAnimationFrame(restore);
+    window.setTimeout(restore, 60);
+    window.setTimeout(restore, 180);
   }
 
   private renderSettings(): void {
@@ -54,53 +801,45 @@ export class HexmakerSettingTab extends PluginSettingTab {
           }),
       );
 
+    // Three standard toggle rows (was: one composite row of raw checkbox
+    // inputs — Obsidian 1.13 restyles bare checkboxes as toggle pills and
+    // its narrow-pane layout stretches non-.mod-toggle inputs to 100%,
+    // which mangled the composite row). Mirrors getSettingDefinitions().
     new Setting(containerEl)
-      .setName("Hex editor sections start collapsed")
-      .setDesc(
-        "Choose which sections open collapsed by default in the right-click hex editor.",
-      )
-      .then((setting) => {
-        const addCb = (
-          label: string,
-          get: () => boolean,
-          set: (v: boolean) => void,
-        ) => {
-          const lbl = setting.controlEl.createEl("label", {
-            cls: "duckmage-collapse-cb-label",
-          });
-          const cb = lbl.createEl("input");
-          cb.type = "checkbox";
-          cb.checked = get();
-          cb.addEventListener("change", () => {
-            void (async () => {
-              set(cb.checked);
-              await this.plugin.saveSettings();
-            })();
-          });
-          lbl.appendText(label);
-        };
-        addCb(
-          "Terrain",
-          () => this.plugin.settings.hexEditorTerrainCollapsed,
-          (v) => {
+      .setName("Hex editor: terrain section starts collapsed")
+      .setDesc("Open the terrain section collapsed by default in the right-click hex editor.")
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.hexEditorTerrainCollapsed)
+          .onChange(async (v) => {
             this.plugin.settings.hexEditorTerrainCollapsed = v;
-          },
-        );
-        addCb(
-          "Features",
-          () => this.plugin.settings.hexEditorFeaturesCollapsed,
-          (v) => {
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Hex editor: features section starts collapsed")
+      .setDesc("Open the features section collapsed by default in the right-click hex editor.")
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.hexEditorFeaturesCollapsed)
+          .onChange(async (v) => {
             this.plugin.settings.hexEditorFeaturesCollapsed = v;
-          },
-        );
-        addCb(
-          "Notes",
-          () => this.plugin.settings.hexEditorNotesCollapsed,
-          (v) => {
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Hex editor: notes section starts collapsed")
+      .setDesc("Open the notes section collapsed by default in the right-click hex editor.")
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.hexEditorNotesCollapsed)
+          .onChange(async (v) => {
             this.plugin.settings.hexEditorNotesCollapsed = v;
-          },
-        );
-      });
+            await this.plugin.saveSettings();
+          }),
+      );
 
     new Setting(containerEl)
       .setName("Template path")
@@ -367,99 +1106,6 @@ export class HexmakerSettingTab extends PluginSettingTab {
       });
     }
 
-    new Setting(containerEl).setName("Terrain palettes").setHeading();
-    containerEl.createEl("p", {
-      text: "Each region uses one palette. Assign a palette when creating a region — it cannot be changed after. Edit palette contents from the terrain tool on the hex map.",
-      cls: "setting-item-description",
-    });
-
-    const palettes = this.plugin.settings.terrainPalettes;
-
-    const renderPaletteList = () => {
-      const existingList = containerEl.querySelector(
-        ".duckmage-palette-mgmt-list",
-      );
-      if (existingList) existingList.remove();
-
-      const listEl = containerEl.createDiv({
-        cls: "duckmage-palette-mgmt-list",
-      });
-
-      for (let i = 0; i < palettes.length; i++) {
-        const pal = palettes[i];
-        const usedBy = this.plugin.settings.maps.filter(
-          (r) => r.paletteName === pal.name,
-        ).length;
-        const rowEl = listEl.createDiv({ cls: "duckmage-palette-mgmt-row" });
-
-        const nameInput = rowEl.createEl("input", {
-          type: "text",
-          value: pal.name,
-        });
-        nameInput.addClass("duckmage-palette-mgmt-name");
-        nameInput.addEventListener("blur", () => {
-          void (async () => {
-            const trimmed = nameInput.value.trim();
-            if (!trimmed || trimmed === pal.name) {
-              nameInput.value = pal.name;
-              return;
-            }
-            const isDupe = palettes.some(
-              (p, j) =>
-                j !== i && p.name.toLowerCase() === trimmed.toLowerCase(),
-            );
-            if (isDupe) {
-              new Notice(`Palette "${trimmed}" already exists.`);
-              nameInput.value = pal.name;
-              return;
-            }
-            // Update any maps using this palette
-            for (const r of this.plugin.settings.maps) {
-              if (r.paletteName === pal.name) r.paletteName = trimmed;
-            }
-            pal.name = trimmed;
-            await this.plugin.saveSettings();
-          })();
-        });
-
-        rowEl.createSpan({
-          cls: "duckmage-palette-mgmt-badge",
-          text: `(${usedBy} region${usedBy !== 1 ? "s" : ""})`,
-        });
-
-        const deleteBtn = rowEl.createEl("button", { text: "Delete" });
-        deleteBtn.disabled = usedBy > 0 || palettes.length <= 1;
-        deleteBtn.title =
-          usedBy > 0
-            ? "Cannot delete — in use by a region"
-            : palettes.length <= 1
-              ? "Cannot delete the last palette"
-              : "";
-        deleteBtn.addEventListener("click", () => {
-          void (async () => {
-            palettes.splice(i, 1);
-            await this.plugin.saveSettings();
-            renderPaletteList();
-          })();
-        });
-      }
-
-      new Setting(listEl).addButton((btn) =>
-        btn.setButtonText("Add palette").onClick(async () => {
-          palettes.push({
-            name: "New palette",
-            terrains:
-              this.plugin.settings.terrainPalettes[0]?.terrains.map((t) => ({
-                ...t,
-              })) ?? [],
-          });
-          await this.plugin.saveSettings();
-          renderPaletteList();
-        }),
-      );
-    };
-
-    renderPaletteList();
     new Setting(containerEl)
       .setName("World notes folder")
       .setDesc(
@@ -678,6 +1324,102 @@ export class HexmakerSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           }),
       );
+
+    // Terrain palettes last — mirrors getSettingDefinitions() ordering
+    // (see comment there: the declarative renderer re-appends a changed
+    // list at the page end, so the list lives at the end in both paths).
+    new Setting(containerEl).setName("Terrain palettes").setHeading();
+    containerEl.createEl("p", {
+      text: "Each region uses one palette. Assign a palette when creating a region — it cannot be changed after. Edit palette contents from the terrain tool on the hex map.",
+      cls: "setting-item-description",
+    });
+
+    const palettes = this.plugin.settings.terrainPalettes;
+
+    const renderPaletteList = () => {
+      const existingList = containerEl.querySelector(
+        ".duckmage-palette-mgmt-list",
+      );
+      if (existingList) existingList.remove();
+
+      const listEl = containerEl.createDiv({
+        cls: "duckmage-palette-mgmt-list",
+      });
+
+      for (let i = 0; i < palettes.length; i++) {
+        const pal = palettes[i];
+        const usedBy = this.plugin.settings.maps.filter(
+          (r) => r.paletteName === pal.name,
+        ).length;
+        const rowEl = listEl.createDiv({ cls: "duckmage-palette-mgmt-row" });
+
+        const nameInput = rowEl.createEl("input", {
+          type: "text",
+          value: pal.name,
+        });
+        nameInput.addClass("duckmage-palette-mgmt-name");
+        nameInput.addEventListener("blur", () => {
+          void (async () => {
+            const trimmed = nameInput.value.trim();
+            if (!trimmed || trimmed === pal.name) {
+              nameInput.value = pal.name;
+              return;
+            }
+            const isDupe = palettes.some(
+              (p, j) =>
+                j !== i && p.name.toLowerCase() === trimmed.toLowerCase(),
+            );
+            if (isDupe) {
+              new Notice(`Palette "${trimmed}" already exists.`);
+              nameInput.value = pal.name;
+              return;
+            }
+            // Update any maps using this palette
+            for (const r of this.plugin.settings.maps) {
+              if (r.paletteName === pal.name) r.paletteName = trimmed;
+            }
+            pal.name = trimmed;
+            await this.plugin.saveSettings();
+          })();
+        });
+
+        rowEl.createSpan({
+          cls: "duckmage-palette-mgmt-badge",
+          text: `(${usedBy} region${usedBy !== 1 ? "s" : ""})`,
+        });
+
+        const deleteBtn = rowEl.createEl("button", { text: "Delete" });
+        deleteBtn.disabled = usedBy > 0 || palettes.length <= 1;
+        deleteBtn.title =
+          usedBy > 0
+            ? "Cannot delete — in use by a region"
+            : palettes.length <= 1
+              ? "Cannot delete the last palette"
+              : "";
+        deleteBtn.addEventListener("click", () => {
+          void (async () => {
+            palettes.splice(i, 1);
+            await this.plugin.saveSettings();
+            renderPaletteList();
+          })();
+        });
+      }
+
+      new Setting(listEl).addButton((btn) =>
+        btn.setButtonText("Add palette").onClick(async () => {
+          palettes.push({
+            name: "New palette",
+            terrains:
+              this.plugin.settings.terrainPalettes[0]?.terrains.map((t) => ({
+                ...t,
+              })) ?? [],
+          });
+          await this.plugin.saveSettings();
+          renderPaletteList();
+        }),
+      );
+    };
+
+    renderPaletteList();
   }
-  
 }

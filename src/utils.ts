@@ -37,7 +37,7 @@ export function createIconEl(
 	cls: string,
 ): HTMLElement {
 	if (iconColor) {
-		const div = parent.createEl("div", { cls: `${cls} duckmage-masked-icon`, title: alt });
+		const div = parent.createDiv({ cls: `${cls} duckmage-masked-icon`, title: alt });
 		div.setCssProps({
 			'--duckmage-mask-url': `url("${src}")`,
 			'--duckmage-bg': iconColor,

@@ -1,4 +1,5 @@
 import tsparser from "@typescript-eslint/parser";
+import tseslint from "typescript-eslint";
 import { defineConfig } from "eslint/config";
 import obsidianmd from "eslint-plugin-obsidianmd";
 import globals from "globals";
@@ -23,6 +24,7 @@ export default defineConfig([
     },
     plugins: {
       obsidianmd, // Explicitly include the plugin
+      "@typescript-eslint": tseslint.plugin,
     },
     // You can add your own configuration to override or add rules
     rules: {
@@ -42,6 +44,12 @@ export default defineConfig([
       // `activeDocument`, deprecated `setDynamicTooltip` — are documented
       // as conventions in CLAUDE.md and audited manually.
       "obsidianmd/no-static-styles-assignment": "error",
+      // Reviewer-bot parity (2026-08-09): the bot runs the LATEST
+      // eslint-plugin-obsidianmd plus type-aware typescript-eslint rules.
+      // Keep the plugin dependency current (a stale 0.1.9 pin let 22
+      // prefer-create-el sites through) and mirror the type-aware rule
+      // the bot flags so local lint breaks first.
+      "@typescript-eslint/no-unnecessary-type-assertion": "error",
     },
   },
 ]);

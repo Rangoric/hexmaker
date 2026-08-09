@@ -118,7 +118,7 @@ export class RandomTableView extends ItemView {
     const leftCol = contentEl.createDiv({ cls: "duckmage-rt-left" });
 
     const listHeader = leftCol.createDiv({ cls: "duckmage-rt-list-header" });
-    listHeader.createEl("span", {
+    listHeader.createSpan({
       text: "Tables",
       cls: "duckmage-rt-list-title",
     });
@@ -946,7 +946,7 @@ export class RandomTableView extends ItemView {
     });
 
     const copyWfLinkBtn = this.detailEl.createEl("button", {
-      text: "🔗 copy link",
+      text: "🔗 Copy link",
       cls: "duckmage-rt-copy-link-btn duckmage-rt-copy-link-btn-spaced",
     });
     copyWfLinkBtn.title = "Copy a Markdown link to open this workflow";
@@ -956,7 +956,7 @@ export class RandomTableView extends ItemView {
       const link = `[🔗 ${file.basename}](obsidian://duckmage-workflow?vault=${vault}&file=${path})`;
       void navigator.clipboard.writeText(link).then(() => {
         copyWfLinkBtn.setText("Copied!");
-        window.setTimeout(() => copyWfLinkBtn.setText("🔗 copy link"), 1500);
+        window.setTimeout(() => copyWfLinkBtn.setText("🔗 Copy link"), 1500);
       });
     });
 
@@ -1605,7 +1605,7 @@ export class RandomTableView extends ItemView {
     const rollArea = this.detailEl.createDiv({ cls: "duckmage-rt-roll-area" });
 
     const copyLinkBtn = rollArea.createEl("button", {
-      text: "🎲 copy link",
+      text: "🎲 Copy link",
       cls: "duckmage-rt-copy-link-btn",
     });
     copyLinkBtn.title = "Copy a Markdown link to this table";
@@ -1615,7 +1615,7 @@ export class RandomTableView extends ItemView {
       const link = `[🎲 ${file.basename}](obsidian://duckmage-roll?vault=${vault}&file=${path})`;
       void navigator.clipboard.writeText(link).then(() => {
         copyLinkBtn.setText("Copied!");
-        window.setTimeout(() => copyLinkBtn.setText("🎲 copy link"), 1500);
+        window.setTimeout(() => copyLinkBtn.setText("🎲 Copy link"), 1500);
       });
     });
 

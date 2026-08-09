@@ -858,7 +858,7 @@ export class HexMapView extends ItemView {
     this.overlayPanel.onBeforeOpen = () => toolsPanel.close();
 
     // Saving indicator — appears while background writes are in flight
-    this.savingIndicatorEl = controlsEl.createEl("span", {
+    this.savingIndicatorEl = controlsEl.createSpan({
       cls: "duckmage-saving-indicator",
       text: "Saving…",
     });
@@ -1167,7 +1167,7 @@ export class HexMapView extends ItemView {
         cls: "duckmage-shrink-btn",
         text: "−",
       });
-      const warnEl = group.createEl("span", { cls: "duckmage-shrink-warn", text: "⚠ has content" });
+      const warnEl = group.createSpan({ cls: "duckmage-shrink-warn", text: "⚠ has content" });
 
       const resetShrinkBtn = () => {
         shrinkBtn.removeClass("is-dirty", "is-confirming");
@@ -2813,10 +2813,9 @@ export class HexMapView extends ItemView {
     const W = gridContainer.offsetWidth;
     const H = gridContainer.offsetHeight;
     if (W === 0 || H === 0) return;
-    const canvas = activeDocument.createElement("canvas");
+    const canvas = createEl("canvas", { cls: "duckmage-calibration-snapshot" });
     canvas.width = W;
     canvas.height = H;
-    canvas.addClass("duckmage-calibration-snapshot");
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 

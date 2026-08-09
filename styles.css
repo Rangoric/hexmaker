@@ -809,15 +809,6 @@ div.duckmage-hex-terrain-icon {
     font-weight: normal;
 }
 
-.duckmage-collapse-cb-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    margin-right: 14px;
-    font-size: var(--font-ui-small);
-    cursor: pointer;
-}
-
 /* ── Terrain picker modal header ─────────────────────────────────── */
 .duckmage-tpe-header {
     display: flex;

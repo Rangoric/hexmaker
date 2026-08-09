@@ -60,10 +60,15 @@ export async function exportToPdfBytes(
   doc: RenderedDoc,
   opts: PdfExportOptions = {},
 ): Promise<Uint8Array> {
-  const webview = activeDocument.createElement("webview") as WebviewElement;
-  webview.setAttribute("src", "app://obsidian.md/help.html");
-  webview.setAttribute("nodeintegration", "true");
-  webview.addClass("duckmage-export-webview");
+  // "webview" is an Electron tag not present in HTMLElementTagNameMap, so the
+  // tag name (and the resulting element) need casts.
+  const webview = createEl("webview" as keyof HTMLElementTagNameMap, {
+    cls: "duckmage-export-webview",
+    attr: {
+      src: "app://obsidian.md/help.html",
+      nodeintegration: "true",
+    },
+  }) as HTMLElement as WebviewElement;
   activeDocument.body.appendChild(webview);
 
   try {

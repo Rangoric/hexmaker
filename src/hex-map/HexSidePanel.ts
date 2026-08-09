@@ -136,10 +136,8 @@ export class OverlayPanel extends HexSidePanel {
     for (const opt of OVERLAY_OPTIONS) {
       const row = panel.createDiv({ cls: "duckmage-overlay-row" });
 
-      const cb = activeDocument.createElement("input");
-      cb.type = "checkbox";
+      const cb = row.createEl("input", { type: "checkbox" });
       cb.checked = true; // default — refreshed in syncToRegion()
-      row.appendChild(cb);
       this.checkboxes.set(opt.key, cb);
 
       const label = row.createSpan({ text: opt.label, cls: "duckmage-overlay-label" });
@@ -160,10 +158,8 @@ export class OverlayPanel extends HexSidePanel {
 
     // Show tokens — default on
     const tokensRow = panel.createDiv({ cls: "duckmage-overlay-row" });
-    const tokensCb = activeDocument.createElement("input");
-    tokensCb.type = "checkbox";
+    const tokensCb = tokensRow.createEl("input", { type: "checkbox" });
     tokensCb.checked = true;
-    tokensRow.appendChild(tokensCb);
     this.tokensCb = tokensCb;
 
     const tokensLabel = tokensRow.createSpan({
@@ -186,10 +182,8 @@ export class OverlayPanel extends HexSidePanel {
 
     // Faction overlay — triggers a re-render rather than a CSS class toggle
     const factionRow = panel.createDiv({ cls: "duckmage-overlay-row" });
-    const factionCb = activeDocument.createElement("input");
-    factionCb.type = "checkbox";
+    const factionCb = factionRow.createEl("input", { type: "checkbox" });
     factionCb.checked = false; // default — refreshed in syncToRegion()
-    factionRow.appendChild(factionCb);
     this.factionOverlayCb = factionCb;
 
     const factionLabel = factionRow.createSpan({
@@ -212,10 +206,8 @@ export class OverlayPanel extends HexSidePanel {
 
     // Region overlay — same pattern as faction
     const regionRow = panel.createDiv({ cls: "duckmage-overlay-row" });
-    const regionCb = activeDocument.createElement("input");
-    regionCb.type = "checkbox";
+    const regionCb = regionRow.createEl("input", { type: "checkbox" });
     regionCb.checked = false;
-    regionRow.appendChild(regionCb);
     this.regionOverlayCb = regionCb;
 
     const regionLabel = regionRow.createSpan({
@@ -238,10 +230,8 @@ export class OverlayPanel extends HexSidePanel {
 
     // GM layer — default on (unlike the opt-in overlays above)
     const gmRow = panel.createDiv({ cls: "duckmage-overlay-row" });
-    const gmCb = activeDocument.createElement("input");
-    gmCb.type = "checkbox";
+    const gmCb = gmRow.createEl("input", { type: "checkbox" });
     gmCb.checked = true;
-    gmRow.appendChild(gmCb);
     this.gmLayerCb = gmCb;
 
     const gmLabel = gmRow.createSpan({

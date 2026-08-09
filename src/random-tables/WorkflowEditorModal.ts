@@ -358,7 +358,7 @@ export class WorkflowEditorModal extends HexmakerModal {
             type: "text",
             cls: "duckmage-wf-formula-input",
           });
-          formulaInput.placeholder = "E.g. 2d6+6";
+          formulaInput.placeholder = "E.g. 2D6+6";
           formulaInput.value = step.diceFormula ?? "";
           formulaInput.addEventListener("input", () => {
             const newFormula = formulaInput.value.trim();
@@ -527,7 +527,7 @@ export class WorkflowEditorModal extends HexmakerModal {
       addFormulaInput = null;
       if (addTypeSelect.value === "dice") {
         addFormulaInput = addSpecificWrap.createEl("input", { type: "text" });
-        addFormulaInput.placeholder = "E.g. 2d6+6";
+        addFormulaInput.placeholder = "E.g. 2D6+6";
         addFormulaInput.addEventListener("input", () => {
           const formula = addFormulaInput!.value.trim();
           const cur = addLabelInput.value.trim();
@@ -591,7 +591,7 @@ export class WorkflowEditorModal extends HexmakerModal {
       if (addTypeSelect.value === "dice") {
         const formula = addFormulaInput?.value.trim() ?? "";
         if (!formula) {
-          new Notice("Enter a dice formula (e.g. 2d6+6)");
+          new Notice("Enter a dice formula (e.g. 2D6+6)");
           return;
         }
         if (!isDiceFormula(formula)) {

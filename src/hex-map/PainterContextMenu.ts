@@ -22,8 +22,7 @@ export class PainterContextMenu {
   open(x: number, y: number): void {
     this.close();
 
-    const menu = activeDocument.createElement("div");
-    menu.className = "duckmage-painter-ctx-menu";
+    const menu = createDiv({ cls: "duckmage-painter-ctx-menu" });
     menu.style.left = `${x}px`;
     menu.style.top = `${y}px`;
 
@@ -33,16 +32,16 @@ export class PainterContextMenu {
     opts.push(...this.extra);
 
     for (const opt of opts) {
-      const item = activeDocument.createElement("div");
-      item.className = "duckmage-painter-ctx-item";
-      item.textContent = opt.label;
+      const item = menu.createDiv({
+        cls: "duckmage-painter-ctx-item",
+        text: opt.label,
+      });
       item.addEventListener("mousedown", (e) => {
         e.preventDefault();
         e.stopPropagation();
         this.close();
         opt.onClick();
       });
-      menu.appendChild(item);
     }
 
     activeDocument.body.appendChild(menu);
