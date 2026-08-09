@@ -809,6 +809,19 @@ div.duckmage-hex-terrain-icon {
     font-weight: normal;
 }
 
+/* Compact 3-in-1 collapse-toggle row (settings tab): label + pill pairs
+   share one setting row; wrap onto extra lines in narrow panes instead
+   of shrinking or overlapping. */
+.duckmage-collapse-row .setting-item-control {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 6px;
+}
+.duckmage-collapse-toggle-label {
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}
+
 /* ── Terrain picker modal header ─────────────────────────────────── */
 .duckmage-tpe-header {
     display: flex;

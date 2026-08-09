@@ -242,31 +242,10 @@ export class HexmakerSettingTab extends PluginSettingTab {
         },
       },
       {
-        name: "Hex editor: terrain section starts collapsed",
-        desc: "Open the terrain section collapsed by default in the right-click hex editor.",
-        control: {
-          type: "toggle",
-          key: "hexEditorTerrainCollapsed",
-          defaultValue: false,
-        },
-      },
-      {
-        name: "Hex editor: features section starts collapsed",
-        desc: "Open the features section collapsed by default in the right-click hex editor.",
-        control: {
-          type: "toggle",
-          key: "hexEditorFeaturesCollapsed",
-          defaultValue: false,
-        },
-      },
-      {
-        name: "Hex editor: notes section starts collapsed",
-        desc: "Open the notes section collapsed by default in the right-click hex editor.",
-        control: {
-          type: "toggle",
-          key: "hexEditorNotesCollapsed",
-          defaultValue: false,
-        },
+        name: "Hex editor sections start collapsed",
+        desc: "Choose which sections open collapsed by default in the right-click hex editor.",
+        aliases: ["terrain", "features", "notes", "collapse"],
+        render: (setting: Setting) => this.buildCollapseTogglesRow(setting),
       },
       folderText(
         "Template path",
@@ -761,6 +740,55 @@ export class HexmakerSettingTab extends PluginSettingTab {
     window.setTimeout(restore, 180);
   }
 
+  /**
+   * Compact single-row builder for the three hex-editor collapse toggles:
+   * label + toggle pairs in one setting row, shared by the declarative and
+   * imperative paths. Uses standard ToggleComponents — addToggle puts
+   * `.mod-toggle` on the row, which keeps Obsidian's narrow-pane layout
+   * from stretching the controls (the old raw-checkbox composite row was
+   * mangled below 400px pane width because it lacked that exemption).
+   */
+  private buildCollapseTogglesRow(setting: Setting): void {
+    setting.setClass("duckmage-collapse-row");
+    const add = (
+      label: string,
+      get: () => boolean,
+      set: (v: boolean) => void,
+    ) => {
+      setting.controlEl.createSpan({
+        text: label,
+        cls: "duckmage-collapse-toggle-label",
+      });
+      setting.addToggle((t) =>
+        t.setValue(get()).onChange(async (v) => {
+          set(v);
+          await this.plugin.saveSettings();
+        }),
+      );
+    };
+    add(
+      "Terrain",
+      () => this.plugin.settings.hexEditorTerrainCollapsed,
+      (v) => {
+        this.plugin.settings.hexEditorTerrainCollapsed = v;
+      },
+    );
+    add(
+      "Features",
+      () => this.plugin.settings.hexEditorFeaturesCollapsed,
+      (v) => {
+        this.plugin.settings.hexEditorFeaturesCollapsed = v;
+      },
+    );
+    add(
+      "Notes",
+      () => this.plugin.settings.hexEditorNotesCollapsed,
+      (v) => {
+        this.plugin.settings.hexEditorNotesCollapsed = v;
+      },
+    );
+  }
+
   private renderSettings(): void {
     const { containerEl } = this;
     containerEl.empty();
@@ -801,45 +829,12 @@ export class HexmakerSettingTab extends PluginSettingTab {
           }),
       );
 
-    // Three standard toggle rows (was: one composite row of raw checkbox
-    // inputs — Obsidian 1.13 restyles bare checkboxes as toggle pills and
-    // its narrow-pane layout stretches non-.mod-toggle inputs to 100%,
-    // which mangled the composite row). Mirrors getSettingDefinitions().
     new Setting(containerEl)
-      .setName("Hex editor: terrain section starts collapsed")
-      .setDesc("Open the terrain section collapsed by default in the right-click hex editor.")
-      .addToggle((t) =>
-        t
-          .setValue(this.plugin.settings.hexEditorTerrainCollapsed)
-          .onChange(async (v) => {
-            this.plugin.settings.hexEditorTerrainCollapsed = v;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("Hex editor: features section starts collapsed")
-      .setDesc("Open the features section collapsed by default in the right-click hex editor.")
-      .addToggle((t) =>
-        t
-          .setValue(this.plugin.settings.hexEditorFeaturesCollapsed)
-          .onChange(async (v) => {
-            this.plugin.settings.hexEditorFeaturesCollapsed = v;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("Hex editor: notes section starts collapsed")
-      .setDesc("Open the notes section collapsed by default in the right-click hex editor.")
-      .addToggle((t) =>
-        t
-          .setValue(this.plugin.settings.hexEditorNotesCollapsed)
-          .onChange(async (v) => {
-            this.plugin.settings.hexEditorNotesCollapsed = v;
-            await this.plugin.saveSettings();
-          }),
-      );
+      .setName("Hex editor sections start collapsed")
+      .setDesc(
+        "Choose which sections open collapsed by default in the right-click hex editor.",
+      )
+      .then((setting) => this.buildCollapseTogglesRow(setting));
 
     new Setting(containerEl)
       .setName("Template path")
