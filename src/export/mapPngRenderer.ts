@@ -173,6 +173,9 @@ export async function renderMapToPngBlob(
     cy: number;
     terrain?: TerrainColor;
     iconName?: string;
+    /** Tint applied to terrain icons (mirrors the on-screen mask-image
+     *  tint in createIconEl). Override icons render untinted, as on-screen. */
+    iconTint?: string;
     factions: { color: string; style: OverlayStyle }[];
     region?: { color: string; style: OverlayStyle };
   }
@@ -240,6 +243,7 @@ export async function renderMapToPngBlob(
         cy: c.cy,
         terrain,
         iconName,
+        iconTint: iconOverride ? undefined : terrain?.iconColor,
         factions,
         region,
       });
@@ -247,6 +251,31 @@ export async function renderMapToPngBlob(
   }
 
   const iconCache = await loadIcons(plugin, iconsNeeded);
+
+  // Tinted icon variants — canvas equivalent of the on-screen CSS
+  // mask-image tint (solid colour in the shape of the icon's alpha).
+  // Cached per (icon, colour) so each variant is composited once.
+  const tintedIconCache = new Map<string, OffscreenCanvas>();
+  const tintedIcon = (
+    img: HTMLImageElement,
+    name: string,
+    color: string,
+  ): OffscreenCanvas => {
+    const cacheKey = `${name}|${color}`;
+    let tinted = tintedIconCache.get(cacheKey);
+    if (!tinted) {
+      const w = img.naturalWidth || img.width || 1;
+      const h = img.naturalHeight || img.height || 1;
+      tinted = new OffscreenCanvas(w, h);
+      const tctx = tinted.getContext("2d")!;
+      tctx.drawImage(img, 0, 0, w, h);
+      tctx.globalCompositeOperation = "source-in";
+      tctx.fillStyle = color;
+      tctx.fillRect(0, 0, w, h);
+      tintedIconCache.set(cacheKey, tinted);
+    }
+    return tinted;
+  };
 
   // Step 4: render to canvas. OffscreenCanvas is reliable in Obsidian's
   // Electron Chromium; convertToBlob() is Promise-based.
@@ -307,7 +336,10 @@ export async function renderMapToPngBlob(
       const img = iconCache.get(hex.iconName);
       if (img) {
         const size = R * 0.9;
-        ctx.drawImage(img, hex.cx - size / 2, hex.cy - size / 2, size, size);
+        const src = hex.iconTint
+          ? tintedIcon(img, hex.iconName, hex.iconTint)
+          : img;
+        ctx.drawImage(src, hex.cx - size / 2, hex.cy - size / 2, size, size);
       }
     }
     if (showCoords) {

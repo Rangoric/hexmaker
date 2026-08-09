@@ -107,9 +107,15 @@
 /* Terrain fallback icon — hidden by default; shown by CSS when override icons are off */
 .duckmage-hex-terrain-icon { display: none; }
 
-/* Coordinates */
-.duckmage-hide-coords .duckmage-hex-label { visibility: hidden; }
-.duckmage-hide-coords .duckmage-svg-coord-label { display: none; }
+/* Coordinates — the visible labels live in .duckmage-coord-labels-layer
+   (.duckmage-coord-label-html); .duckmage-hex-label is a hidden in-hex
+   anchor and .duckmage-svg-coord-label no longer exists (issue #32). */
+.duckmage-hide-coords .duckmage-coord-labels-layer { display: none; }
+
+/* Paths off: hide road/river polylines (and the active-endpoint marker)
+   inside the shared path SVG without touching GM icons or elevated
+   override icons that live in the same SVG (issue #32). */
+.duckmage-hide-paths .duckmage-svg-path-line { display: none; }
 
 /* Terrain icons off: hide plain terrain icons and suppress the fallback */
 .duckmage-hide-terrain-icons .duckmage-hex:not([data-icon-override]) .duckmage-hex-icon { display: none; }
@@ -439,7 +445,13 @@
 }
 
 /* Terrain icon fills the hex, sits behind the label */
-.duckmage-hex-icon {
+/* Shared layout for in-hex icons. The terrain-icon FALLBACK (rendered
+   hidden inside override hexes, revealed when "Show icon overrides" is
+   off) must share the exact same sizing/centering — it previously had
+   no layout rules at all, so revealing it showed the icon at natural
+   size, off-centre and spilling out of the hex (issue #32 follow-up). */
+.duckmage-hex-icon,
+.duckmage-hex-terrain-icon {
     position: absolute;
     width: 78%;
     height: 78%;
@@ -448,7 +460,8 @@
     opacity: 0.75;
 }
 /* When the icon is rendered as a tinted div (mask-image) instead of an img */
-div.duckmage-hex-icon {
+div.duckmage-hex-icon,
+div.duckmage-hex-terrain-icon {
     object-fit: unset; /* not applicable to divs */
 }
 
@@ -1672,6 +1685,27 @@ input.duckmage-input-error {
 .duckmage-icon-picker-inline {
     max-height: 132px;
     margin-bottom: 0.5em;
+}
+
+/* Token modal: FIXED-height icon strip + whole-modal scrollbar. On short
+   screens the modal scrolls as one unit instead of squishing the icon
+   selector. Scoped via .duckmage-token-modal (set on modalEl in
+   TokenModal.onOpen) so other .duckmage-hex-editor modals are untouched. */
+.duckmage-token-modal {
+    max-height: min(85vh, 720px);
+    /* Explicit flex column so .modal-content is height-constrained and can
+       scroll regardless of Obsidian's own .modal layout defaults. */
+    display: flex;
+    flex-direction: column;
+}
+.duckmage-token-modal .modal-content {
+    overflow-y: auto;
+    min-height: 0;
+}
+.duckmage-token-modal .duckmage-icon-picker-inline {
+    height: 150px;
+    max-height: none;
+    flex-shrink: 0;
 }
 
 /* Token modal title row with inline preview */

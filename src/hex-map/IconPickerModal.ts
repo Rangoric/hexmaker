@@ -18,6 +18,9 @@ export class IconPickerModal extends HexmakerModal {
   }
 
   onOpen(): void {
+    // Rescan the icons folder so files dropped in via the OS (not the
+    // in-app uploader) appear without an Obsidian restart (forum report).
+    this.plugin.loadAvailableIcons();
     this.contentEl.addClass("duckmage-hex-editor");
     this.makeDraggable();
     this.render();

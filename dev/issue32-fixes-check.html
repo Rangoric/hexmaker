@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>issue #32 fixes — behavioural checks</title>
+<!-- Load the REAL plugin stylesheet so the hide-rules under test are the shipped ones -->
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { font-family: sans-serif; background: #1e1e1e; color: #ddd; padding: 16px; }
+  .stage { position: relative; width: 320px; height: 220px; background: #2a2a2a;
+           border: 1px solid #555; margin: 8px 0; overflow: hidden; }
+  .duckmage-hex-map-viewport { position: relative; width: 100%; height: 100%; }
+  .mock-grid { position: relative; width: 100%; height: 100%; }
+  .mock-hex { position: absolute; width: 56px; height: 56px; background: #4a6741;
+              border: 1px solid #222; border-radius: 8px; }
+  #results { margin-top: 12px; }
+  .test-row { padding: 3px 8px; font-size: 14px; }
+  .test-row.pass { color: #7c7; }
+  .test-row.fail { color: #f66; font-weight: bold; }
+  canvas.strip { border: 1px solid #555; margin-right: 8px; image-rendering: pixelated;
+                 width: 96px; height: 96px; }
+</style>
+</head>
+<body>
+<h2>issue #32 fixes — behavioural checks</h2>
+
+<h3>1+2. Overlay hide rules (real styles.css)</h3>
+<div class="stage">
+  <div class="duckmage-hex-map-viewport" id="viewport">
+    <div class="mock-grid" id="grid">
+      <div class="mock-hex" style="left:20px;top:20px"></div>
+      <div class="mock-hex" style="left:90px;top:20px"></div>
+      <div class="mock-hex" style="left:55px;top:80px"></div>
+      <div class="duckmage-coord-labels-layer" id="coordLayer">
+        <div class="duckmage-coord-label-html" style="left:48px;top:70px">0,0</div>
+        <div class="duckmage-coord-label-html" style="left:118px;top:70px">1,0</div>
+        <div class="duckmage-coord-label-html" style="left:83px;top:130px">0,1</div>
+      </div>
+      <svg class="duckmage-path-svg" width="320" height="220"
+           style="position:absolute;left:0;top:0">
+        <path class="duckmage-svg-path-line" d="M 40 40 C 90 60, 100 40, 120 100"
+              stroke="#c9a227" stroke-width="6" fill="none" stroke-linecap="round"/>
+        <circle class="duckmage-svg-path-line" cx="120" cy="100" r="5" fill="#c9a227"/>
+        <rect class="duckmage-svg-gm-icon" x="150" y="30" width="24" height="24" fill="#d33"/>
+      </svg>
+    </div>
+  </div>
+</div>
+<button id="toggleCoords">toggle hide-coords</button>
+<button id="togglePaths">toggle hide-paths</button>
+
+<h3>2b. Icon-override fallback geometry (real .duckmage-hex + real styles.css)</h3>
+<div class="stage" style="height:120px">
+  <div class="duckmage-hex-map-viewport" id="viewport2">
+    <!-- Exact renderGrid structure for a hex with an icon override:
+         hidden terrain-icon fallback + visible override icon -->
+    <div class="duckmage-hex" data-icon-override="ov.png" id="overrideHex"
+         style="position:absolute;left:30px;top:20px">
+      <img class="duckmage-hex-terrain-icon" id="fallbackIcon"
+           src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==">
+      <img class="duckmage-hex-icon duckmage-hex-override-icon" id="overrideIcon"
+           src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==">
+      <span class="duckmage-hex-label">0,0</span>
+    </div>
+  </div>
+</div>
+
+<h3>4. PNG-export icon tint (source-in composite, mirrors mapPngRenderer)</h3>
+<canvas id="stripOrig" class="strip" width="64" height="64"></canvas>
+<canvas id="stripTint" class="strip" width="64" height="64"></canvas>
+
+<h3>5. Token modal on a short screen (fixed icon strip + modal scrollbar)</h3>
+<!-- Obsidian modal structure with a hard 300px height simulating a short
+     screen's max-height cap. Real styles.css provides the token-modal rules. -->
+<div class="modal duckmage-token-modal" id="tokenModal"
+     style="height:300px;width:420px;position:relative;background:#2a2a2a;border:1px solid #555">
+  <div class="modal-content duckmage-hex-editor" id="tokenModalContent">
+    <h2>New token</h2>
+    <p class="duckmage-icon-inline-label">Icon</p>
+    <div class="duckmage-icon-picker duckmage-icon-picker-inline" id="tokenIconGrid"></div>
+    <div id="tokenModalFiller"></div>
+    <div class="duckmage-token-modal-buttons"><button>Create token</button><button>Cancel</button></div>
+  </div>
+</div>
+
+<h3>3. Popout drag (listeners bound at drag start to owner document)</h3>
+<iframe id="popout" style="width:340px;height:120px;border:1px dashed #777"></iframe>
+
+<div id="results"></div>
+
+<script>
+const results = [];
+function report(name, ok, detail) {
+  results.push({ name, ok, detail: detail ?? "" });
+  const row = document.createElement("div");
+  row.className = "test-row " + (ok ? "pass" : "fail");
+  row.textContent = (ok ? "PASS  " : "FAIL  ") + name + (detail ? ` — ${detail}` : "");
+  document.getElementById("results").appendChild(row);
+}
+
+const viewport = document.getElementById("viewport");
+const coordLayer = document.getElementById("coordLayer");
+const pathLine = document.querySelector(".duckmage-svg-path-line");
+const pathDot = document.querySelector("circle.duckmage-svg-path-line");
+const gmIcon = document.querySelector(".duckmage-svg-gm-icon");
+
+document.getElementById("toggleCoords").addEventListener("click", () =>
+  viewport.classList.toggle("duckmage-hide-coords"));
+document.getElementById("togglePaths").addEventListener("click", () =>
+  viewport.classList.toggle("duckmage-hide-paths"));
+
+// ── Test 1: hide-coords actually hides the HTML coord-label layer ──────────
+{
+  const disp = () => getComputedStyle(coordLayer).display;
+  const before = disp();
+  viewport.classList.add("duckmage-hide-coords");
+  const hidden = disp();
+  viewport.classList.remove("duckmage-hide-coords");
+  const restored = disp();
+  report("hide-coords hides .duckmage-coord-labels-layer",
+    before !== "none" && hidden === "none" && restored !== "none",
+    `before=${before} hidden=${hidden} restored=${restored}`);
+}
+
+// ── Test 2: hide-paths hides path lines but NOT GM icons in the same SVG ───
+{
+  viewport.classList.add("duckmage-hide-paths");
+  const lineHidden = getComputedStyle(pathLine).display === "none";
+  const dotHidden = getComputedStyle(pathDot).display === "none";
+  const gmVisible = getComputedStyle(gmIcon).display !== "none";
+  viewport.classList.remove("duckmage-hide-paths");
+  const lineRestored = getComputedStyle(pathLine).display !== "none";
+  report("hide-paths hides .duckmage-svg-path-line (path + endpoint dot)",
+    lineHidden && dotHidden, `line=${lineHidden} dot=${dotHidden}`);
+  report("hide-paths leaves .duckmage-svg-gm-icon visible", gmVisible);
+  report("hide-paths restores paths when toggled back on", lineRestored);
+}
+
+// ── Test 2b: revealed terrain-icon fallback shares the override icon's
+//             geometry (was: no layout rules → natural size, off-hex) ──────
+{
+  const vp2 = document.getElementById("viewport2");
+  const hex = document.getElementById("overrideHex");
+  const fallback = document.getElementById("fallbackIcon");
+  const override = document.getElementById("overrideIcon");
+
+  const overrideRect = override.getBoundingClientRect(); // visible now
+  report("fallback is hidden while overrides are shown",
+    getComputedStyle(fallback).display === "none");
+
+  vp2.classList.add("duckmage-hide-icon-overrides");
+  const fbShown = getComputedStyle(fallback).display !== "none";
+  const ovHidden = getComputedStyle(override).display === "none";
+  const fbRect = fallback.getBoundingClientRect();
+  const hexRect = hex.getBoundingClientRect();
+  vp2.classList.remove("duckmage-hide-icon-overrides");
+
+  report("hide-icon-overrides swaps override → fallback", fbShown && ovHidden,
+    `fallbackShown=${fbShown} overrideHidden=${ovHidden}`);
+
+  const close = (a, b, tol) => Math.abs(a - b) <= tol;
+  const sameGeometry =
+    close(fbRect.left, overrideRect.left, 1) &&
+    close(fbRect.top, overrideRect.top, 1) &&
+    close(fbRect.width, overrideRect.width, 1) &&
+    close(fbRect.height, overrideRect.height, 1);
+  report("revealed fallback has the SAME geometry as the override icon",
+    sameGeometry,
+    `fb=${Math.round(fbRect.left)},${Math.round(fbRect.top)} ` +
+    `${Math.round(fbRect.width)}x${Math.round(fbRect.height)} ` +
+    `ov=${Math.round(overrideRect.left)},${Math.round(overrideRect.top)} ` +
+    `${Math.round(overrideRect.width)}x${Math.round(overrideRect.height)}`);
+
+  const insideHex =
+    fbRect.left >= hexRect.left - 0.5 && fbRect.right <= hexRect.right + 0.5 &&
+    fbRect.top >= hexRect.top - 0.5 && fbRect.bottom <= hexRect.bottom + 0.5;
+  const centered =
+    close(fbRect.left + fbRect.width / 2, hexRect.left + hexRect.width / 2, 1) &&
+    close(fbRect.top + fbRect.height / 2, hexRect.top + hexRect.height / 2, 1);
+  report("revealed fallback is centred inside the hex bounds",
+    insideHex && centered, `inside=${insideHex} centered=${centered}`);
+}
+
+// ── Test 4: tint composite = solid colour in the icon's alpha shape ────────
+{
+  // Icon: white circle on transparent ground (like a bundled PNG icon)
+  const icon = new OffscreenCanvas(64, 64);
+  const ictx = icon.getContext("2d");
+  ictx.fillStyle = "#ffffff";
+  ictx.beginPath();
+  ictx.arc(32, 32, 20, 0, Math.PI * 2);
+  ictx.fill();
+
+  // EXACT algorithm from mapPngRenderer.tintedIcon
+  const w = 64, h = 64;
+  const tinted = new OffscreenCanvas(w, h);
+  const tctx = tinted.getContext("2d");
+  tctx.drawImage(icon, 0, 0, w, h);
+  tctx.globalCompositeOperation = "source-in";
+  tctx.fillStyle = "#cc3311";
+  tctx.fillRect(0, 0, w, h);
+
+  const center = tctx.getImageData(32, 32, 1, 1).data;
+  const corner = tctx.getImageData(1, 1, 1, 1).data;
+  const centerOk = center[0] === 204 && center[1] === 51 && center[2] === 17 && center[3] === 255;
+  const cornerOk = corner[3] === 0;
+  report("tint: icon shape becomes solid tint colour",
+    centerOk, `center rgba=[${[...center]}]`);
+  report("tint: transparent ground stays transparent",
+    cornerOk, `corner alpha=${corner[3]}`);
+
+  // visual strip for the screenshot
+  document.getElementById("stripOrig").getContext("2d").drawImage(icon, 0, 0);
+  document.getElementById("stripTint").getContext("2d").drawImage(tinted, 0, 0);
+}
+
+// ── Test 5: token modal — icon strip keeps its fixed height and the whole
+//            modal content scrolls when the screen is too short ────────────
+{
+  const grid = document.getElementById("tokenIconGrid");
+  // Plenty of icon tiles so the strip's CONTENT far exceeds its height
+  for (let i = 0; i < 40; i++) {
+    const tile = grid.appendChild(document.createElement("div"));
+    tile.className = "duckmage-icon-option";
+    const prev = tile.appendChild(document.createElement("div"));
+    prev.className = "duckmage-icon-preview";
+    const name = tile.appendChild(document.createElement("span"));
+    name.className = "duckmage-icon-option-name";
+    name.textContent = `icon-${i}`;
+  }
+  // Filler settings rows so the modal content also exceeds the 300px modal
+  const filler = document.getElementById("tokenModalFiller");
+  for (let i = 0; i < 8; i++) {
+    const row = filler.appendChild(document.createElement("div"));
+    row.textContent = `Setting row ${i}`;
+    row.style.padding = "12px 0";
+  }
+
+  const content = document.getElementById("tokenModalContent");
+  const stripH = grid.clientHeight;
+  report("token modal: icon strip holds its fixed 150px height (not squished)",
+    Math.abs(stripH - 150) <= 2, `clientHeight=${stripH}`);
+  report("token modal: icon strip scrolls internally",
+    grid.scrollHeight > grid.clientHeight + 10 &&
+      getComputedStyle(grid).overflowY === "auto",
+    `scrollHeight=${grid.scrollHeight} clientHeight=${grid.clientHeight}`);
+  report("token modal: whole content gets the scrollbar on short screens",
+    content.scrollHeight > content.clientHeight + 10 &&
+      getComputedStyle(content).overflowY === "auto",
+    `scrollHeight=${content.scrollHeight} clientHeight=${content.clientHeight}`);
+}
+
+// ── Test 3: drag listeners bound per-drag to owner document survive
+//            re-parenting into another window/document (popout) ─────────────
+function setupPan(contentEl, state, strategy) {
+  // strategy "fixed": bind move/up to contentEl.ownerDocument AT DRAG START
+  // strategy "stale": bind move/up ONCE to the document that owns the view
+  //                   at setup time (the pre-fix behaviour, activeDocument)
+  const onMove = (e) => {
+    if (!state.dragging) return;
+    state.panX = state.startPanX + (e.clientX - state.x0);
+  };
+  const onUp = () => { state.dragging = false; endDrag(); };
+  let dragDoc = null;
+  const beginDrag = () => {
+    endDrag();
+    dragDoc = contentEl.ownerDocument;
+    dragDoc.addEventListener("mousemove", onMove);
+    dragDoc.addEventListener("mouseup", onUp);
+  };
+  const endDrag = () => {
+    if (!dragDoc) return;
+    dragDoc.removeEventListener("mousemove", onMove);
+    dragDoc.removeEventListener("mouseup", onUp);
+    dragDoc = null;
+  };
+  if (strategy === "stale") {
+    contentEl.ownerDocument.addEventListener("mousemove", onMove);
+    contentEl.ownerDocument.addEventListener("mouseup", () => { state.dragging = false; });
+  }
+  contentEl.addEventListener("mousedown", (e) => {
+    state.dragging = true;
+    state.x0 = e.clientX;
+    state.startPanX = state.panX;
+    if (strategy === "fixed") beginDrag();
+  });
+}
+
+function simulateDrag(el, doc, from, to) {
+  el.dispatchEvent(new MouseEvent("mousedown", { clientX: from, clientY: 50, bubbles: true }));
+  doc.dispatchEvent(new MouseEvent("mousemove", { clientX: to, clientY: 50, bubbles: true }));
+  doc.dispatchEvent(new MouseEvent("mouseup", { clientX: to, clientY: 50, bubbles: true }));
+}
+
+window.addEventListener("load", () => {
+  const iframe = document.getElementById("popout");
+  const popoutDoc = iframe.contentDocument;
+  popoutDoc.body.style.margin = "0";
+
+  const mk = (label, strategy) => {
+    const el = document.createElement("div");
+    el.textContent = label + " — drag me";
+    el.style.cssText = "width:150px;height:40px;background:#4a6741;color:#fff;" +
+      "display:inline-block;margin:4px;padding:4px;user-select:none;";
+    document.body.appendChild(el); // starts in the MAIN document (main window)
+    const state = { panX: 0, dragging: false, x0: 0, startPanX: 0 };
+    setupPan(el, state, strategy);
+    return { el, state };
+  };
+
+  const fixed = mk("fixed", "fixed");
+  const stale = mk("stale", "stale");
+
+  // Sanity: both strategies work while still in the main document
+  simulateDrag(fixed.el, document, 100, 150);
+  simulateDrag(stale.el, document, 100, 150);
+  const mainOkFixed = fixed.state.panX === 50;
+  const mainOkStale = stale.state.panX === 50;
+  report("drag works in main window (fixed strategy)", mainOkFixed, `panX=${fixed.state.panX}`);
+  report("drag works in main window (stale control)", mainOkStale, `panX=${stale.state.panX}`);
+
+  // "Move to new window": Obsidian re-parents the view's DOM into the
+  // popout document without re-running setup. adoptNode reproduces that.
+  popoutDoc.body.appendChild(popoutDoc.adoptNode(fixed.el));
+  popoutDoc.body.appendChild(popoutDoc.adoptNode(stale.el));
+
+  simulateDrag(fixed.el, popoutDoc, 100, 180);
+  simulateDrag(stale.el, popoutDoc, 100, 180);
+  report("drag still works after move to popout document (the fix)",
+    fixed.state.panX === 130, `panX=${fixed.state.panX} (expected 130)`);
+  report("pre-fix strategy is dead after the move (control confirms the bug)",
+    stale.state.panX === 50, `panX=${stale.state.panX} (stuck at 50 = listeners stranded)`);
+
+  const allOk = results.every((r) => r.ok);
+  const summary = document.createElement("div");
+  summary.id = "summary";
+  summary.className = "test-row " + (allOk ? "pass" : "fail");
+  summary.dataset.ok = String(allOk);
+  summary.dataset.total = String(results.length);
+  summary.dataset.passed = String(results.filter((r) => r.ok).length);
+  summary.textContent = `${results.filter((r) => r.ok).length}/${results.length} checks passed`;
+  document.getElementById("results").appendChild(summary);
+});
+</script>
+</body>
+</html>

@@ -34,6 +34,9 @@ export class TerrainEntryEditorModal extends HexmakerModal {
 	}
 
 	onOpen(): void {
+		// Rescan the icons folder so files dropped in via the OS (not the
+		// in-app uploader) appear without an Obsidian restart (forum report).
+		this.plugin.loadAvailableIcons();
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.addClass("duckmage-hex-editor");

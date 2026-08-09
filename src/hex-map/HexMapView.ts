@@ -1,4 +1,4 @@
-import { ItemView, Menu, Notice, TFile, TFolder, WorkspaceLeaf } from "obsidian";
+import { ItemView, Menu, Notice, Scope, TFile, TFolder, WorkspaceLeaf } from "obsidian";
 import type HexmakerPlugin from "../HexmakerPlugin";
 import { normalizeFolder, getIconUrl, createIconEl } from "../utils";
 import {
@@ -276,6 +276,9 @@ export class HexMapView extends ItemView {
   private undoBtn: HTMLButtonElement | null = null;
   private redoBtn: HTMLButtonElement | null = null;
   activeMapName = "default";
+  /** Set when another view/window mutated shared state while this view was
+   *  inactive; consumed by a re-render on next activation (issue #32). */
+  private needsRerender = false;
   private mapHistory: string[] = [];
   private mapBtn: HTMLButtonElement | null = null;
   private backBtn: HTMLButtonElement | null = null;
@@ -298,6 +301,19 @@ export class HexMapView extends ItemView {
 
   private getActiveMap(): MapData {
     return this.plugin.getOrCreateMap(this.activeMapName);
+  }
+
+  /**
+   * Flag this view as stale after shared state (settings, hex notes) changed
+   * elsewhere — another view of the same map, another window, or the settings
+   * tab. No-op for the currently active map view, whose DOM is already
+   * current (it made the change). The flag is consumed on next activation,
+   * so hidden/backgrounded views catch up when the user switches to them
+   * instead of staying stale until closed and reopened (issue #32).
+   */
+  markStaleFromExternal(): void {
+    if (this.app.workspace.getActiveViewOfType(HexMapView) === this) return;
+    this.needsRerender = true;
   }
 
   private updateMapBtnLabel(): void {
@@ -403,16 +419,21 @@ export class HexMapView extends ItemView {
     // doesn't see a phantom "Calibrating background" on a fresh view.
     this.sweepStrayCalibrationHelp();
 
-    // View-scoped Ctrl/Cmd+Z (undo) and Ctrl/Cmd+Shift+Z (redo).
-    // Active-view check keeps us from stealing the shortcut when the focus
-    // is on a Markdown editor in another tab.
-    this.registerDomEvent(activeDocument, "keydown", (e: KeyboardEvent) => {
-      if (this.app.workspace.getActiveViewOfType(HexMapView) !== this) return;
-      if (!(e.ctrlKey || e.metaKey)) return;
-      if (e.key.toLowerCase() !== "z") return;
+    // View-scoped Ctrl/Cmd+Z (undo) and Ctrl/Cmd+Shift+Z (redo) via the
+    // view's keymap Scope: Obsidian activates it only while this view is
+    // active, in whichever window hosts it — unlike a document-level keydown
+    // registered against onOpen-time `activeDocument`, which goes stale when
+    // the tab is moved to a popout window (issue #32).
+    this.scope = new Scope(this.app.scope);
+    this.scope.register(["Mod"], "z", (e: KeyboardEvent) => {
       e.preventDefault();
-      if (e.shiftKey) void this.redo();
-      else void this.undo();
+      void this.undo();
+      return false;
+    });
+    this.scope.register(["Mod", "Shift"], "z", (e: KeyboardEvent) => {
+      e.preventDefault();
+      void this.redo();
+      return false;
     });
 
     // clipEl clips the panning viewport; controlsEl overlays buttons without clipping
@@ -496,6 +517,7 @@ export class HexMapView extends ItemView {
         panStartX = this.panX;
         panStartY = this.panY;
         this.viewportEl?.addClass("is-dragging");
+        beginDrag();
         return;
       }
       // Right click with no active tool: pan (contextmenu suppressed if drag occurs)
@@ -509,6 +531,7 @@ export class HexMapView extends ItemView {
         panStartX = this.panX;
         panStartY = this.panY;
         this.viewportEl?.addClass("is-dragging");
+        beginDrag();
         return;
       }
       if (e.button !== 0) return;
@@ -537,6 +560,7 @@ export class HexMapView extends ItemView {
           else void this.onHexRegionPaintClick(x, y);
           hasDragged = true; // suppress the subsequent click event
         }
+        beginDrag();
         return; // skip pan setup
       }
       // Any other active tool (road, river, tableLink, swap):
@@ -550,11 +574,38 @@ export class HexMapView extends ItemView {
       panStartX = this.panX;
       panStartY = this.panY;
       this.viewportEl?.addClass("is-dragging");
+      beginDrag();
     });
 
-    this.registerDomEvent(activeDocument, "mousemove", (e: MouseEvent) => {
+    // Hover brush highlight (no button held) — element-level so it keeps
+    // working after "Move to new window" re-parents the view into a popout
+    // document (issue #32). Stroke-time highlight is owned by onDragMove.
+    this.registerDomEvent(contentEl, "mousemove", (e: MouseEvent) => {
+      if (isTerrainPainting) return;
+      if (this.drawingMode === "terrain" || this.drawingMode === "icon") {
+        const hexEl = (e.target as HTMLElement | null)?.closest<HTMLElement>(
+          ".duckmage-hex",
+        );
+        if (hexEl) {
+          this.updateBrushHighlight(
+            Number(hexEl.dataset.x),
+            Number(hexEl.dataset.y),
+          );
+        } else {
+          this.updateBrushHighlight(null, null);
+        }
+      }
+    });
+
+    // Pan / paint-stroke tracking. Document-level listeners are attached to
+    // the document that owns the view AT DRAG START and removed on mouseup.
+    // A fixed onOpen-time `activeDocument` registration goes stale when the
+    // tab is moved to a popout window — the listeners stay on the main
+    // window's document and drags silently die (issue #32).
+    let dragDoc: Document | null = null;
+    const onDragMove = (e: MouseEvent) => {
       if (isTerrainPainting) {
-        const el = activeDocument.elementFromPoint(
+        const el = dragDoc?.elementFromPoint(
           e.clientX,
           e.clientY,
         ) as HTMLElement | null;
@@ -576,21 +627,6 @@ export class HexMapView extends ItemView {
         }
         return;
       }
-      if (this.drawingMode === "terrain" || this.drawingMode === "icon") {
-        const el = activeDocument.elementFromPoint(
-          e.clientX,
-          e.clientY,
-        ) as HTMLElement | null;
-        const hexEl = el?.closest<HTMLElement>(".duckmage-hex");
-        if (hexEl) {
-          this.updateBrushHighlight(
-            Number(hexEl.dataset.x),
-            Number(hexEl.dataset.y),
-          );
-        } else {
-          this.updateBrushHighlight(null, null);
-        }
-      }
       if (!isDragging) return;
       const dx = e.clientX - dragStartX;
       const dy = e.clientY - dragStartY;
@@ -603,9 +639,8 @@ export class HexMapView extends ItemView {
         this.panY = panStartY + dy;
         this.applyTransform();
       }
-    });
-
-    this.registerDomEvent(activeDocument, "mouseup", () => {
+    };
+    const onDragUp = () => {
       if (isTerrainPainting) {
         if (this.drawingMode === "terrain") this.commitTerrainStroke();
         else if (this.drawingMode === "icon") this.commitIconStroke();
@@ -617,7 +652,21 @@ export class HexMapView extends ItemView {
       isDragging = false;
       isRightDragging = false;
       this.viewportEl?.removeClass("is-dragging");
-    });
+      endDrag();
+    };
+    const beginDrag = () => {
+      endDrag(); // defensive: never stack a second registration
+      dragDoc = contentEl.ownerDocument;
+      dragDoc.addEventListener("mousemove", onDragMove);
+      dragDoc.addEventListener("mouseup", onDragUp);
+    };
+    const endDrag = () => {
+      if (!dragDoc) return;
+      dragDoc.removeEventListener("mousemove", onDragMove);
+      dragDoc.removeEventListener("mouseup", onDragUp);
+      dragDoc = null;
+    };
+    this.register(endDrag); // don't leak listeners if the view closes mid-drag
 
     // Swallow clicks that ended a drag so hex click-handlers don't fire
     this.registerDomEvent(
@@ -814,6 +863,17 @@ export class HexMapView extends ItemView {
       text: "Saving…",
     });
 
+    // Consume the cross-view stale flag: when the user switches to this
+    // view (tab click, window focus change), catch up on mutations made
+    // from other views/windows while it was inactive (issue #32).
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        if (leaf !== this.leaf || !this.needsRerender) return;
+        this.needsRerender = false;
+        this.renderGrid();
+      }),
+    );
+
     this.registerEvent(
       this.app.metadataCache.on("changed", (file) => {
         // Clear stale pending/erased entries for this file
@@ -821,6 +881,13 @@ export class HexMapView extends ItemView {
         this.erasedFactionLinks.delete(file.path);
         this.pendingRegions.delete(file.path);
         this.erasedRegions.delete(file.path);
+
+        // A hex note of THIS map changed while this view was inactive
+        // (edited from another view/window) → flag for catch-up render.
+        const hexFolder = normalizeFolder(this.plugin.settings.hexFolder);
+        const mapPrefix =
+          (hexFolder ? hexFolder + "/" : "") + this.activeMapName + "/";
+        if (file.path.startsWith(mapPrefix)) this.markStaleFromExternal();
 
         if (this.getActiveMap().showFactionOverlay) {
           const folder = normalizeFolder(this.plugin.settings.factionsFolder);
@@ -1633,6 +1700,34 @@ export class HexMapView extends ItemView {
       this.updatePathOverlay();
       return;
     }
+  }
+
+  /** Right-click → "Create token here": same TokenModal as the toolbar
+   *  token tool, but the target hex is already known so the place-on-map
+   *  step is skipped — saving writes the token frontmatter directly. */
+  private createTokenAtHex(x: number, y: number): void {
+    new TokenModal(
+      this.app,
+      this.plugin,
+      undefined,
+      "",
+      {},
+      (notePath, data) => {
+        void applyTokenFrontmatter(this.app, notePath, {
+          icon: data.icon,
+          shape: data.shape,
+          size: data.size,
+          color: data.color,
+          border: data.border,
+          description: data.description,
+          hex: `${x}_${y}`,
+          map: this.activeMapName,
+          visible: true,
+        }).then(() => this.updateTokenLayer());
+      },
+      undefined,
+      "Create token",
+    ).open();
   }
 
   private async onHexTokenPlaceClick(x: number, y: number): Promise<void> {
@@ -3373,6 +3468,13 @@ export class HexMapView extends ItemView {
         }),
     );
 
+    menu.addItem((item) =>
+      item
+        .setTitle("Create token here")
+        .setIcon("circle-user")
+        .onClick(() => this.createTokenAtHex(x, y)),
+    );
+
     // ── Contextual delete options ──────────────────────────────────────────
     if (terrain || iconOverride) {
       menu.addSeparator();
@@ -4553,6 +4655,7 @@ export class HexMapView extends ItemView {
       smooth = true,
     ) => {
       const path = activeDocument.createElementNS(svgNS, "path");
+      path.setAttribute("class", "duckmage-svg-path-line");
       path.setAttribute("d", smooth ? smoothPath(pts) : sharpPath(pts));
       path.setAttribute("stroke", color);
       path.setAttribute("stroke-width", String(strokeWidth));
@@ -4618,6 +4721,7 @@ export class HexMapView extends ItemView {
       const pos = centerMap.get(this.activePathEnd);
       if (pos) {
         const circle = activeDocument.createElementNS(svgNS, "circle");
+        circle.setAttribute("class", "duckmage-svg-path-line");
         circle.setAttribute("cx", String(pos.cx));
         circle.setAttribute("cy", String(pos.cy));
         circle.setAttribute("r", "5");

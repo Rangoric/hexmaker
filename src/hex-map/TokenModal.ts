@@ -33,6 +33,9 @@ export class TokenModal extends HexmakerModal {
     initialData: Partial<TokenModalResult>,
     private onSave: (notePath: string, data: TokenModalResult) => void,
     private onDelete?: () => void,
+    /** Overrides the create-mode save button label ("Next: place on map").
+     *  Used by "Create token here", where the hex is already chosen. */
+    private saveLabel?: string,
   ) {
     super(app);
     this.pendingNoteTitle   = initialTitle;
@@ -49,6 +52,9 @@ export class TokenModal extends HexmakerModal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("duckmage-hex-editor");
+    // Scoped hook for the fixed-height icon strip + whole-modal scrollbar
+    // (short screens scroll the modal instead of squishing the selector).
+    this.modalEl.addClass("duckmage-token-modal");
     this.makeDraggable();
 
     const isEdit = !!this.editPath;
@@ -257,7 +263,7 @@ export class TokenModal extends HexmakerModal {
     }
 
     btnRow.createEl("button", {
-      text: isEdit ? "Save" : "Next: place on map",
+      text: isEdit ? "Save" : this.saveLabel ?? "Next: place on map",
       cls: "mod-cta",
     }).addEventListener("click", () => {
       if (!isEdit && !this.pendingNoteTitle) {

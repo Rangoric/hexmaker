@@ -78,7 +78,11 @@ export class DrawingToolPanel extends HexSidePanel {
 
 // ── Overlay panel ────────────────────────────────────────────────────────────
 
-export type OverlayKey = "showCoords" | "showTerrainIcons" | "showIconOverrides";
+export type OverlayKey =
+  | "showCoords"
+  | "showTerrainIcons"
+  | "showIconOverrides"
+  | "showPaths";
 
 interface OverlayOption {
   key: OverlayKey;
@@ -90,6 +94,7 @@ const OVERLAY_OPTIONS: OverlayOption[] = [
   { key: "showCoords",        label: "Show coordinates",   cssClass: "duckmage-hide-coords" },
   { key: "showTerrainIcons",  label: "Show terrain icons", cssClass: "duckmage-hide-terrain-icons" },
   { key: "showIconOverrides", label: "Show icon overrides",cssClass: "duckmage-hide-icon-overrides" },
+  { key: "showPaths",         label: "Show paths",         cssClass: "duckmage-hide-paths" },
 ];
 
 export class OverlayPanel extends HexSidePanel {
@@ -188,7 +193,7 @@ export class OverlayPanel extends HexSidePanel {
     this.factionOverlayCb = factionCb;
 
     const factionLabel = factionRow.createSpan({
-      text: "Faction overlay",
+      text: "Show faction overlay",
       cls: "duckmage-overlay-label",
     });
 
@@ -214,7 +219,7 @@ export class OverlayPanel extends HexSidePanel {
     this.regionOverlayCb = regionCb;
 
     const regionLabel = regionRow.createSpan({
-      text: "Region overlay",
+      text: "Show region overlay",
       cls: "duckmage-overlay-label",
     });
 
@@ -240,7 +245,7 @@ export class OverlayPanel extends HexSidePanel {
     this.gmLayerCb = gmCb;
 
     const gmLabel = gmRow.createSpan({
-      text: "GM layer",
+      text: "Show GM layer",
       cls: "duckmage-overlay-label",
     });
 

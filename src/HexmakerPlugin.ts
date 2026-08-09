@@ -55,6 +55,33 @@ export default class HexmakerPlugin extends Plugin {
       }
     });
 
+    // Live-refresh the icon list when image files appear in / leave the
+    // icons folder. Without this, icons dropped in via the OS file explorer
+    // needed an Obsidian restart to show up in the pickers (forum report).
+    const isIconFile = (path: string): boolean => {
+      const folder = normalizeFolder(this.settings.iconsFolder ?? "");
+      if (!folder) return false;
+      return (
+        path.startsWith(folder + "/") &&
+        /\.(png|jpg|jpeg|gif|svg|webp)$/i.test(path)
+      );
+    };
+    this.registerEvent(
+      this.app.vault.on("create", (f) => {
+        if (isIconFile(f.path)) this.loadAvailableIcons();
+      }),
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (f) => {
+        if (isIconFile(f.path)) this.loadAvailableIcons();
+      }),
+    );
+    this.registerEvent(
+      this.app.vault.on("rename", (f, oldPath) => {
+        if (isIconFile(f.path) || isIconFile(oldPath)) this.loadAvailableIcons();
+      }),
+    );
+
     await this.migrateHexFilesToDefaultRegion();
 
     this.registerView(VIEW_TYPE_SETUP_WIZARD, (leaf) => new SetupWizardView(leaf, this));
@@ -413,6 +440,14 @@ export default class HexmakerPlugin extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
+    // Settings hold map-level state (paths, palette, grid size, overlays).
+    // A save made from one view/window leaves sibling map views stale —
+    // flag them so they re-render on next activation (issue #32). The
+    // active map view (the one making the change) is skipped inside
+    // markStaleFromExternal.
+    this.app.workspace.getLeavesOfType(VIEW_TYPE_HEX_MAP).forEach((leaf) => {
+      if (leaf.view instanceof HexMapView) leaf.view.markStaleFromExternal();
+    });
   }
 
   // Called by Obsidian Sync when it delivers a new data.json from another device.

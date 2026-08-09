@@ -11,6 +11,47 @@ Status legend: 🔴 not started · 🟡 partial / infra exists · 🟢 done in d
 
 ---
 
+## #33 — Custom icons don't appear in terrain menu (forum report)  🟢 (2026-08-09)
+> Worldographer assets dropped into the icons folder don't show up when
+> creating a new terrain type (forum report by zeroth.law, 2026-07-28).
+
+- **Done** (core): vault `create`/`delete`/`rename` events under the icons
+  folder now trigger `loadAvailableIcons()` (`src/HexmakerPlugin.ts`), and
+  `IconPickerModal` / `TerrainEntryEditorModal` rescan on open — OS-dropped
+  files appear without a restart.
+- **Open**: recursive subfolder scan (needs a nested-path → flat `icon:`
+  frontmatter mapping decision); README docs for formats + flat-folder +
+  inside-vault requirements.
+
+## #32 — UX/UI bugs (AlebiCode batch)  🟢 (2026-08-09)
+> Five bugs: coord view-filter no-op; move-to-new-window breaks drag;
+> multi-window views never sync; no "Show paths" flag + inconsistent labels;
+> PNG export ignores terrain icon tint.
+
+- **Coord filter**: `.duckmage-hide-coords` targeted classes orphaned by the
+  e74bc0d coord-label migration; now targets `.duckmage-coord-labels-layer`.
+  Regression-guarded by `tests/overlayHideRules.test.ts` (asserts every
+  OVERLAY_OPTIONS hide rule targets classes the source still creates).
+- **Popout drag**: pan/paint mousemove/mouseup were bound to onOpen-time
+  `activeDocument` and went stale after "Move to new window"; now bound
+  per-drag to `contentEl.ownerDocument`. Undo/redo moved to a keymap
+  `Scope` (popout-safe). Verified in `dev/issue32-fixes-check.html` +
+  `dev/snapshot-issue32-fixes.mjs` (adoptNode reproduces the migration;
+  control shows pre-fix strategy dying).
+- **Multi-window sync**: `markStaleFromExternal()` flag set by
+  `saveSettings` + hex-note metadata changes, consumed by a `renderGrid()`
+  on `active-leaf-change` — stale views catch up on activation.
+- **Show paths**: new `showPaths` MapData flag + overlay row; path
+  polylines/endpoint dot tagged `duckmage-svg-path-line` so hiding them
+  leaves GM icons + elevated override icons visible. Overlay labels
+  normalised to "Show …".
+- **PNG icon tint**: `tintedIcon()` in `src/export/mapPngRenderer.ts`
+  (source-in composite = CSS mask-image equivalent), cached per
+  (icon, colour); override icons stay untinted, matching on-screen.
+- Verified: build + eslint + 380 tests green; 10/10 behavioural checks in
+  the dev harness. Manual check still owed in real Obsidian: popout
+  drag/undo + two-window stale sync.
+
 ## #30 — Draw road and river parallel  🟢 (2026-06-29)
 > If a road and river follow the same path, they are drawn side by side rather
 > than the latter covering the earlier one.

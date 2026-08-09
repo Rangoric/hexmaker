@@ -4,8 +4,8 @@
 |--------|--------|
 | **Middle-mouse drag** (or click + drag on empty space) | Pan the map |
 | **Scroll wheel** | Zoom in / out |
-| **Left-click** a hex | Open or create that hex's note |
-| **Right-click** a hex | Open the hex editor (terrain, notes, links) |
+| **Left-click** a hex | Open the hex editor (terrain, notes, links) |
+| **Right-click** a hex | Context menu: center on hex, open note, link submap/table, swap hex, create token here, clear terrain |
 | **Double-right-click** anywhere | Exit the active tool and return to normal mode |
 
 ---
@@ -41,6 +41,9 @@ Swap the contents of two hex positions by renaming their files.
 3. **Select the destination again** to confirm the swap
 
 Selecting the source hex again cancels the selection. Selecting a different hex while a destination is already highlighted changes the destination.
+
+### Token
+Create a note-backed token (icon, shape, size, colors, description) and place it on the map. The **Token** button opens the token editor, then left-click a hex to place it. Alternatively, **right-click a hex → "Create token here"** creates the token directly on that hex with no placement step. Right-click a placed token to edit, open its note, or remove it.
 
 ---
 
