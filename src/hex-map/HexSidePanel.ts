@@ -103,11 +103,13 @@ export class OverlayPanel extends HexSidePanel {
   private getActiveMap: () => MapData;
   private onFactionOverlayChange: (show: boolean) => void;
   private onRegionOverlayChange: (show: boolean) => void;
+  private onPopulationOverlayChange: (show: boolean) => void;
   private onGmLayerChange: (show: boolean) => void;
   private onTokensChange: (show: boolean) => void;
   private checkboxes = new Map<OverlayKey, HTMLInputElement>();
   private factionOverlayCb: HTMLInputElement | null = null;
   private regionOverlayCb: HTMLInputElement | null = null;
+  private populationOverlayCb: HTMLInputElement | null = null;
   private gmLayerCb: HTMLInputElement | null = null;
   private tokensCb: HTMLInputElement | null = null;
 
@@ -118,6 +120,7 @@ export class OverlayPanel extends HexSidePanel {
     getActiveMap: () => MapData,
     onFactionOverlayChange: (show: boolean) => void,
     onRegionOverlayChange: (show: boolean) => void,
+    onPopulationOverlayChange: (show: boolean) => void,
     onGmLayerChange: (show: boolean) => void,
     onTokensChange: (show: boolean) => void,
   ) {
@@ -127,6 +130,7 @@ export class OverlayPanel extends HexSidePanel {
     this.getActiveMap = getActiveMap;
     this.onFactionOverlayChange = onFactionOverlayChange;
     this.onRegionOverlayChange = onRegionOverlayChange;
+    this.onPopulationOverlayChange = onPopulationOverlayChange;
     this.onGmLayerChange = onGmLayerChange;
     this.onTokensChange = onTokensChange;
     this.buildPanel(this.panelEl);
@@ -228,6 +232,34 @@ export class OverlayPanel extends HexSidePanel {
       applyRegion();
     });
 
+    // Population overlay (hover tooltip: terrain / settlements / dungeon) —
+    // same pattern as faction/region. Unlike those two, there's no separate
+    // drawn overlay to update — the callback just needs to re-render the
+    // grid so each hex's hover listener picks up the new toggle state
+    // immediately, rather than waiting for the next pan/zoom/expand.
+    const populationRow = panel.createDiv({ cls: "duckmage-overlay-row" });
+    const populationCb = populationRow.createEl("input", { type: "checkbox" });
+    populationCb.checked = false;
+    this.populationOverlayCb = populationCb;
+
+    const populationLabel = populationRow.createSpan({
+      text: "Show population tooltips",
+      cls: "duckmage-overlay-label",
+    });
+
+    const applyPopulation = () => {
+      const map = this.getActiveMap();
+      map.showPopulationOverlay = populationCb.checked;
+      void this.plugin.saveSettings();
+      this.onPopulationOverlayChange(populationCb.checked);
+    };
+
+    populationCb.addEventListener("change", applyPopulation);
+    populationLabel.addEventListener("click", () => {
+      populationCb.checked = !populationCb.checked;
+      applyPopulation();
+    });
+
     // GM layer — default on (unlike the opt-in overlays above)
     const gmRow = panel.createDiv({ cls: "duckmage-overlay-row" });
     const gmCb = gmRow.createEl("input", { type: "checkbox" });
@@ -277,6 +309,15 @@ export class OverlayPanel extends HexSidePanel {
       const show = map.showRegionOverlay ?? false;
       this.regionOverlayCb.checked = show;
       this.onRegionOverlayChange(show);
+    }
+    // Population overlay — undefined → false (opt-in)
+    if (this.populationOverlayCb) {
+      const show = map.showPopulationOverlay ?? false;
+      this.populationOverlayCb.checked = show;
+      // No onPopulationOverlayChange(show) call here, unlike the two above:
+      // syncToRegion() runs from inside renderGrid() itself, and the
+      // callback's own job is just to re-trigger renderGrid() — calling it
+      // here would recurse into the render that's already in progress.
     }
     // GM layer — undefined → true (on by default)
     if (this.gmLayerCb) {

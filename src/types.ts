@@ -61,6 +61,7 @@ export interface MapData {
 	showPaths?: boolean;         // undefined = true
 	showFactionOverlay?: boolean; // undefined = false (opt-in)
 	showRegionOverlay?: boolean;  // undefined = false (opt-in)
+	showPopulationOverlay?: boolean; // undefined = false (opt-in)
 	showGmLayer?: boolean;        // undefined = true (on by default)
 	showTokens?: boolean;         // undefined = true (on by default)
 	staggerOffset?: "odd" | "even"; // undefined = inherit global setting

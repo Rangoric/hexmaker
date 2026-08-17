@@ -17,7 +17,7 @@ import { HexEditorModal } from "./HexEditorModal";
 import { TerrainPickerModal } from "./TerrainPickerModal";
 import { IconPickerModal } from "./IconPickerModal";
 import { addLinkToSection, getLinksInSection, removeLinkFromSection } from "../sections";
-import { getFactionColorFromFile, getRegionColorFromFile, getFactionStyleFromFile, getRegionStyleFromFile, setHexRegionInFile, getSubmapFromFile, setSubmapInFile, type OverlayStyle } from "../frontmatter";
+import { getFactionColorFromFile, getRegionColorFromFile, getFactionStyleFromFile, getRegionStyleFromFile, setHexRegionInFile, getSubmapFromFile, setSubmapInFile, getSettlementTypeFromFile, getSettlementPopulationFromFile, getSettlementInhabitantsFromFile, type OverlayStyle } from "../frontmatter";
 import { buildSvgPattern, colorToIdToken, type OverlayPatternKey } from "../overlayPatterns";
 import { renderHexPreview } from "./overlayPatternControls";
 import {
@@ -27,7 +27,7 @@ import {
 } from "../constants";
 import { MapModal } from "./MapModal";
 import { PathPickerModal } from "./PathPickerModal";
-import type { MapData, PathChain, TokenEntry } from "../types";
+import type { MapData, PathChain, TokenEntry, TerrainColor } from "../types";
 import {
   hexNeighbors,
   smoothPath,
@@ -257,6 +257,11 @@ export class HexMapView extends ItemView {
   // would apply the wrong scale on the incoming map.
   private mapViewport = new Map<string, { zoom: number; panX: number; panY: number; fontSize: string }>();
   private factionTooltipEl: HTMLElement | null = null;
+  // Population overlay hover tooltip — terrain / linked settlements (with
+  // type + population where authored) / linked dungeons. Independent of
+  // the faction tooltip above: separate toggle, separate element, both can
+  // be shown at once (see HexSidePanel's "Show population overlay").
+  private populationTooltipEl: HTMLElement | null = null;
   // Faction links painted but not yet reflected in the metadata cache
   private pendingFactionLinks = new Map<string, Set<string>>();
   // Faction links erased but cache may still reflect them — excluded from overlay
@@ -447,6 +452,9 @@ export class HexMapView extends ItemView {
 
     this.factionTooltipEl = contentEl.createDiv({ cls: "duckmage-faction-tooltip" });
     this.factionTooltipEl.hide();
+
+    this.populationTooltipEl = contentEl.createDiv({ cls: "duckmage-population-tooltip" });
+    this.populationTooltipEl.hide();
 
     this.registerDomEvent(clipEl, "mouseleave", () => {
       this.updateBrushHighlight(null, null);
@@ -851,6 +859,12 @@ export class HexMapView extends ItemView {
       () => this.getActiveMap(),
       (show) => { if (show) this.updateFactionOverlay(); else this.clearFactionOverlay(); },
       (show) => { if (show) this.updateRegionOverlay(); else this.clearRegionOverlay(); },
+      // Population overlay has no separately-drawn layer (unlike faction/region) —
+      // its content lives entirely in per-hex hover listeners attached during
+      // addHex(), so toggling it needs a full renderGrid() to attach/detach
+      // those listeners immediately rather than waiting for the next
+      // pan/zoom/expand to happen to rebuild the grid anyway.
+      () => { this.renderGrid(); },
       () => { this.updateGmIcons(); },
       (show) => { if (show) this.updateTokenLayer(); else this.viewportEl?.querySelector(".duckmage-token-layer")?.remove(); },
     );
@@ -3092,6 +3106,7 @@ export class HexMapView extends ItemView {
   ): void {
     if (!this.viewportEl) return;
     this.factionTooltipEl?.hide();
+    this.populationTooltipEl?.hide();
     this.viewportEl.empty();
 
     const gap = this.plugin.settings.hexGap?.trim() || "0.15";
@@ -3275,6 +3290,26 @@ export class HexMapView extends ItemView {
             const swatch = row.createSpan({ cls: "duckmage-faction-tooltip-swatch" });
             if (color) swatch.style.backgroundColor = color;
             row.createSpan({ text: name, cls: "duckmage-faction-tooltip-name" });
+          }
+          const containerRect = this.contentEl.getBoundingClientRect();
+          tooltip.style.left = `${e.clientX - containerRect.left + 14}px`;
+          tooltip.style.top = `${e.clientY - containerRect.top + 8}px`;
+          tooltip.show();
+        });
+        hexEl.addEventListener("mouseleave", () => tooltip.hide());
+      }
+      // Population overlay — independent of the faction tooltip above: its
+      // own toggle, its own element, and both can be shown at once (see
+      // HexSidePanel.ts). Terrain/Settlement(s)/Dungeon, one line each,
+      // settlement lines expanding to one per linked town/castle.
+      if (region.showPopulationOverlay && this.populationTooltipEl) {
+        const tooltip = this.populationTooltipEl;
+        hexEl.addEventListener("mouseenter", (e: MouseEvent) => {
+          const lines = this.buildPopulationTooltipLines(path, terrainEntry);
+          if (lines.length === 0) { tooltip.hide(); return; }
+          tooltip.empty();
+          for (const line of lines) {
+            tooltip.createDiv({ cls: "duckmage-population-tooltip-row", text: line });
           }
           const containerRect = this.contentEl.getBoundingClientRect();
           tooltip.style.left = `${e.clientX - containerRect.left + 14}px`;
@@ -5201,38 +5236,7 @@ export class HexMapView extends ItemView {
   }
 
   private getFactionLinksFromCache(hexFilePath: string): string[] {
-    const file = this.app.vault.getAbstractFileByPath(hexFilePath);
-    const fromCache: string[] = [];
-
-    if (file instanceof TFile) {
-      const cache = this.app.metadataCache.getFileCache(file);
-      if (cache) {
-        const headings = cache.headings ?? [];
-        const factionHeading = headings.find(
-          (h) => h.heading === "Factions" && h.level === 3,
-        );
-        if (factionHeading) {
-          const factionStart = factionHeading.position.start.offset;
-          const nextHeading = headings.find(
-            (h) => h.position.start.offset > factionStart && h.level <= 3,
-          );
-          const factionEnd = nextHeading?.position.start.offset ?? Infinity;
-          fromCache.push(
-            ...(cache.links ?? [])
-              .filter(
-                (lk) =>
-                  lk.position.start.offset > factionStart &&
-                  lk.position.start.offset < factionEnd,
-              )
-              .map((lk) => {
-                // Normalize to basename — fileToLinktext may return a path when names clash
-                const raw = lk.link.split("|")[0].split("#")[0].trim();
-                return raw.split("/").pop() ?? raw;
-              }),
-          );
-        }
-      }
-    }
+    const fromCache = this.getSectionLinksFromCache(hexFilePath, "Factions");
 
     const pending = this.pendingFactionLinks.get(hexFilePath);
     const erased = this.erasedFactionLinks.get(hexFilePath);
@@ -5241,6 +5245,90 @@ export class HexMapView extends ItemView {
     if (pending) for (const name of pending) merged.add(name);
     if (erased) for (const name of erased) merged.delete(name);
     return [...merged];
+  }
+
+  /**
+   * Read the [[link]] basenames found under a given level-3 `### heading`
+   * in a hex note, entirely from the metadata cache — no `vault.read()`.
+   * Shared by faction/town/dungeon lookups (all three are the same shape:
+   * find the heading, find the next heading, keep links between the two).
+   */
+  private getSectionLinksFromCache(hexFilePath: string, heading: string): string[] {
+    const file = this.app.vault.getAbstractFileByPath(hexFilePath);
+    if (!(file instanceof TFile)) return [];
+    const cache = this.app.metadataCache.getFileCache(file);
+    if (!cache) return [];
+
+    const headings = cache.headings ?? [];
+    const target = headings.find((h) => h.heading === heading && h.level === 3);
+    if (!target) return [];
+
+    const start = target.position.start.offset;
+    const nextHeading = headings.find(
+      (h) => h.position.start.offset > start && h.level <= 3,
+    );
+    const end = nextHeading?.position.start.offset ?? Infinity;
+
+    return (cache.links ?? [])
+      .filter((lk) => lk.position.start.offset > start && lk.position.start.offset < end)
+      .map((lk) => {
+        // Normalize to basename — fileToLinktext may return a path when names clash
+        const raw = lk.link.split("|")[0].split("#")[0].trim();
+        return raw.split("/").pop() ?? raw;
+      });
+  }
+
+  private getTownLinksFromCache(hexFilePath: string): string[] {
+    return this.getSectionLinksFromCache(hexFilePath, "Towns");
+  }
+
+  private getDungeonLinksFromCache(hexFilePath: string): string[] {
+    return this.getSectionLinksFromCache(hexFilePath, "Dungeons");
+  }
+
+  /**
+   * Compose the Population Overlay tooltip's content for one hex: a Terrain
+   * line, one line per linked settlement (name, plus type/population where
+   * authored on that settlement's own note — Castle entries are expected to
+   * have a type but no population, which just renders as a shorter line,
+   * no special-casing needed), and a Dungeon line. Document order for
+   * settlements (not sorted) — a Castle is always linked before its
+   * companion settlement by convention, so this already puts the castle
+   * first without any comparison logic. Returns an empty array when the
+   * hex has nothing to show, so the caller can hide the tooltip entirely.
+   */
+  private buildPopulationTooltipLines(
+    hexPath: string,
+    terrainEntry: TerrainColor | undefined,
+  ): string[] {
+    const lines: string[] = [];
+
+    if (terrainEntry) lines.push(`Terrain: ${terrainEntry.name}`);
+
+    const townsFolder = normalizeFolder(this.plugin.settings.townsFolder);
+    for (const name of this.getTownLinksFromCache(hexPath)) {
+      const tPath = townsFolder ? `${townsFolder}/${name}.md` : `${name}.md`;
+      const type = getSettlementTypeFromFile(this.app, tPath);
+      const population = getSettlementPopulationFromFile(this.app, tPath);
+      const inhabitants = getSettlementInhabitantsFromFile(this.app, tPath);
+      const details: string[] = [];
+      if (type) details.push(type);
+      if (population != null) {
+        // Inhabitants rides along as a parenthetical on the population
+        // figure specifically ("pop. 1000 (Half Orcs)") — it has no slot
+        // of its own, so it only shows when population is also set.
+        const popText = inhabitants
+          ? `pop. ${population.toLocaleString()} (${inhabitants})`
+          : `pop. ${population.toLocaleString()}`;
+        details.push(popText);
+      }
+      lines.push(details.length > 0 ? `${name} — ${details.join(", ")}` : name);
+    }
+
+    const dungeons = this.getDungeonLinksFromCache(hexPath);
+    if (dungeons.length > 0) lines.push(`Dungeon: ${dungeons.join(", ")}`);
+
+    return lines;
   }
 
   // ── Region overlay ─────────────────────────────────────────────────────────

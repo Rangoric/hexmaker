@@ -27,7 +27,7 @@ export const DEFAULT_OVERLAY_STYLE: OverlayStyle = {
 };
 
 export interface Frontmatter {
-  [key: string]: string | string[] | boolean | undefined;
+  [key: string]: string | string[] | boolean | number | undefined;
   terrain?: string;
   icon?: string;
   "gm-icon"?: string;
@@ -49,6 +49,16 @@ export interface Frontmatter {
   "region-pattern-scale"?: string;
   "region-pattern-opacity"?: string;
   "region-outline-width"?: string;
+  /** Hand-authored on a Town/Castle note — e.g. "Village", "Town", "City", "Castle". */
+  "settlement-type"?: string;
+  /** Hand-authored on a Town/Castle note. YAML parses a bare number as a
+   *  number, but a quoted value (or one with separators) comes through as
+   *  a string — the reader below accepts either. */
+  population?: number | string;
+  /** Hand-authored on a Town/Castle note — who lives there, e.g. "Half Orcs".
+   *  Shown as a parenthetical next to population ("pop. 1000 (Half Orcs)");
+   *  has no display slot of its own when population isn't also set. */
+  inhabitants?: string;
 }
 
 export function getFrontMatter(app: App, path: string) {
@@ -163,6 +173,36 @@ export async function setFactionStyleInFile(
     }
   });
   return true;
+}
+
+/** Reads the "settlement-type" frontmatter key on a Town/Castle note (e.g. "Village", "Castle"). */
+export function getSettlementTypeFromFile(app: App, path: string): string | null {
+  const type = getFrontMatter(app, path)?.["settlement-type"];
+  return typeof type === "string" && type.trim() !== "" ? type : null;
+}
+
+/**
+ * Reads the "population" frontmatter key on a Town/Castle note. Accepts a
+ * bare YAML number (the common case) or a numeric-looking string (e.g. a
+ * quoted "1,200" — the comma is stripped before parsing). Returns null for
+ * anything missing or non-numeric, rather than throwing or returning NaN.
+ */
+export function getSettlementPopulationFromFile(app: App, path: string): number | null {
+  const pop = getFrontMatter(app, path)?.population;
+  if (typeof pop === "number") return Number.isFinite(pop) ? pop : null;
+  if (typeof pop === "string") {
+    const cleaned = pop.replace(/,/g, "").trim();
+    if (cleaned === "") return null;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/** Reads the "inhabitants" frontmatter key on a Town/Castle note (e.g. "Half Orcs"). */
+export function getSettlementInhabitantsFromFile(app: App, path: string): string | null {
+  const inhabitants = getFrontMatter(app, path)?.inhabitants;
+  return typeof inhabitants === "string" && inhabitants.trim() !== "" ? inhabitants : null;
 }
 
 export function getHexRegionFromFile(app: App, path: string): string | null {

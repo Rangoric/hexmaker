@@ -1,7 +1,7 @@
 import { describe, it, mock } from "node:test";
 import expect from "expect";
 import { TFile } from "obsidian";
-import { getTerrainFromFile, setTerrainInFile, getIconOverrideFromFile, setIconOverrideInFile, getSubmapFromFile, setSubmapInFile, terrainFromFm, iconOverrideFromFm, gmIconsFromFm } from "../src/frontmatter";
+import { getTerrainFromFile, setTerrainInFile, getIconOverrideFromFile, setIconOverrideInFile, getSubmapFromFile, setSubmapInFile, terrainFromFm, iconOverrideFromFm, gmIconsFromFm, getSettlementTypeFromFile, getSettlementPopulationFromFile, getSettlementInhabitantsFromFile } from "../src/frontmatter";
 
 /** Build a minimal mock App backed by an in-memory string. */
 function makeApp(filePath: string, initialContent: string) {
@@ -217,6 +217,123 @@ describe("getIconOverrideFromFile", () => {
 	it("returns null when icon field is not a string (e.g. boolean)", () => {
 		const { app } = makeAppWithCache("hex.md", { icon: true });
 		expect(getIconOverrideFromFile(app, "hex.md")).toBeNull();
+	});
+});
+
+// ── getSettlementTypeFromFile ────────────────────────────────────────────────
+
+describe("getSettlementTypeFromFile", () => {
+	it("returns null when the file does not exist", () => {
+		const { app } = makeAppWithCache("town.md", { "settlement-type": "Village" });
+		expect(getSettlementTypeFromFile(app, "MISSING.md")).toBeNull();
+	});
+
+	it("returns the settlement-type string from the metadata cache", () => {
+		const { app } = makeAppWithCache("town.md", { "settlement-type": "Castle" });
+		expect(getSettlementTypeFromFile(app, "town.md")).toBe("Castle");
+	});
+
+	it("returns null when settlement-type is absent from frontmatter", () => {
+		const { app } = makeAppWithCache("town.md", { population: 1200 });
+		expect(getSettlementTypeFromFile(app, "town.md")).toBeNull();
+	});
+
+	it("returns null when settlement-type is an empty string", () => {
+		const { app } = makeAppWithCache("town.md", { "settlement-type": "   " });
+		expect(getSettlementTypeFromFile(app, "town.md")).toBeNull();
+	});
+
+	it("returns null when there is no file cache", () => {
+		const { app } = makeAppWithCache("town.md", null);
+		expect(getSettlementTypeFromFile(app, "town.md")).toBeNull();
+	});
+
+	it("returns null when settlement-type is not a string (e.g. number)", () => {
+		const { app } = makeAppWithCache("town.md", { "settlement-type": 5 });
+		expect(getSettlementTypeFromFile(app, "town.md")).toBeNull();
+	});
+});
+
+// ── getSettlementPopulationFromFile ──────────────────────────────────────────
+
+describe("getSettlementPopulationFromFile", () => {
+	it("returns null when the file does not exist", () => {
+		const { app } = makeAppWithCache("town.md", { population: 1200 });
+		expect(getSettlementPopulationFromFile(app, "MISSING.md")).toBeNull();
+	});
+
+	it("returns a bare YAML number as-is (the common case)", () => {
+		const { app } = makeAppWithCache("town.md", { population: 1200 });
+		expect(getSettlementPopulationFromFile(app, "town.md")).toBe(1200);
+	});
+
+	it("parses a numeric string", () => {
+		const { app } = makeAppWithCache("town.md", { population: "640" });
+		expect(getSettlementPopulationFromFile(app, "town.md")).toBe(640);
+	});
+
+	it("strips thousands separators from a numeric string", () => {
+		const { app } = makeAppWithCache("town.md", { population: "1,200" });
+		expect(getSettlementPopulationFromFile(app, "town.md")).toBe(1200);
+	});
+
+	it("returns null when population is absent (expected for e.g. a Castle entry)", () => {
+		const { app } = makeAppWithCache("town.md", { "settlement-type": "Castle" });
+		expect(getSettlementPopulationFromFile(app, "town.md")).toBeNull();
+	});
+
+	it("returns null for a non-numeric string", () => {
+		const { app } = makeAppWithCache("town.md", { population: "a lot" });
+		expect(getSettlementPopulationFromFile(app, "town.md")).toBeNull();
+	});
+
+	it("returns null for an empty string", () => {
+		const { app } = makeAppWithCache("town.md", { population: "" });
+		expect(getSettlementPopulationFromFile(app, "town.md")).toBeNull();
+	});
+
+	it("returns null when there is no file cache", () => {
+		const { app } = makeAppWithCache("town.md", null);
+		expect(getSettlementPopulationFromFile(app, "town.md")).toBeNull();
+	});
+
+	it("returns null for a boolean value", () => {
+		const { app } = makeAppWithCache("town.md", { population: true });
+		expect(getSettlementPopulationFromFile(app, "town.md")).toBeNull();
+	});
+});
+
+// ── getSettlementInhabitantsFromFile ─────────────────────────────────────────
+
+describe("getSettlementInhabitantsFromFile", () => {
+	it("returns null when the file does not exist", () => {
+		const { app } = makeAppWithCache("town.md", { inhabitants: "Half Orcs" });
+		expect(getSettlementInhabitantsFromFile(app, "MISSING.md")).toBeNull();
+	});
+
+	it("returns the inhabitants string from the metadata cache", () => {
+		const { app } = makeAppWithCache("town.md", { inhabitants: "Half Orcs" });
+		expect(getSettlementInhabitantsFromFile(app, "town.md")).toBe("Half Orcs");
+	});
+
+	it("returns null when inhabitants is absent from frontmatter", () => {
+		const { app } = makeAppWithCache("town.md", { population: 1000 });
+		expect(getSettlementInhabitantsFromFile(app, "town.md")).toBeNull();
+	});
+
+	it("returns null when inhabitants is an empty string", () => {
+		const { app } = makeAppWithCache("town.md", { inhabitants: "   " });
+		expect(getSettlementInhabitantsFromFile(app, "town.md")).toBeNull();
+	});
+
+	it("returns null when there is no file cache", () => {
+		const { app } = makeAppWithCache("town.md", null);
+		expect(getSettlementInhabitantsFromFile(app, "town.md")).toBeNull();
+	});
+
+	it("returns null when inhabitants is not a string (e.g. array)", () => {
+		const { app } = makeAppWithCache("town.md", { inhabitants: ["Half Orcs", "Humans"] });
+		expect(getSettlementInhabitantsFromFile(app, "town.md")).toBeNull();
 	});
 });
 
